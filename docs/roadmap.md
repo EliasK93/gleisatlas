@@ -9,11 +9,11 @@ MVP = **v0.1, local pattern analysis** (SPEC 3.1). Azure (v0.2) and the planner 
 - [x] App shell with design tokens, i18n and smoke test (re-check: `npm.cmd --prefix frontend run test:e2e`)
 
 ## M1 App shell per design
-- [ ] Sidebar, routing, filter bar
-- [ ] Heatmap view on the existing aggregate
-- [ ] Inter font bundled
-- [ ] API input validation (`limit`, `von`, `bis`)
-- [ ] Single category rule: remove the test-only `category_of` copy in `core/categories.py`
+- [x] Sidebar, routing, filter bar (re-check: `npm.cmd --prefix frontend run test:e2e`, `frontend/e2e/shell.spec.ts`; details in [app-shell.md](app-shell.md))
+- [x] Heatmap view on the existing aggregate (re-check: `npm.cmd --prefix frontend run test:e2e`, `frontend/e2e/heatmap.spec.ts`; `uv run pytest -q`, `test_weekday_totals_from_histogram`)
+- [x] Inter font bundled (re-check: `npm.cmd --prefix frontend run test:e2e`, test "Inter is loaded")
+- [x] API input validation (`limit`, `von`, `bis`, `eva`) (re-check: `uv run pytest -q`, `test_invalid_input_is_422`)
+- [x] Single category rule: removed the test-only `category_of` copy in `core/categories.py` (re-check: `uv run pytest -q`, `test_category_expr`; `git grep category_of -- core backend pipeline tests` finds nothing)
 
 ## M2 Map start page
 - [ ] Decide the station-coordinate source (ADR)

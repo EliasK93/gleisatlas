@@ -83,7 +83,7 @@ Personal and machine-specific rules live in `CLAUDE.local.md` (gitignored).
 
 ## Project: Verlässlich
 
-Historical reliability of German rail traffic: pattern analysis, connection comparison within a time window, transfer recommendations. Requirements: [SPEC.md](SPEC.md). Roadmap: [docs/roadmap.md](docs/roadmap.md). Design target: [docs/design.md](docs/design.md) with the clickable reference [docs/design/mockup.html](docs/design/mockup.html).
+Historical reliability of German rail traffic: pattern analysis, connection comparison within a time window, transfer recommendations. Requirements: [SPEC.md](SPEC.md). Roadmap: [docs/roadmap.md](docs/roadmap.md). Design target: [docs/design.md](docs/design.md) with the clickable reference [docs/design/mockup.html](docs/design/mockup.html). App shell and heatmap UI: [docs/app-shell.md](docs/app-shell.md).
 
 ### Stack
 - Python 3.12+ with `uv`; Polars for data processing; FastAPI + Pydantic for the API.
@@ -109,3 +109,4 @@ Historical reliability of German rail traffic: pattern analysis, connection comp
 - Gate: `uv run python scripts/gate.py`. Format: `uv run python scripts/format.py`.
 - Data and aggregates: see [docs/pipeline.md](docs/pipeline.md).
 - API: `uv run uvicorn backend.main:app --port 8000`. Web: `npm.cmd --prefix frontend run dev`.
+- After an API change: `uv run python scripts/export_openapi.py`, then `npm.cmd --prefix frontend run gen` (the gate fails on a stale `backend/openapi.json` or `schema.d.ts`).

@@ -134,7 +134,7 @@ Result:
 | `--border` | `#E1E4E9` | `#2A3039` | Dividers |
 | `--text` | `#141820` | `#E8EBF0` | Primary text |
 | `--text-2` | `#4A5363` | `#A6AFBD` | Secondary text |
-| `--text-3` | `#7A8394` | `#6F7888` | Meta (n, period) |
+| `--text-3` | `#697182` | `#6F7888` | Meta (n, period); the light value gives at least 4.5:1 on `--bg` |
 | `--accent` | `#4B47D6` | `#8B88FF` | Active navigation, buttons, focus |
 | `--accent-soft` | `#ECEBFD` | `#25244A` | Active chips |
 
