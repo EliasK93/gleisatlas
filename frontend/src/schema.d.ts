@@ -38,16 +38,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/stationen/{eva}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Station */
+        get: operations["getStation"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/datenstand": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Datenstand */
+        get: operations["getDatenstand"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
         /** Cell */
         Cell: {
-            /** Weekday */
-            weekday: number;
-            /** Hour */
-            hour: number;
             /** N */
             n: number;
             /** Ausfallquote */
@@ -58,6 +88,32 @@ export interface components {
             p90: number | null;
             /** Puenktlich */
             puenktlich: number | null;
+            /** Weekday */
+            weekday: number;
+            /** Hour */
+            hour: number;
+        };
+        /** Datenstand */
+        Datenstand: {
+            /** Monate */
+            monate: string[];
+            /** Bahnhoefe */
+            bahnhoefe: number;
+        };
+        /** Day */
+        Day: {
+            /** N */
+            n: number;
+            /** Ausfallquote */
+            ausfallquote: number;
+            /** Median */
+            median: number | null;
+            /** P90 */
+            p90: number | null;
+            /** Puenktlich */
+            puenktlich: number | null;
+            /** Weekday */
+            weekday: number;
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -74,6 +130,8 @@ export interface components {
             n: number;
             /** Cells */
             cells: components["schemas"]["Cell"][];
+            /** Tage */
+            tage: components["schemas"]["Day"][];
         };
         /** Station */
         Station: {
@@ -166,6 +224,57 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    getStation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                eva: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Station"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    getDatenstand: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Datenstand"];
                 };
             };
         };

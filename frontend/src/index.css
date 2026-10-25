@@ -4,3 +4,51 @@
 body {
   @apply bg-bg font-sans text-sm text-text antialiased;
 }
+
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+/* Below 768 px: a transparent tap area of at least 44 px (design §5) without changing the look.
+   It sits behind the control's content, so a select or text inside still gets its own taps. */
+@utility hit {
+  position: relative;
+  isolation: isolate;
+  @media (width < 48rem) {
+    &::after {
+      content: "";
+      position: absolute;
+      inset: 50% 0 auto;
+      z-index: -1;
+      height: max(100%, 44px);
+      translate: 0 -50%;
+    }
+  }
+}
+
+@utility card {
+  @apply rounded-xl border border-border bg-surface p-[18px];
+}
+
+@utility btn {
+  @apply hit inline-flex h-[34px] cursor-pointer items-center gap-1.5 rounded-lg border border-border bg-surface px-3 font-medium whitespace-nowrap hover:bg-surface-2;
+}
+
+/* Colours are set by the caller, so states never fight over the same property. */
+@utility nav-item {
+  @apply flex items-center gap-2.5 rounded-lg px-2.5 py-2 font-medium;
+}
+
+@utility chip {
+  @apply hit inline-flex h-8 shrink-0 items-center gap-1 rounded-full border px-3 text-[13px] whitespace-nowrap;
+}
+
+/* Too little data: hatched, never a colour. */
+@utility hatch {
+  background: repeating-linear-gradient(
+    135deg,
+    var(--color-surface-2) 0 3px,
+    var(--color-border) 3px 5px
+  );
+}

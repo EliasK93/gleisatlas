@@ -19,7 +19,7 @@ CHECKS: list[tuple[str, list[str], Path]] = [
     ("pytest", ["uv", "run", "pytest", "-q"], ROOT),
     *(
         (f"frontend {s}", [NPM, "run", s], ROOT / "frontend")
-        for s in ("typecheck", "lint", "format:check", "test:e2e")
+        for s in ("typecheck", "lint", "format:check", "gen:check", "test:e2e")
     ),
     (
         "gitleaks",
