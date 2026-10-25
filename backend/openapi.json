@@ -32,7 +32,8 @@
       "schema": {
        "anyOf": [
         {
-         "type": "string"
+         "type": "string",
+         "pattern": "^[0-9]+$"
         },
         {
          "type": "null"
@@ -48,7 +49,8 @@
       "schema": {
        "anyOf": [
         {
-         "type": "string"
+         "type": "string",
+         "pattern": "^\\d{4}-(0[1-9]|1[0-2])$"
         },
         {
          "type": "null"
@@ -64,7 +66,8 @@
       "schema": {
        "anyOf": [
         {
-         "type": "string"
+         "type": "string",
+         "pattern": "^\\d{4}-(0[1-9]|1[0-2])$"
         },
         {
          "type": "null"
@@ -119,6 +122,8 @@
       "required": false,
       "schema": {
        "type": "integer",
+       "maximum": 100,
+       "minimum": 1,
        "default": 20,
        "title": "Limit"
       }
@@ -151,20 +156,70 @@
      }
     }
    }
+  },
+  "/stationen/{eva}": {
+   "get": {
+    "summary": "Station",
+    "operationId": "getStation",
+    "parameters": [
+     {
+      "name": "eva",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "pattern": "^[0-9]+$",
+       "title": "Eva"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Station"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/datenstand": {
+   "get": {
+    "summary": "Datenstand",
+    "operationId": "getDatenstand",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Datenstand"
+        }
+       }
+      }
+     }
+    }
+   }
   }
  },
  "components": {
   "schemas": {
    "Cell": {
     "properties": {
-     "weekday": {
-      "type": "integer",
-      "title": "Weekday"
-     },
-     "hour": {
-      "type": "integer",
-      "title": "Hour"
-     },
      "n": {
       "type": "integer",
       "title": "N"
@@ -205,19 +260,107 @@
        }
       ],
       "title": "Puenktlich"
+     },
+     "weekday": {
+      "type": "integer",
+      "title": "Weekday"
+     },
+     "hour": {
+      "type": "integer",
+      "title": "Hour"
      }
     },
     "type": "object",
     "required": [
-     "weekday",
-     "hour",
      "n",
      "ausfallquote",
      "median",
      "p90",
-     "puenktlich"
+     "puenktlich",
+     "weekday",
+     "hour"
     ],
     "title": "Cell"
+   },
+   "Datenstand": {
+    "properties": {
+     "monate": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Monate"
+     },
+     "bahnhoefe": {
+      "type": "integer",
+      "title": "Bahnhoefe"
+     }
+    },
+    "type": "object",
+    "required": [
+     "monate",
+     "bahnhoefe"
+    ],
+    "title": "Datenstand"
+   },
+   "Day": {
+    "properties": {
+     "n": {
+      "type": "integer",
+      "title": "N"
+     },
+     "ausfallquote": {
+      "type": "number",
+      "title": "Ausfallquote"
+     },
+     "median": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Median"
+     },
+     "p90": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "P90"
+     },
+     "puenktlich": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Puenktlich"
+     },
+     "weekday": {
+      "type": "integer",
+      "title": "Weekday"
+     }
+    },
+    "type": "object",
+    "required": [
+     "n",
+     "ausfallquote",
+     "median",
+     "p90",
+     "puenktlich",
+     "weekday"
+    ],
+    "title": "Day"
    },
    "HTTPValidationError": {
     "properties": {
@@ -252,6 +395,13 @@
       },
       "type": "array",
       "title": "Cells"
+     },
+     "tage": {
+      "items": {
+       "$ref": "#/components/schemas/Day"
+      },
+      "type": "array",
+      "title": "Tage"
      }
     },
     "type": "object",
@@ -259,7 +409,8 @@
      "von",
      "bis",
      "n",
-     "cells"
+     "cells",
+     "tage"
     ],
     "title": "Heatmap"
    },

@@ -45,7 +45,9 @@ def test_period_filter_changes_n(client: TestClient):
 
 def test_station_filter_by_eva_not_name(client: TestClient):
     assert heatmap(client, eva="2")["n"] == 1
-    assert heatmap(client, eva="Beta")["n"] == 0  # the name is not a key
+    assert heatmap(client, eva="999")["n"] == 0
+    # the name is not a key
+    assert client.get("/heatmap", params={"eva": "Beta"}).status_code == 422
 
 
 def test_stations_without_name_are_skipped(client: TestClient, tmp_path, monkeypatch):
@@ -70,6 +72,40 @@ def test_cells_are_sorted_by_weekday_and_hour():
     )
     cells = main.heatmap_from(agg.lazy()).cells
     assert [(c.weekday, c.hour) for c in cells] == sorted(keys)
+
+
+@pytest.mark.parametrize(
+    "path, params",
+    [
+        ("/stationen", {"limit": 0}),
+        ("/stationen", {"limit": 101}),
+        ("/heatmap", {"von": "2026-9"}),
+        ("/heatmap", {"bis": "26-09"}),
+        ("/heatmap", {"eva": "abc"}),
+        ("/stationen/abc", {}),
+    ],
+)
+def test_invalid_input_is_422(client: TestClient, path: str, params: dict):
+    assert client.get(path, params=params).status_code == 422
+
+
+def test_weekday_totals_from_histogram(client: TestClient):
+    tage = heatmap(client)["tage"]
+    assert [t["weekday"] for t in tage] == [0]
+    monday = tage[0]  # buckets: 0, 0, 7, 10, 10 plus one cancelled stop
+    assert (monday["n"], monday["median"], monday["p90"]) == (6, 7.0, 10.0)
+    assert monday["ausfallquote"] == pytest.approx(1 / 6)
+    assert monday["puenktlich"] == pytest.approx(2 / 5)
+    assert heatmap(client, von="2027-01")["tage"] == []
+
+
+def test_station_by_eva(client: TestClient):
+    assert client.get("/stationen/1").json() == {"eva": "1", "name": "Alpha"}
+    assert client.get("/stationen/999").status_code == 404
+
+
+def test_datenstand(client: TestClient):
+    assert client.get("/datenstand").json() == {"monate": ["2026-09", "2026-10"], "bahnhoefe": 2}
 
 
 def test_endpoints(client: TestClient):
