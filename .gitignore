@@ -1,0 +1,12 @@
+data/
+.venv/
+__pycache__/
+node_modules/
+dist/
+.pytest_cache/
+.ruff_cache/
+graphify-out/
+test-results/
+playwright-report/
+CLAUDE.local.md
+*.local

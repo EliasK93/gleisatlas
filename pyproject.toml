@@ -1,0 +1,63 @@
+[project]
+name = "verlaesslich"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "polars",
+    "fastapi",
+    "uvicorn",
+    "huggingface-hub",
+]
+
+[dependency-groups]
+dev = [
+    "pytest",
+    "ruff",
+    "httpx",
+    "pyright>=1.1.414",
+]
+
+[tool.ruff]
+line-length = 100
+extend-exclude = ["frontend", "data"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "TID"]
+
+# Pure-logic boundary: the banned-api rule (TID251) applies to core/ only.
+[tool.ruff.lint.per-file-ignores]
+"!core/**" = ["TID251"]
+
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"fastapi".msg = "core/ is pure logic: no framework imports."
+"pipeline".msg = "core/ must not depend on pipeline/."
+"backend".msg = "core/ must not depend on backend/."
+"os".msg = "core/ is pure logic: no I/O."
+"pathlib".msg = "core/ is pure logic: no I/O."
+"io".msg = "core/ is pure logic: no I/O."
+"polars.read_parquet".msg = "core/ is pure logic: no Polars I/O."
+"polars.scan_parquet".msg = "core/ is pure logic: no Polars I/O."
+"polars.read_csv".msg = "core/ is pure logic: no Polars I/O."
+"polars.scan_csv".msg = "core/ is pure logic: no Polars I/O."
+"polars.read_json".msg = "core/ is pure logic: no Polars I/O."
+"polars.read_ipc".msg = "core/ is pure logic: no Polars I/O."
+"polars.read_ndjson".msg = "core/ is pure logic: no Polars I/O."
+"polars.read_excel".msg = "core/ is pure logic: no Polars I/O."
+"polars.read_database".msg = "core/ is pure logic: no Polars I/O."
+"polars.scan_ipc".msg = "core/ is pure logic: no Polars I/O."
+"polars.scan_ndjson".msg = "core/ is pure logic: no Polars I/O."
+"shutil".msg = "core/ is pure logic: no I/O."
+"tempfile".msg = "core/ is pure logic: no I/O."
+"glob".msg = "core/ is pure logic: no I/O."
+"subprocess".msg = "core/ is pure logic: no I/O."
+"urllib".msg = "core/ is pure logic: no I/O."
+
+[tool.pyright]
+include = ["core", "pipeline", "backend", "tests", "scripts"]
+exclude = ["frontend", "data", ".venv"]
+typeCheckingMode = "basic"
+strict = ["core"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
