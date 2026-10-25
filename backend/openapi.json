@@ -1,0 +1,326 @@
+{
+ "openapi": "3.1.0",
+ "info": {
+  "title": "Verl\u00e4sslich",
+  "version": "0.1.0"
+ },
+ "paths": {
+  "/heatmap": {
+   "get": {
+    "summary": "Heatmap",
+    "operationId": "getHeatmap",
+    "parameters": [
+     {
+      "name": "gattung",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "enum": [
+        "alle",
+        "regional",
+        "fern"
+       ],
+       "type": "string",
+       "default": "alle",
+       "title": "Gattung"
+      }
+     },
+     {
+      "name": "eva",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Eva"
+      }
+     },
+     {
+      "name": "von",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Von"
+      }
+     },
+     {
+      "name": "bis",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Bis"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Heatmap"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/stationen": {
+   "get": {
+    "summary": "Stationen",
+    "operationId": "getStationen",
+    "parameters": [
+     {
+      "name": "q",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "string",
+       "default": "",
+       "title": "Q"
+      }
+     },
+     {
+      "name": "limit",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "integer",
+       "default": 20,
+       "title": "Limit"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "array",
+         "items": {
+          "$ref": "#/components/schemas/Station"
+         },
+         "title": "Response Getstationen"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  }
+ },
+ "components": {
+  "schemas": {
+   "Cell": {
+    "properties": {
+     "weekday": {
+      "type": "integer",
+      "title": "Weekday"
+     },
+     "hour": {
+      "type": "integer",
+      "title": "Hour"
+     },
+     "n": {
+      "type": "integer",
+      "title": "N"
+     },
+     "ausfallquote": {
+      "type": "number",
+      "title": "Ausfallquote"
+     },
+     "median": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Median"
+     },
+     "p90": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "P90"
+     },
+     "puenktlich": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Puenktlich"
+     }
+    },
+    "type": "object",
+    "required": [
+     "weekday",
+     "hour",
+     "n",
+     "ausfallquote",
+     "median",
+     "p90",
+     "puenktlich"
+    ],
+    "title": "Cell"
+   },
+   "HTTPValidationError": {
+    "properties": {
+     "detail": {
+      "items": {
+       "$ref": "#/components/schemas/ValidationError"
+      },
+      "type": "array",
+      "title": "Detail"
+     }
+    },
+    "type": "object",
+    "title": "HTTPValidationError"
+   },
+   "Heatmap": {
+    "properties": {
+     "von": {
+      "type": "string",
+      "title": "Von"
+     },
+     "bis": {
+      "type": "string",
+      "title": "Bis"
+     },
+     "n": {
+      "type": "integer",
+      "title": "N"
+     },
+     "cells": {
+      "items": {
+       "$ref": "#/components/schemas/Cell"
+      },
+      "type": "array",
+      "title": "Cells"
+     }
+    },
+    "type": "object",
+    "required": [
+     "von",
+     "bis",
+     "n",
+     "cells"
+    ],
+    "title": "Heatmap"
+   },
+   "Station": {
+    "properties": {
+     "eva": {
+      "type": "string",
+      "title": "Eva"
+     },
+     "name": {
+      "type": "string",
+      "title": "Name"
+     }
+    },
+    "type": "object",
+    "required": [
+     "eva",
+     "name"
+    ],
+    "title": "Station"
+   },
+   "ValidationError": {
+    "properties": {
+     "loc": {
+      "items": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "integer"
+        }
+       ]
+      },
+      "type": "array",
+      "title": "Location"
+     },
+     "msg": {
+      "type": "string",
+      "title": "Message"
+     },
+     "type": {
+      "type": "string",
+      "title": "Error Type"
+     },
+     "input": {
+      "title": "Input"
+     },
+     "ctx": {
+      "type": "object",
+      "title": "Context"
+     }
+    },
+    "type": "object",
+    "required": [
+     "loc",
+     "msg",
+     "type"
+    ],
+    "title": "ValidationError"
+   }
+  }
+ }
+}
