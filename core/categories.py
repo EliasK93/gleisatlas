@@ -13,10 +13,6 @@ FERN = "fern"
 REGIONAL = "regional"
 
 
-def category_of(train_type: str) -> str:
-    return FERN if train_type in LONG_DISTANCE else REGIONAL
-
-
 def category_expr(train_type: pl.Expr) -> pl.Expr:
     return train_type.is_in(LONG_DISTANCE).replace_strict({True: FERN, False: REGIONAL})
 

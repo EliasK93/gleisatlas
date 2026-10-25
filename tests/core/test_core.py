@@ -3,14 +3,14 @@ from datetime import datetime as dt
 import polars as pl
 import pytest
 
-from core.categories import category_of
+from core.categories import category_expr
 from core.delay import arrival_delay_expr
 from core.stats import cell_stats, quantile
 
 
-def test_category_of():
-    assert category_of("ICE") == "fern"
-    assert category_of("RE") == "regional"
+def test_category_expr():
+    df = pl.DataFrame({"t": ["ICE", "RE"]})
+    assert df.select(category_expr(pl.col("t")))["t"].to_list() == ["fern", "regional"]
 
 
 def delays(rows: list[tuple[dt | None, dt | None, bool | None]]) -> list[int | None]:
