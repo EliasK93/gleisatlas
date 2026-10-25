@@ -1,0 +1,6 @@
+@import "tailwindcss";
+@import "./theme.css";
+
+body {
+  @apply bg-bg font-sans text-sm text-text antialiased;
+}

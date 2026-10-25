@@ -1,0 +1,59 @@
+/* All colour tokens live here (light set); components use only the Tailwind names mapped below. */
+:root {
+  --font: "Inter Variable", Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --bg: #f5f6f8;
+  --surface: #ffffff;
+  --surface-2: #eef0f3;
+  --border: #e1e4e9;
+  --text: #141820;
+  --text-2: #4a5363;
+  --text-3: #7a8394;
+  --accent: #4b47d6;
+  --accent-soft: #ecebfd;
+  --on-accent: #ffffff;
+  --r1: #2166ac;
+  --r2: #67a9cf;
+  --r3: #d8be5c;
+  --r4: #ef8a47;
+  --r5: #b2182b;
+  --cancel: #5d6675;
+  --c1: #d5d9e0;
+  --c2: #aeb4bf;
+  --c3: #858c99;
+  --c4: #5d6675;
+  --c5: #363c47;
+  --cat1: #4b47d6;
+  --cat2: #8a93a3;
+  --cat3: #b54aa8;
+  --shadow: 0 4px 16px rgb(16 24 40 / 0.08), 0 1px 3px rgb(16 24 40 / 0.06);
+  color-scheme: light;
+}
+
+@theme inline {
+  --font-sans: var(--font);
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-border: var(--border);
+  --color-text: var(--text);
+  --color-text-2: var(--text-2);
+  --color-text-3: var(--text-3);
+  --color-accent: var(--accent);
+  --color-accent-soft: var(--accent-soft);
+  --color-on-accent: var(--on-accent);
+  --color-r1: var(--r1);
+  --color-r2: var(--r2);
+  --color-r3: var(--r3);
+  --color-r4: var(--r4);
+  --color-r5: var(--r5);
+  --color-cancel: var(--cancel);
+  --color-c1: var(--c1);
+  --color-c2: var(--c2);
+  --color-c3: var(--c3);
+  --color-c4: var(--c4);
+  --color-c5: var(--c5);
+  --color-cat1: var(--cat1);
+  --color-cat2: var(--cat2);
+  --color-cat3: var(--cat3);
+  --shadow-card: var(--shadow);
+}
