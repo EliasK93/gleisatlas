@@ -49,7 +49,7 @@ The filter keys `g`, `von`, `bis` and `k` are the ones of the shell (see [app-sh
 
 ## 3 Decisions
 
-- **Station coordinates from Wikidata.** Reason: product owner's choice after weighing five sources; 99.5 % of all stops belong to stations with coordinates (see the ADR).
+- **Station coordinates from Wikidata.** Reason: product owner's choice after weighing five sources; 99.9 % of all stops belong to stations with coordinates (see the ADR).
 - **MapLibre GL with the OpenFreeMap "positron" style.** Reason: product owner's choice; zoom, pan and draw order over about 5,000 points need WebGL, and OpenFreeMap needs no API key. The no-library alternative is an SVG outline map, which the product owner declined.
 - **Base map labels follow the UI language** (`name:de`, else the local `name`); the positron style prefers English names ("Cologne"). `localLabel` in `metrics.ts` rewrites every label that reads a name; road numbers stay. Reason: a German UI with English place names reads wrong, and the English UI later gets English labels from the same code.
 - **Coordinates live in the gitignored `data/` folder**, built by `pipeline.coords`, not committed. Reason: they are derived data like the raw files, and the result depends on the current state of Wikidata.
@@ -108,6 +108,12 @@ The filter keys `g`, `von`, `bis` and `k` are the ones of the shell (see [app-sh
 - A list alternative to the map, with the rankings.
 - Whether Ctrl+K should grow into a palette (stations, lines, pages) once lines exist.
 - What the "bald" cards show first when multi-month data and lines arrive.
+- How to place the three stations that still have no coordinates: Berlin-Karlshorst `08089193`, Bochum-Langendreer `08000358` and Bürstadt (Ried) `08098360`. There are two options:
+  - Add their IBNR to the matching Wikidata items, so the next `pipeline.coords` run picks them up. This is CC0 and benefits everyone. Recommended.
+  - A small committed override file (EVA, lat, lon, source) taken from Wikidata or OpenStreetMap.
+
+  Google Maps is ruled out: its terms do not allow copying data.
+- Whether a secondary EVA should be merged with its main station on the map (one dot with combined stops) instead of two dots on the same spot.
 
 ## 8 Known shortcuts
 
@@ -117,7 +123,7 @@ The filter keys `g`, `von`, `bis` and `k` are the ones of the shell (see [app-sh
 - The term explanations on the detail page are native `title` tooltips, which are hover-only; use a popover for touch (`ponytail:` in `StationPage.tsx`).
 - The search sends one request per keystroke, cached per term; add a debounce if the API gets slow (`ponytail:` in `StationSearch.tsx`).
 - `/karte` is cached per process, with at most 16 selections; memory and the first computation grow with the number of months, then vectorise the statistics in Polars (`ponytail:` in `backend/main.py`).
-- Stations without coordinates are not on the map (10 of 5,219 named stations; 99.5 % of stops are covered) but remain in search and detail. The federal state is missing for some stations that have coordinates.
+- Stations without coordinates are not on the map (3 of 5,219 named stations; 99.9 % of stops are covered) but remain in search and detail. Secondary EVAs placed by the same-name fallback sit under their main station's dot. The federal state is missing for some stations that have coordinates.
 - The duplicate-name hint only knows the eight results shown.
 - The mini heatmap is a colour grid with one accessible label; the full heatmap is the accessible table. The category bars are scaled to the larger category for all metrics except punctuality.
 - MapLibre's compact attribution starts expanded until the first map move; on mobile it covers a strip above the legend until then.

@@ -34,8 +34,8 @@ Aggregate rows: one row per (`weekday`, `hour`, `gruppe`, `eva`, `month`, `bucke
 - `pipeline/aggregate.py` reads the monthly Parquet lazily with Polars, validates the schema, filters, and groups.
 - Output keys: `weekday`, `hour`, `gruppe`, `eva`, `month` (`YYYY-MM`), `bucket` (Int32, nullable), `n`.
 - `data/stations.parquet`: `eva`, `name` (most frequent `station_name` per EVA), `n` (all stops of the EVA in the source, cancelled included; used to rank search results and size map dots), `lat`, `lon`, `land` (federal state). `lat`, `lon` and `land` are NULL where Wikidata has no match or no state.
-- `data/coords.parquet`: `ibnr`, `lat`, `lon`, `land`, one row per IBNR for the whole of Wikidata (not only Germany). The join strips the leading zero of our EVA (`08000207` to `8000207`) with `core.stations.ibnr_expr`. Details and the source decision: [adr/0001-station-coordinates.md](adr/0001-station-coordinates.md).
-- Coverage report: named stations with coordinates (number and share), the share of stops that belong to them, and the unmatched named stations with the most stops. Source file 2026-09: 5,209 of 5,219 stations (99.8 %), 99.5 % of stops.
+- `data/coords.parquet`: `ibnr`, `lat`, `lon`, `land`, one row per IBNR for the whole of Wikidata (not only Germany). The join strips the leading zero of our EVA (`08000207` to `8000207`) with `core.stations.ibnr_expr`. An EVA without a match takes the coordinates of the one located station with exactly the same name (secondary EVAs such as S-Bahn platforms). Details and the source decision: [adr/0001-station-coordinates.md](adr/0001-station-coordinates.md).
+- Coverage report: named stations with coordinates (number and share), the share of stops that belong to them, and the unmatched named stations with the most stops. Source file 2026-09: 5,216 of 5,219 stations (99.9 %), 99.9 % of stops.
 - The source also contains `xml_station_name`, `id`, `is_additional_stop` and more; they are not used yet.
 - Time zone: Europe/Berlin, as in the source.
 
