@@ -1,13 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { mockApi } from "./fixtures";
 
-const UNBUILT = [
-  "Rankings",
-  "Zeitverlauf",
-  "Verbindung planen",
-  "Umstieg prüfen",
-  "So lesen Sie die Zahlen",
-];
+const UNBUILT = ["Verbindung planen", "Umstieg prüfen", "So lesen Sie die Zahlen"];
 
 test.beforeEach(async ({ page }) => {
   await mockApi(page);
@@ -121,6 +115,45 @@ test.describe("mobile", () => {
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
       true,
     );
+  });
+
+  test("the Muster switch moves between Heatmap, Rankings and Zeitverlauf", async ({ page }) => {
+    await page.goto("/muster/heatmap?g=fern");
+    const nav = page.getByRole("navigation", { name: "Muster", exact: true });
+    const tab = page
+      .getByRole("navigation", { name: "Hauptnavigation" })
+      .getByRole("link", { name: "Muster" });
+    await expect(nav.getByRole("link", { name: "Heatmap" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    await nav.getByRole("link", { name: "Rankings" }).click();
+    await expect(page).toHaveURL(/\/muster\/rankings\?g=fern$/);
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Rankings");
+    await expect(nav.getByRole("link", { name: "Rankings" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    await expect(tab).toHaveAttribute("aria-current", "page");
+    await nav.getByRole("link", { name: "Zeitverlauf" }).click();
+    await expect(page).toHaveURL(/\/muster\/zeitverlauf\?g=fern$/);
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Zeitverlauf");
+    await expect(nav.getByRole("link", { name: "Zeitverlauf" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    await expect(tab).toHaveAttribute("aria-current", "page");
+    await nav.getByRole("link", { name: "Heatmap" }).click();
+    await expect(page).toHaveURL(/\/muster\/heatmap\?g=fern$/);
+  });
+
+  test("the Muster tab leads to the heatmap and keeps the filters", async ({ page }) => {
+    await page.goto("/karte?g=fern");
+    await page
+      .getByRole("navigation", { name: "Hauptnavigation" })
+      .getByRole("link", { name: "Muster" })
+      .click();
+    await expect(page).toHaveURL(/\/muster\/heatmap\?g=fern$/);
   });
 
   test("Mehr lists the remaining pages, the data status and the licence", async ({ page }) => {

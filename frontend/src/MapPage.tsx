@@ -111,7 +111,7 @@ export default function MapPage() {
   const [params] = useSearchParams();
   const setParams = useSetParams();
   const root = useRef<HTMLDivElement>(null);
-  const f = readFilters(params);
+  const f: FilterKeys = { ...readFilters(params), linie: undefined };
   const q = useQuery({
     queryKey: ["karte", f.g, f.von, f.bis],
     queryFn: () =>

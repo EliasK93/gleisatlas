@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Fragment, useRef } from "react";
 import { useSearchParams } from "react-router";
 import { clearParams, useSetParams } from "./useSetParams";
-import { api, must } from "./api";
+import { api, must, useDatenstand } from "./api";
 import { t } from "./i18n";
 import { Icon } from "./Icon";
 import { formatPeriod, readFilters, withParam, withPeriod } from "./metrics";
@@ -13,25 +13,26 @@ const chip = (on: boolean) =>
 
 /**
  * Global filter bar of the Discover area. All state lives in the URL. `noStation` leaves out the
- * Bahnhof chip. `stationName` is the selected station's name when the page already has it:
- * a string uses it, `null` waits for the page's data, `undefined` looks the station up.
+ * Bahnhof chip and `noPeriod` the Zeitraum chip. `stationName` is the selected station's name when
+ * the page already has it: a string uses it, `null` waits for the page's data, `undefined` looks
+ * the station up. With a `linie` in the URL, a removable chip shows `lineTitle`.
  */
 export function Filters({
   noStation,
+  noPeriod,
   stationName,
+  lineTitle,
 }: {
   noStation?: boolean;
+  noPeriod?: boolean;
   stationName?: string | null;
+  lineTitle?: string;
 }) {
   const setParams = useSetParams();
   const [params] = useSearchParams();
   const f = readFilters(params);
-  // Shared with the data note in the shell: one request. The API's default range is the covered one.
-  const datenstand = useQuery({
-    queryKey: ["datenstand"],
-    queryFn: () => api.GET("/datenstand").then(must),
-    staleTime: Infinity,
-  });
+  // The API's default range is the covered one.
+  const datenstand = useDatenstand();
   const months = datenstand.data?.monate ?? [];
   const now = {
     von: f.von ?? datenstand.data?.vollabdeckung_ab ?? "",
@@ -40,28 +41,30 @@ export function Filters({
   return (
     // The vertical padding keeps the mobile tap areas of the chips inside the scroll box.
     <div className="-mx-4 -mt-1.5 mb-2.5 flex gap-2 overflow-x-auto px-4 pt-1.5 pb-2 [scrollbar-width:none] md:mx-0 md:flex-wrap md:overflow-visible md:px-0">
-      <span className={chip(!!(f.von || f.bis))}>
-        {t("filter.chip", { label: t("filter.period") })}
-        {(["von", "bis"] as const).map((edge, i) => (
-          <Fragment key={edge}>
-            {i > 0 && t("filter.periodSeparator")}
-            <label className="hit">
-              <select
-                aria-label={t(edge === "von" ? "filter.periodFrom" : "filter.periodTo")}
-                value={now[edge]}
-                onChange={(e) => setParams(withPeriod(edge, e.target.value, now))}
-                className={`cursor-pointer bg-transparent px-1 font-semibold ${f.von || f.bis ? "" : "text-text"}`}
-              >
-                {months.map((m) => (
-                  <option key={m} value={m}>
-                    {formatPeriod(m)}
-                  </option>
-                ))}
-              </select>
-            </label>
-          </Fragment>
-        ))}
-      </span>
+      {!noPeriod && (
+        <span className={chip(!!(f.von || f.bis))}>
+          {t("filter.chip", { label: t("filter.period") })}
+          {(["von", "bis"] as const).map((edge, i) => (
+            <Fragment key={edge}>
+              {i > 0 && t("filter.periodSeparator")}
+              <label className="hit">
+                <select
+                  aria-label={t(edge === "von" ? "filter.periodFrom" : "filter.periodTo")}
+                  value={now[edge]}
+                  onChange={(e) => setParams(withPeriod(edge, e.target.value, now))}
+                  className={`cursor-pointer bg-transparent px-1 font-semibold ${f.von || f.bis ? "" : "text-text"}`}
+                >
+                  {months.map((m) => (
+                    <option key={m} value={m}>
+                      {formatPeriod(m)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </Fragment>
+          ))}
+        </span>
+      )}
       <label className={chip(!!f.g)}>
         {t("filter.chip", { label: t("filter.category") })}
         <select
@@ -78,8 +81,28 @@ export function Filters({
         <StationFilter
           eva={f.bhf}
           name={stationName}
-          onPick={(eva) => setParams(withParam("bhf", eva))}
+          // A picked station wins over a line, which only the time series knows.
+          onPick={(eva) =>
+            setParams((p) => {
+              p.delete("linie");
+              return withParam("bhf", eva)(p);
+            })
+          }
         />
+      )}
+      {f.linie && (
+        <span className={chip(true)}>
+          {t("filter.chip", { label: t("filter.line") })}
+          <b className="px-1 font-semibold">{lineTitle ?? f.linie}</b>
+          <button
+            type="button"
+            aria-label={t("filter.lineRemove")}
+            onClick={() => setParams(withParam("linie", ""))}
+            className="hit -mr-1.5 grid size-6 cursor-pointer place-items-center rounded-full hover:bg-surface/60"
+          >
+            <Icon name="x" className="size-3.5" />
+          </button>
+        </span>
       )}
       <button
         type="button"

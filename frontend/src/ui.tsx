@@ -1,6 +1,7 @@
 /** Pieces shared by the Discover pages: metric switch, value display, states and Teilen. */
-import { useState, useSyncExternalStore, type ReactNode } from "react";
-import { t } from "./i18n";
+import { useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
+import { NavLink, useLocation } from "react-router";
+import { t, type MessageKey } from "./i18n";
 import { Icon } from "./Icon";
 import { APPROX_N, classOf, DEFS, int, LOW_N, METRICS, type Metric } from "./metrics";
 import type { components } from "./schema";
@@ -45,8 +46,57 @@ export function show(metric: Metric, s: Stats | undefined, slot: string): Shown 
   };
 }
 
-/** Segmented metric switch. `className` places the mobile scroll box inside its container. */
-export function MetricSwitch({
+const SEG = "rounded-[7px] px-[11px] py-[5px] text-[13px] font-medium whitespace-nowrap";
+const segState = (on: boolean) => (on ? "bg-surface text-text shadow-sm" : "text-text-2");
+
+/**
+ * Segmented switch of buttons; `tabs` makes it a tab list instead of pressed buttons. `className`
+ * places the mobile scroll box inside its container.
+ */
+export function Segmented<T extends string | number>({
+  label,
+  options,
+  value,
+  onChange,
+  tabs,
+  className,
+}: {
+  label: string;
+  options: { value: T; label: string }[];
+  value: T;
+  onChange: (v: T) => void;
+  tabs?: boolean;
+  className: string;
+}) {
+  return (
+    <div className={`overflow-x-auto [scrollbar-width:none] md:overflow-visible ${className}`}>
+      <div
+        role={tabs ? "tablist" : "group"}
+        aria-label={label}
+        className="inline-flex gap-0.5 rounded-[9px] bg-surface-2 p-[3px] md:flex-wrap"
+      >
+        {options.map((o) => (
+          <button
+            key={o.value}
+            type="button"
+            role={tabs ? "tab" : undefined}
+            aria-selected={tabs ? o.value === value : undefined}
+            aria-pressed={tabs ? undefined : o.value === value}
+            onClick={() => onChange(o.value)}
+            className={`hit cursor-pointer ${SEG} ${segState(o.value === value)}`}
+          >
+            {o.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+const METRIC_OPTIONS = METRICS.map((m) => ({ value: m, label: t(`metric.${m}`) }));
+
+/** Segmented metric switch. */
+export const MetricSwitch = ({
   metric,
   onMetric,
   className,
@@ -54,29 +104,126 @@ export function MetricSwitch({
   metric: Metric;
   onMetric: (m: Metric) => void;
   className: string;
-}) {
+}) => (
+  <Segmented
+    label={t("metric.label")}
+    options={METRIC_OPTIONS}
+    value={metric}
+    onChange={onMetric}
+    className={className}
+  />
+);
+
+export const HEATMAP = "/muster/heatmap";
+export const RANKINGS = "/muster/rankings";
+export const ZEITVERLAUF = "/muster/zeitverlauf";
+
+/** Mobile switch between the pattern pages. */
+export function MusterSwitch() {
+  const { search } = useLocation();
+  const link = (to: string, label: MessageKey) => (
+    <NavLink
+      key={to}
+      to={{ pathname: to, search }}
+      className={({ isActive }) => `hit flex-1 text-center ${SEG} ${segState(isActive)}`}
+    >
+      {t(label)}
+    </NavLink>
+  );
   return (
-    <div className={`overflow-x-auto [scrollbar-width:none] md:overflow-visible ${className}`}>
-      <div
-        role="group"
-        aria-label={t("metric.label")}
-        className="inline-flex gap-0.5 rounded-[9px] bg-surface-2 p-[3px] md:flex-wrap"
-      >
-        {METRICS.map((m) => (
-          <button
-            key={m}
-            type="button"
-            aria-pressed={m === metric}
-            onClick={() => onMetric(m)}
-            className={`hit cursor-pointer rounded-[7px] px-[11px] py-[5px] text-[13px] font-medium whitespace-nowrap ${
-              m === metric ? "bg-surface text-text shadow-sm" : "text-text-2"
-            }`}
-          >
-            {t(`metric.${m}`)}
-          </button>
-        ))}
-      </div>
+    <nav
+      aria-label={t("nav.patterns")}
+      className="mb-3 flex gap-0.5 rounded-[9px] bg-surface-2 p-[3px] md:hidden"
+    >
+      {link(HEATMAP, "nav.heatmapShort")}
+      {link(RANKINGS, "nav.rankings")}
+      {link(ZEITVERLAUF, "nav.timeline")}
+    </nav>
+  );
+}
+
+export type Tip = { text: string; x: number; y: number } | null;
+type Point = { target: EventTarget | null; clientX: number; clientY: number };
+
+/** The tooltip for the `data-tip` element under a pointer, or none outside such elements. */
+export function tipAt(e: Point): Tip {
+  const el = e.target instanceof Element ? e.target : null;
+  const hit = el?.closest<HTMLElement>("[data-tip]");
+  return hit ? { text: hit.dataset.tip!, x: e.clientX, y: e.clientY } : null;
+}
+
+/**
+ * Tooltip state: a tap shows the element under it and a tap anywhere else clears it; any scroll
+ * clears it too. The caller sets it from its own pointer moves.
+ */
+export function useTip() {
+  const [tip, setTip] = useState<Tip>(null);
+  useEffect(() => {
+    const off = () => setTip(null);
+    const tap = (e: PointerEvent) => setTip(tipAt(e));
+    addEventListener("scroll", off, true);
+    addEventListener("pointerdown", tap);
+    return () => {
+      removeEventListener("scroll", off, true);
+      removeEventListener("pointerdown", tap);
+    };
+  }, []);
+  return [tip, setTip] as const;
+}
+
+/** The floating tooltip box at the pointer. */
+export const TipBox = ({ tip }: { tip: Tip }) =>
+  tip && (
+    <div
+      role="tooltip"
+      className="pointer-events-none fixed z-50 max-w-[260px] -translate-x-1/2 -translate-y-full rounded-[7px] bg-text px-[9px] py-1.5 text-[12.5px] text-bg shadow-card"
+      style={{ left: Math.min(Math.max(tip.x, 138), innerWidth - 138), top: tip.y - 12 }}
+    >
+      {tip.text}
     </div>
+  );
+
+/** The small bordered label of a train category or line type. */
+export const Badge = ({ children }: { children: ReactNode }) => (
+  <span className="w-fit rounded-sm border-[1.5px] border-text-2 px-1 text-[11px] leading-4 font-[650] text-text-2">
+    {children}
+  </span>
+);
+
+/**
+ * A thin bar for one shown value. Punctuality is a share of 100; the other metrics are scaled to
+ * `most`, the largest value in view. A hatched value fills the bar.
+ */
+export function MiniBar({
+  metric,
+  shown,
+  most = 100,
+}: {
+  metric: Metric;
+  shown: Shown;
+  most?: number;
+}) {
+  const v = shown.value;
+  const width = v === undefined ? 100 : metric === "puenktlich" ? v : (v / most) * 100;
+  return (
+    <div className="h-2 overflow-hidden rounded-sm bg-surface-2">
+      <i
+        aria-hidden="true"
+        className={`block h-full rounded-sm ${shown.fill}`}
+        style={{ width: `${Math.round(width)}%` }}
+      />
+    </div>
+  );
+}
+
+/** The cancellation rate as its own grey figure, separate from every delay value. */
+export function Cancelled({ stats, className = "" }: { stats: Stats; className?: string }) {
+  const { text } = show("ausfall", stats, "");
+  return (
+    <span className={`text-cancel tabular-nums whitespace-nowrap ${className}`}>
+      <span className="sr-only">{t("metric.ausfall.cell", { v: text })}</span>
+      <span aria-hidden="true">✕ {text}</span>
+    </span>
   );
 }
 

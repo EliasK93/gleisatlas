@@ -1,5 +1,5 @@
-import { useQuery } from "@tanstack/react-query";
-import { Fragment, useId, type ReactNode } from "react";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import { Fragment, useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { Link, Navigate, useParams, useSearchParams } from "react-router";
 import { clearParams, useSetParams } from "./useSetParams";
 import { api, must } from "./api";
@@ -13,6 +13,7 @@ import {
   formatPeriod,
   int,
   readFilters,
+  seriesMetric,
   share,
   tenths,
   withParam,
@@ -22,22 +23,28 @@ import {
 } from "./metrics";
 import type { components } from "./schema";
 import {
+  Badge,
+  Cancelled,
   EmptyCard,
   ErrorBanner,
   FILL,
+  HEATMAP,
   MetricSwitch,
+  MiniBar,
+  Segmented,
   ShareButton,
   show,
   SoonTag,
+  ZEITVERLAUF,
   type Shown,
 } from "./ui";
 import { StationSearch, useOpenStation } from "./StationSearch";
+import { Sparkline } from "./ZeitverlaufPage";
 
 type Statistik = components["schemas"]["Statistik"];
 type Heatmap = components["schemas"]["Heatmap"];
 
 const MAP = "/karte";
-const HEATMAP = "/muster/heatmap";
 const DAYS = Array.from({ length: 7 }, (_, d) => d);
 const HOURS = Array.from({ length: 24 }, (_, h) => h);
 /** Scale class of each delay bin, as in the mockup. */
@@ -57,8 +64,8 @@ export default function StationPage() {
   const valid = /^\d+$/.test(eva);
   const [params] = useSearchParams();
   const setParams = useSetParams();
-  // The station is the page, so a bhf key has no meaning here.
-  const f: FilterKeys = { ...readFilters(params), bhf: undefined };
+  // The station is the page, so a bhf key has no meaning here, nor has a line.
+  const f: FilterKeys = { ...readFilters(params), bhf: undefined, linie: undefined };
   const q = useQuery({
     queryKey: ["statistik", eva, f.g, f.von, f.bis],
     queryFn: async () => {
@@ -111,6 +118,7 @@ export default function StationPage() {
         metric={f.k}
         period={period}
         heatmapTo={to(HEATMAP)}
+        timelineTo={to(ZEITVERLAUF)}
         onMetric={(k) => setParams(withParam("k", k === "puenktlich" ? "" : k))}
       />
     );
@@ -206,6 +214,7 @@ function StationView({
   metric,
   period,
   heatmapTo,
+  timelineTo,
   onMetric,
 }: {
   data: Statistik;
@@ -213,6 +222,7 @@ function StationView({
   metric: Metric;
   period?: string;
   heatmapTo: { pathname: string; search: string };
+  timelineTo: { pathname: string; search: string };
   onMetric: (m: Metric) => void;
 }) {
   const meta = t("hm.meta", { n: int(data.n), period: period ?? "" });
@@ -285,8 +295,8 @@ function StationView({
         <Groups data={data} metric={metric} />
       </div>
 
-      <SoonCard title={t("station.lines")} text={t("station.lines.soon")} />
-      <SoonCard title={t("station.history")} text={t("station.history.soon")} />
+      <Lines key={data.station.eva} eva={data.station.eva} f={f} />
+      <Sparkline eva={data.station.eva} g={f.g} to={timelineTo} />
     </div>
   );
 }
@@ -441,9 +451,6 @@ function HeatGrid({ data, metric }: { data: Heatmap; metric: Metric }) {
 function Groups({ data, metric }: { data: Statistik; metric: Metric }) {
   const rows = data.gruppen.map((g) => ({ g, shown: show(metric, g, g.gruppe) }));
   const most = Math.max(...rows.map((r) => r.shown.value ?? 0), 1);
-  // Punctuality is a share of 100; the other metrics are scaled to the largest category.
-  const width = (v?: number) =>
-    v === undefined ? 100 : metric === "puenktlich" ? v : (v / most) * 100;
   return (
     <section aria-labelledby="st-groups" className="card min-w-0">
       <div className="mb-3 flex items-baseline justify-between gap-3">
@@ -455,16 +462,8 @@ function Groups({ data, metric }: { data: Statistik; metric: Metric }) {
       <ul className="flex flex-col gap-3">
         {rows.map(({ g, shown }) => (
           <li key={g.gruppe} className="grid grid-cols-[96px_1fr_auto] items-center gap-3">
-            <span className="w-fit rounded-sm border-[1.5px] border-text-2 px-1 text-[11px] leading-4 font-[650] text-text-2">
-              {t(g.gruppe === "fern" ? "filter.fern" : "filter.regional")}
-            </span>
-            <div className="h-2 overflow-hidden rounded-sm bg-surface-2">
-              <i
-                aria-hidden="true"
-                className={`block h-full rounded-sm ${shown.fill}`}
-                style={{ width: `${Math.round(width(shown.value))}%` }}
-              />
-            </div>
+            <Badge>{t(g.gruppe === "fern" ? "filter.fern" : "filter.regional")}</Badge>
+            <MiniBar metric={metric} shown={shown} most={most} />
             <span className="text-right">
               <b className="block font-semibold tabular-nums">{shown.text}</b>
               <span className="block text-xs text-text-3">{t("station.n", { n: int(g.n) })}</span>
@@ -476,17 +475,139 @@ function Groups({ data, metric }: { data: Statistik; metric: Metric }) {
   );
 }
 
-function SoonCard({ title, text }: { title: string; text: string }) {
+const LINES_FIRST = 10;
+
+type Linie = components["schemas"]["StationLinie"];
+
+/** The lines with enough data in reverse order, then the ones with too little, as they were. */
+const bestFirst = (lines: Linie[]) => {
+  const thin = (l: Linie) => !!show("puenktlich", l, "").low;
+  return [...lines.filter((l) => !thin(l)).reverse(), ...lines.filter(thin)];
+};
+
+const ORDERS = [
+  { value: "worst", label: t("station.lines.worstFirst") },
+  { value: "best", label: t("station.lines.bestFirst") },
+] as const;
+
+/**
+ * The lines at this station, worst first as the API orders them (lines with too little data
+ * last) or best first: the first ten, then all.
+ */
+function Lines({ eva, f }: { eva: string; f: FilterKeys }) {
   const id = useId();
+  const [all, setAll] = useState(false);
+  const [order, setOrder] = useState<"worst" | "best">("worst");
+  // After "Alle anzeigen" focus moves on to the first row it revealed; after "Weniger anzeigen"
+  // it stays on the same button, which then reads "Alle anzeigen" again.
+  const firstNew = useRef<HTMLAnchorElement>(null);
+  const toggle = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (all) firstNew.current?.focus();
+  }, [all]);
+  const q = useQuery({
+    queryKey: ["linien", eva, f.g, f.von, f.bis],
+    queryFn: () =>
+      api
+        .GET("/stationen/{eva}/linien", {
+          params: { path: { eva }, query: { gattung: f.g ?? "alle", von: f.von, bis: f.bis } },
+        })
+        .then(must),
+    placeholderData: keepPreviousData,
+  });
+  // The API lists the lines with enough data worst first and the others after them; best first
+  // reverses only the former.
+  const lines = q.data && (order === "worst" ? q.data : bestFirst(q.data));
+  let body;
+  if (q.isError) body = <ErrorBanner onRetry={() => q.refetch()} />;
+  else if (!lines)
+    body = (
+      <div role="status" className="h-[180px] animate-pulse rounded-lg bg-surface-2">
+        <span className="sr-only">{t("state.loading")}</span>
+      </div>
+    );
+  else if (lines.length === 0) body = <p className="text-text-2">{t("station.lines.none")}</p>;
+  else
+    body = (
+      <>
+        {/* The column names, for the table look; every row also reads fine on its own. */}
+        <div
+          aria-hidden="true"
+          className="hidden grid-cols-[minmax(0,1.3fr)_minmax(0,1.2fr)_52px_72px_64px] gap-3 px-1 pb-2 text-xs text-text-3 md:grid"
+        >
+          <span>{t("station.lines.line")}</span>
+          <span className="col-span-2">{t("metric.puenktlich")}</span>
+          <span>{t("station.lines.n")}</span>
+          <span className="text-right">✕ {t("metric.ausfall")}</span>
+        </div>
+        <ul className="flex flex-col gap-2.5 md:gap-0">
+          {(all ? lines : lines.slice(0, LINES_FIRST)).map((l, i) => {
+            const shown = show("puenktlich", l, l.name);
+            return (
+              <li key={l.linie} className="md:last:*:border-b-0">
+                <Link
+                  ref={i === LINES_FIRST ? firstNew : undefined}
+                  to={{
+                    pathname: ZEITVERLAUF,
+                    search: writeFilters({
+                      k: seriesMetric(f.k),
+                      g: f.g,
+                      linie: l.linie,
+                    }).toString(),
+                  }}
+                  className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-2 rounded-lg border border-border p-3 hover:bg-surface-2 md:grid-cols-[minmax(0,1.3fr)_minmax(0,1.2fr)_52px_72px_64px] md:gap-y-0 md:rounded-none md:border-0 md:border-b md:px-1 md:py-2.5"
+                >
+                  <span className="flex min-w-0 flex-wrap items-center gap-x-1.5 md:order-1">
+                    <Badge>{l.typ}</Badge>
+                    <b className="font-semibold">{l.name}</b>
+                  </span>
+                  <b
+                    className={`text-right font-[650] tabular-nums md:order-3 ${shown.low ? "text-text-3" : ""}`}
+                  >
+                    {shown.text}
+                  </b>
+                  <div className="col-span-2 md:order-2 md:col-span-1">
+                    <MiniBar metric="puenktlich" shown={shown} />
+                  </div>
+                  <span className="text-xs text-text-3 tabular-nums md:order-4">
+                    {t("station.n", { n: int(l.n) })}
+                  </span>
+                  <Cancelled stats={l} className="text-right text-xs md:order-5" />
+                </Link>
+              </li>
+            );
+          })}
+        </ul>
+        {lines.length > LINES_FIRST && (
+          <button
+            ref={toggle}
+            type="button"
+            className="btn mt-3"
+            onClick={() => {
+              setAll(!all);
+              if (all) toggle.current?.focus();
+            }}
+          >
+            {all ? t("station.lines.less") : t("station.lines.all", { count: int(lines.length) })}
+          </button>
+        )}
+      </>
+    );
   return (
     <section aria-labelledby={id} className="card">
-      <div className="mb-1.5 flex items-center gap-2">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
         <h2 id={id} className="text-base font-[620]">
-          {title}
+          {t("station.lines")}
         </h2>
-        <SoonTag />
+        <Segmented
+          label={t("station.lines.order")}
+          options={[...ORDERS]}
+          value={order}
+          onChange={setOrder}
+          className="-my-2 py-2 md:m-0 md:p-0"
+        />
       </div>
-      <p className="text-text-2">{text}</p>
+      {body}
     </section>
   );
 }

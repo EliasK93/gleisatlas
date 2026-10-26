@@ -1,5 +1,13 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
-import { emptyStatistik, mockApi, STATIONS, statistikFixture } from "./fixtures";
+import {
+  emptyStatistik,
+  linienFixture,
+  mockApi,
+  queryOf,
+  STATIONS,
+  statistikFixture,
+  zeitverlaufFixture,
+} from "./fixtures";
 
 // Scale tokens from theme.css as the browser reports them.
 const R3 = "rgb(216, 190, 92)";
@@ -9,6 +17,8 @@ const CANCEL = "rgb(93, 102, 117)";
 
 const tiles = (page: Page) => page.getByRole("list", { name: "Kennzahlen" }).getByRole("listitem");
 const section = (page: Page, name: string) => page.getByRole("region", { name });
+const pressed = (scope: Locator, name: string) =>
+  scope.getByRole("button", { name, exact: true }).and(scope.locator('[aria-pressed="true"]'));
 const koeln = STATIONS[0];
 /** The coloured left edge of a tile. */
 const edge = (tile: Locator) => tile.locator("i").first();
@@ -167,14 +177,249 @@ test("Gattung refetches the statistics", async ({ page }) => {
   ).toBe(true);
 });
 
-test("the coming-soon cards say what is missing", async ({ page }) => {
+const history = (page: Page) => section(page, "Letzte 12 Monate");
+
+test("the sparkline shows the last 12 months, the latest value and a link to the series", async ({
+  page,
+}) => {
+  const requests = await mockApi(page);
+  await page.goto("/bahnhof/8000207?g=fern");
+  const card = history(page);
+  await expect(card.getByTestId("point")).toHaveCount(12);
+  await expect(card.getByTestId("segment")).toHaveCount(11);
+  await expect(card.getByTestId("segment").and(card.locator("[stroke-dasharray]"))).toHaveCount(0);
+  await expect(card).toContainText("72 %");
+  await expect(card).toContainText("pünktlich im Sep 26 · n = 22.600");
+  await expect(card.getByRole("link", { name: "Zeitverlauf →" })).toHaveAttribute(
+    "href",
+    "/muster/zeitverlauf?g=fern&bhf=8000207",
+  );
+  const request = requests.find((u) => u.pathname === "/zeitverlauf");
+  expect(queryOf(request)).toEqual({ eva: "8000207", gattung: "fern" });
+  // A scroll clears the tooltip, so the month is brought into view first.
+  const month = card.getByTestId("sp-2026-03");
+  await month.scrollIntoViewIfNeeded();
+  await month.hover();
+  await expect(page.getByRole("tooltip")).toHaveText("Mär 26 · 78 % pünktlich · n = 1.240");
+  await card.getByRole("link", { name: "Zeitverlauf →" }).click();
+  await expect(page).toHaveURL(/\/muster\/zeitverlauf\?g=fern&bhf=8000207$/);
+  await expect(page.getByRole("main")).toContainText("Köln Hbf");
+});
+
+test("a month with little data in the sparkline is dashed", async ({ page }) => {
+  await mockApi(page, undefined, undefined, undefined, undefined, undefined, (e, l) => {
+    const data = zeitverlaufFixture(e, l);
+    return {
+      ...data,
+      monate: data.monate.map((m) => (m.monat === "2026-01" ? { ...m, n: 9 } : m)),
+    };
+  });
+  await page.goto("/bahnhof/8000207");
+  const card = history(page);
+  await expect(card.getByTestId("point")).toHaveCount(12);
+  await expect(card.getByTestId("segment").and(card.locator("[stroke-dasharray]"))).toHaveCount(2);
+});
+
+/** The fixture series with the given months cut down to 9 stops. */
+const thinMonths = (months: string[]) => (e: string | null, l: string | null) => {
+  const data = zeitverlaufFixture(e, l);
+  return {
+    ...data,
+    monate: data.monate.map((m) => (months.includes(m.monat) ? { ...m, n: 9 } : m)),
+  };
+};
+
+test("the sparkline headline is the latest month with enough data, with its n", async ({
+  page,
+}) => {
+  await mockApi(page, undefined, undefined, undefined, undefined, undefined, (e, l) => {
+    const data = zeitverlaufFixture(e, l);
+    // 2026-08 has 9 stops; 2026-09 has 40, but 32 of them are cancelled: 8 arrivals.
+    const monate = data.monate.map((m) => {
+      if (m.monat === "2026-08") return { ...m, n: 9 };
+      return m.monat === "2026-09" ? { ...m, n: 40, ausfallquote: 0.8 } : m;
+    });
+    return { ...data, monate };
+  });
+  await page.goto("/bahnhof/8000207");
+  const card = history(page);
+  await expect(card.getByTestId("point")).toHaveCount(12);
+  // 2026-07: 22,400 stops, 78 %.
+  await expect(card.locator("b")).toHaveText("78 %");
+  await expect(card).toContainText("pünktlich im Jul 26 · n = 22.400");
+});
+
+test("the sparkline headline is a dash when no month has enough data", async ({ page }) => {
+  const last12 = ["2025-10", "2025-11", "2025-12"].concat(
+    Array.from({ length: 9 }, (_, i) => `2026-0${i + 1}`),
+  );
+  await mockApi(page, undefined, undefined, undefined, undefined, undefined, thinMonths(last12));
+  await page.goto("/bahnhof/8000207");
+  const card = history(page);
+  await expect(card.getByTestId("point")).toHaveCount(12);
+  const headline = card.locator("p").first();
+  await expect(headline.locator("b")).toHaveText("–");
+  await expect(headline).toContainText("zu wenig Daten");
+  await expect(headline).not.toContainText("pünktlich im");
+});
+
+test("the sparkline card has its own error and the rest of the page stays", async ({ page }) => {
+  let calls = 0;
+  await mockApi(page, undefined, undefined, undefined, undefined, undefined, (e, l) =>
+    calls++ === 0 ? null : zeitverlaufFixture(e, l),
+  );
+  await page.goto("/bahnhof/8000207");
+  await expect(tiles(page)).toHaveCount(4);
+  await expect(history(page).getByRole("alert")).toContainText(
+    "Daten konnten nicht geladen werden.",
+  );
+  await history(page).getByRole("button", { name: "Erneut versuchen" }).click();
+  await expect(history(page).getByTestId("point")).toHaveCount(12);
+});
+
+test("a line row links to the time series of that line, keeping category and delay view", async ({
+  page,
+}) => {
+  await mockApi(page);
+  await page.goto("/bahnhof/8000207?g=fern&k=median");
+  const link = lines(page).first().getByRole("link");
+  await expect(link).toHaveAttribute(
+    "href",
+    "/muster/zeitverlauf?g=fern&linie=RE+1%3A8000207&k=median",
+  );
+  await link.click();
+  await expect(page).toHaveURL(/\/muster\/zeitverlauf\?g=fern&linie=RE\+1%3A8000207&k=median$/);
+  await expect(page.getByText(/^Linie:\s*RE 1 · Köln Hbf/)).toBeVisible();
+  await expect(page.getByRole("img", { name: "Verspätung pro Monat" })).toBeVisible();
+});
+
+test("a line row keeps the P90 metric as the delay view and drops the cancellation one", async ({
+  page,
+}) => {
+  await mockApi(page);
+  await page.goto("/bahnhof/8000207?k=p90");
+  await expect(lines(page).first().getByRole("link")).toHaveAttribute(
+    "href",
+    "/muster/zeitverlauf?linie=RE+1%3A8000207&k=median",
+  );
+  await page.goto("/bahnhof/8000207?k=ausfall");
+  await expect(lines(page).first().getByRole("link")).toHaveAttribute(
+    "href",
+    "/muster/zeitverlauf?linie=RE+1%3A8000207",
+  );
+});
+
+const lines = (page: Page) => section(page, "Linien an diesem Bahnhof").getByRole("listitem");
+
+test("the lines table shows the first ten, worst first, and expands in place", async ({ page }) => {
+  const requests = await mockApi(page);
+  await page.goto("/bahnhof/8000207?g=fern&von=2026-01");
+  const card = section(page, "Linien an diesem Bahnhof");
+  await expect(pressed(card, "Schlechteste zuerst")).toBeVisible();
+  await expect(lines(page)).toHaveCount(10);
+  const first = lines(page).first();
+  for (const text of ["RE 1 · Köln Hbf", "RE", "50 %", "n = 1.500", "✕ 2,0 %"])
+    await expect(first).toContainText(text);
+  await expect(first.locator("i")).toHaveCSS("background-color", R5);
+  const request = requests.find((u) => u.pathname === "/stationen/8000207/linien");
+  expect(queryOf(request)).toEqual({ gattung: "fern", von: "2026-01" });
+  await card.getByRole("button", { name: "Alle 12 Linien anzeigen" }).click();
+  await expect(lines(page)).toHaveCount(12);
+  await expect(card.getByRole("button", { name: "Alle 12 Linien anzeigen" })).toHaveCount(0);
+  await expect(card.getByRole("button", { name: "Weniger anzeigen" })).toBeVisible();
+  await expect(lines(page).last()).toContainText("RE 12 · Köln Hbf");
+});
+
+test("Weniger anzeigen collapses to ten rows and hands the focus to the toggle", async ({
+  page,
+}) => {
   await mockApi(page);
   await page.goto("/bahnhof/8000207");
-  for (const name of ["Linien an diesem Bahnhof", "Letzte 12 Monate"]) {
-    const card = section(page, name);
-    await expect(card).toContainText("bald");
-    await expect(card.locator("p")).toHaveCount(1);
-  }
+  const card = section(page, "Linien an diesem Bahnhof");
+  await card.getByRole("button", { name: "Alle 12 Linien anzeigen" }).click();
+  await expect(lines(page)).toHaveCount(12);
+  await card.getByRole("button", { name: "Weniger anzeigen" }).click();
+  await expect(lines(page)).toHaveCount(10);
+  await expect(card.getByRole("button", { name: "Alle 12 Linien anzeigen" })).toBeFocused();
+});
+
+test("Beste zuerst reverses the lines with enough data and keeps the others last", async ({
+  page,
+}) => {
+  await mockApi(page);
+  await page.goto("/bahnhof/8000207");
+  const card = section(page, "Linien an diesem Bahnhof");
+  await card.getByRole("button", { name: "Beste zuerst" }).click();
+  await expect(pressed(card, "Beste zuerst")).toBeVisible();
+  await expect(lines(page)).toHaveCount(10);
+  await expect(lines(page).first()).toContainText("RE 12 · Köln Hbf");
+  await expect(lines(page).nth(8)).toContainText("RE 3 · Köln Hbf");
+  await card.getByRole("button", { name: "Alle 12 Linien anzeigen" }).click();
+  await expect(lines(page).nth(10)).toContainText("RE 1 · Köln Hbf");
+  // RE 4 has only 9 stops: it was fourth, and now it is last.
+  await expect(lines(page).last()).toContainText("RE 4 · Köln Hbf");
+  await expect(lines(page).last()).toContainText("n = 9");
+  await card.getByRole("button", { name: "Schlechteste zuerst" }).click();
+  await expect(lines(page).first()).toContainText("RE 1 · Köln Hbf");
+  await expect(lines(page).nth(3)).toContainText("RE 4 · Köln Hbf");
+});
+
+test("a cancellation rate of 10 % or more stays on one line in the lines table", async ({
+  page,
+}) => {
+  await mockApi(page, undefined, undefined, undefined, undefined, () =>
+    linienFixture().map((l, i) => (i === 0 ? { ...l, ausfallquote: 0.109 } : l)),
+  );
+  await page.goto("/bahnhof/8000207");
+  await expect(lines(page)).toHaveCount(10);
+  const cell = lines(page).first().getByText("✕ 10,9 %");
+  await expect(cell).toBeVisible();
+  expect((await cell.boundingBox())!.height).toBeLessThan(20);
+});
+
+test("expanding the lines with the keyboard moves focus to the first new row", async ({ page }) => {
+  await mockApi(page);
+  await page.goto("/bahnhof/8000207");
+  const card = section(page, "Linien an diesem Bahnhof");
+  await expect(lines(page)).toHaveCount(10);
+  const button = card.getByRole("button", { name: "Alle 12 Linien anzeigen" });
+  await button.focus();
+  await page.keyboard.press("Enter");
+  await expect(lines(page)).toHaveCount(12);
+  await expect(lines(page).nth(10).getByRole("link")).toBeFocused();
+});
+
+test("a line with too little data is hatched and shows no value", async ({ page }) => {
+  await mockApi(page);
+  await page.goto("/bahnhof/8000207");
+  const low = lines(page).nth(3);
+  await expect(low).toContainText("RE 4 · Köln Hbf");
+  await expect(low).toContainText("n = 9");
+  await expect(low).toContainText("–");
+  await expect(low.getByText("59 %")).toHaveCount(0);
+  await expect(low.locator("i")).toHaveCSS("background-image", /repeating-linear-gradient/);
+});
+
+test("a station without lines says so", async ({ page }) => {
+  await mockApi(page, undefined, undefined, undefined, undefined, () => []);
+  await page.goto("/bahnhof/8000207");
+  await expect(section(page, "Linien an diesem Bahnhof")).toContainText(
+    "Mit diesen Filtern gibt es hier keine Linien.",
+  );
+});
+
+test("the lines card shows its own error and the rest of the page stays", async ({ page }) => {
+  let calls = 0;
+  await mockApi(page, undefined, undefined, undefined, undefined, () =>
+    calls++ === 0 ? null : linienFixture(),
+  );
+  await page.goto("/bahnhof/8000207");
+  await expect(tiles(page)).toHaveCount(4);
+  const card = section(page, "Linien an diesem Bahnhof");
+  await expect(card.getByRole("alert")).toContainText("Daten konnten nicht geladen werden.");
+  await expect(section(page, "Nach Zuggattung")).toBeVisible();
+  await card.getByRole("button", { name: "Erneut versuchen" }).click();
+  await expect(lines(page)).toHaveCount(10);
 });
 
 test("little data gets a note and hatched, empty-looking tiles", async ({ page }) => {
@@ -272,10 +517,24 @@ test.describe("mobile", () => {
     expect(fits).toBe(true);
   });
 
+  test("the lines become row cards: the bar sits below the name", async ({ page }) => {
+    await mockApi(page);
+    await page.goto("/bahnhof/8000207");
+    await expect(lines(page)).toHaveCount(10);
+    const row = lines(page).first();
+    const name = (await row.getByText("RE 1 · Köln Hbf").boundingBox())!;
+    const bar = (await row.locator("i").boundingBox())!;
+    expect(bar.y).toBeGreaterThan(name.y + name.height - 1);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+      true,
+    );
+  });
+
   test("small controls have a hit area of at least 44 px", async ({ page }) => {
     await mockApi(page);
     await page.goto("/bahnhof/8000207");
     await expect(tiles(page)).toHaveCount(4);
+    await expect(lines(page)).toHaveCount(10);
     /** True when a tap 21 px above and below the centre still lands on the control. */
     const tall = (l: Locator) =>
       l.evaluate((el) => {
@@ -288,8 +547,11 @@ test.describe("mobile", () => {
     const controls = [
       page.getByRole("navigation", { name: "Brotkrumen" }).getByRole("link", { name: "Karte" }),
       page.getByRole("link", { name: "Groß ansehen →" }),
+      page.getByRole("link", { name: "Zeitverlauf →" }),
       page.getByRole("button", { name: "Teilen" }),
       page.getByRole("button", { name: "Ausfälle", exact: true }),
+      page.getByRole("button", { name: "Alle 12 Linien anzeigen" }),
+      page.getByRole("button", { name: "Beste zuerst" }),
     ];
     for (const c of controls) expect(await tall(c), `${await c.textContent()}`).toBe(true);
   });

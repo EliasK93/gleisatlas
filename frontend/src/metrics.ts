@@ -103,6 +103,11 @@ const monthFormat = new Intl.DateTimeFormat(LOCALE, {
 });
 const monthDate = (ym: string) => new Date(`${ym}-01T00:00:00Z`);
 
+const monthName = new Intl.DateTimeFormat(LOCALE, { month: "long", timeZone: "UTC" });
+/** "2026-03" → "Mär 26": three letters and the year, as on the chart axes. */
+export const formatMonth = (ym: string) =>
+  `${monthName.format(monthDate(ym)).slice(0, 3)} ${ym.slice(2, 4)}`;
+
 /** "2026-09" → "Sept. 2026"; a range becomes "Okt. 2025 – Sept. 2026". */
 export const formatPeriod = (von: string, bis = von) =>
   monthFormat.formatRange(monthDate(von), monthDate(bis));
@@ -121,6 +126,8 @@ export type Filters = {
   bhf?: string;
   von?: string;
   bis?: string;
+  /** A line id; only the time series page uses it, and it wins over `bhf` there. */
+  linie?: string;
   k: Metric;
 };
 
@@ -131,20 +138,51 @@ export function readFilters(p: URLSearchParams): Filters {
   const bhf = p.get("bhf");
   const von = p.get("von");
   const bis = p.get("bis");
+  const linie = p.get("linie");
   return {
     g: g === "regional" || g === "fern" ? g : undefined,
     bhf: bhf && /^\d+$/.test(bhf) ? bhf : undefined,
     von: von && MONTH.test(von) ? von : undefined,
     bis: bis && MONTH.test(bis) ? bis : undefined,
+    linie: linie && linie.length <= 200 ? linie : undefined,
     k: METRICS.find((m) => m === k) ?? "puenktlich",
   };
 }
 
 /** The URL keys for `f`, without defaults: what readFilters accepted, nothing else. */
-export function writeFilters({ k, ...rest }: Filters): URLSearchParams {
-  const keys = { ...rest, k: k === "puenktlich" ? undefined : k };
+export function writeFilters({ g, bhf, von, bis, linie, k }: Filters): URLSearchParams {
+  // The order is fixed, so a link built here equals the URL the page would write itself.
+  const keys = { g, bhf, von, bis, linie, k: k === "puenktlich" ? undefined : k };
   return new URLSearchParams(Object.entries(keys).filter((e): e is [string, string] => !!e[1]));
 }
+
+/** The time series has two views: punctuality, or delay (median with a P90 band). */
+export const seriesMetric = (k: Metric): Metric =>
+  k === "median" || k === "p90" ? "median" : "puenktlich";
+
+/** The rankings page's own URL keys: what it lists and the minimum sample. */
+export const MIN_NS = [100, 500, 1000, 5000] as const;
+export type Rank = { typ: "linien" | "bahnhoefe"; min: number };
+
+/** Reads `typ` and `min`; unknown values fall back to the default (stations, 500). */
+export function readRank(p: URLSearchParams): Rank {
+  return {
+    typ: p.get("typ") === "linien" ? "linien" : "bahnhoefe",
+    min: MIN_NS.find((n) => String(n) === p.get("min")) ?? 500,
+  };
+}
+
+/** The filter keys, then the rankings keys, each without its default. */
+export function writeRank(f: Filters, { typ, min }: Rank): URLSearchParams {
+  const p = writeFilters(f);
+  if (typ !== "bahnhoefe") p.set("typ", typ);
+  if (min !== 500) p.set("min", String(min));
+  return p;
+}
+
+/** URL updater for the rankings keys; the filters stay as they are. */
+export const withRank = (change: Partial<Rank>) => (p: URLSearchParams) =>
+  writeRank(readFilters(p), { ...readRank(p), ...change });
 
 /**
  * URL updater: sets one filter key, or removes it when the value is empty. The result is always
@@ -153,7 +191,7 @@ export function writeFilters({ k, ...rest }: Filters): URLSearchParams {
 export const withParam = (key: string, value: string) => (p: URLSearchParams) => {
   if (value) p.set(key, value);
   else p.delete(key);
-  return writeFilters(readFilters(p));
+  return writeRank(readFilters(p), readRank(p));
 };
 
 /**
@@ -170,7 +208,7 @@ export const withPeriod =
     const next: Filters = { ...f };
     next[edge] = month;
     if (crossed) next[other] = month;
-    return writeFilters(next);
+    return writeRank(next, readRank(p));
   };
 
 /** "x von 10" for a share in whole percent: rounded down, so 96 % never reads "10 von 10". */

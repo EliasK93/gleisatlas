@@ -7,9 +7,14 @@ type Station = components["schemas"]["Station"];
 type Datenstand = components["schemas"]["Datenstand"];
 type Karte = components["schemas"]["Karte"];
 type Statistik = components["schemas"]["Statistik"];
+type Rangliste = components["schemas"]["Rangliste"];
+type StationLinie = components["schemas"]["StationLinie"];
+type Zeitverlauf = components["schemas"]["Zeitverlauf"];
+type Monat = components["schemas"]["Monat"];
 
 // Routed by path, so a set VITE_API_URL can never send a test to a real server.
-const API_PATH = /^\/(heatmap|datenstand|stationen|karte)(?:\/([^/]+)(\/statistik)?)?$/;
+const API_PATH =
+  /^\/(heatmap|datenstand|stationen|karte|rankings|zeitverlauf)(?:\/([^/]+)(\/statistik|\/linien)?)?$/;
 const CORS = { "access-control-allow-origin": "*" };
 
 /** Stands in for the OpenFreeMap style, so map tests never touch the network. */
@@ -169,8 +174,8 @@ const DATENSTAND: Datenstand = {
   ],
   bahnhoefe: 5219,
   vollabdeckung_ab: "2025-11",
-  fehlende_stunden: {},
-  fahrplanwechsel: ["2025-12-14"],
+  fehlende_stunden: { "2025-06": 12 },
+  fahrplanwechsel: ["2024-12-15", "2025-12-14"],
 };
 
 const base = { n: 1240, ausfallquote: 0.02, median: 2, p90: 8, puenktlich: 0.75 };
@@ -209,16 +214,129 @@ export function heatmapFixture(): Heatmap {
 
 export const EMPTY_HEATMAP: Heatmap = { von: "", bis: "", n: 0, cells: [], tage: [] };
 
+/** The query string of a request as a plain object. */
+export function queryOf(url?: URL): Record<string, string> {
+  const query: Record<string, string> = {};
+  url?.searchParams.forEach((value, key) => (query[key] = value));
+  return query;
+}
+
+/** Ten stations or lines per column; the worst has 50 % punctuality, the best 99 %. */
+export function rankingFixture(typ: string, metrik: string, minN: number): Rangliste {
+  const stations = ["Problemhausen", "Spätdorf", "Wartenau", "Verzugen", "Knotenhausen"];
+  const lines = [
+    "RE 1",
+    "RB 48",
+    "S 6",
+    "RE 7",
+    "ICE 599",
+    "S 1",
+    "RB 23",
+    "IC 2005",
+    "RE 9",
+    "S 3",
+  ];
+  const entry = (i: number, worst: boolean) => {
+    const name =
+      typ === "linien"
+        ? lines[i]
+        : `${stations[i % stations.length]} ${worst ? "Nord" : "Süd"} ${i}`;
+    return {
+      id: typ === "linien" ? `${name}:8000207` : `80005${worst ? 5 : 6}${i}`,
+      name,
+      typ: typ === "linien" ? name.split(" ")[0] : null,
+      n: 20000 - i * 1000,
+      ausfallquote: worst ? 0.08 - i * 0.002 : 0.004,
+      median: worst ? 9 - i * 0.4 : 0.4,
+      p90: worst ? 34 - i : 4,
+      puenktlich: worst ? 0.5 + i * 0.02 : 0.99 - i * 0.01,
+    };
+  };
+  const ten = (worst: boolean) => Array.from({ length: 10 }, (_, i) => entry(i, worst));
+  return {
+    typ: typ as Rangliste["typ"],
+    metrik: metrik as Rangliste["metrik"],
+    min_n: minN,
+    von: "2025-11",
+    bis: "2026-09",
+    anzahl: 2445,
+    schlechteste: ten(true),
+    beste: ten(false),
+  };
+}
+
+export const emptyRangliste = (typ: string, metrik: string, minN: number): Rangliste => ({
+  ...rankingFixture(typ, metrik, minN),
+  von: "",
+  bis: "",
+  anzahl: 0,
+  schlechteste: [],
+  beste: [],
+});
+
+/** Twelve lines at a station, worst first; the fourth has only 9 stops. */
+export function linienFixture(): StationLinie[] {
+  return Array.from({ length: 12 }, (_, i) => {
+    const low = i === 3;
+    return {
+      linie: `RE ${i + 1}:8000207`,
+      name: `RE ${i + 1} · Köln Hbf`,
+      typ: "RE",
+      n: low ? 9 : 1500 - i * 100,
+      ausfallquote: 0.02 + i * 0.001,
+      median: 2,
+      p90: 8,
+      puenktlich: 0.5 + i * 0.03,
+    };
+  });
+}
+
 /**
- * Serves the API and the base map style from fixtures. `heatmap`, `karte` and `statistik` return
- * the body, or null for a server error; an unknown EVA is a 404. Returns the list of requested
- * API URLs.
+ * 27 months from 2024-07 to 2026-09. 2024-10 has no stops, 2025-02 only 9, and 2025-06 is the
+ * month /datenstand reports 12 missing hours for. 2026-03 reads 78 % of 1,240 stops.
+ */
+export function zeitverlaufFixture(eva: string | null, linie: string | null): Zeitverlauf {
+  const monate: Monat[] = Array.from({ length: 27 }, (_, i) => {
+    const monat = `${2024 + Math.floor((i + 6) / 12)}-${String(((i + 6) % 12) + 1).padStart(2, "0")}`;
+    const month: Monat = {
+      monat,
+      n: 20000 + i * 100,
+      ausfallquote: 0.02 + (i % 4) * 0.005,
+      median: 2 + (i % 3) * 0.5,
+      p90: 8 + (i % 4),
+      puenktlich: 0.7 + (i % 5) * 0.02,
+    };
+    if (monat === "2024-10")
+      return { monat, n: 0, ausfallquote: null, median: null, p90: null, puenktlich: null };
+    if (monat === "2025-02") return { ...month, n: 9 };
+    if (monat === "2026-03") return { ...month, n: 1240, puenktlich: 0.78 };
+    return month;
+  });
+  const titel = linie
+    ? `${linie.split(":")[0]} · Köln Hbf`
+    : (STATIONS.find((s) => s.eva === eva)?.name ?? null);
+  return { titel, monate };
+}
+
+/** What a `zeitverlauf` callback returns for a selection the API does not know (a 404). */
+export const NOT_FOUND = "not-found";
+
+/** Serves the API and the base map style from fixtures. `heatmap`, `karte`, `statistik`,
+ * `rankings`, `linien` and `zeitverlauf` return the body, or null for a server error; an unknown
+ * EVA is a 404, and so is `NOT_FOUND` from `zeitverlauf`. Returns the list of requested API URLs.
  */
 export async function mockApi(
   page: Page,
   heatmap: () => Heatmap | null = heatmapFixture,
   karte: () => Karte | null = karteFixture,
   statistik: (station: Station, gattung: string) => Statistik | null = statistikFixture,
+  rankings: (typ: string, metrik: string, minN: number) => Rangliste | null = rankingFixture,
+  linien: () => StationLinie[] | null = linienFixture,
+  zeitverlauf: (
+    eva: string | null,
+    linie: string | null,
+    gattung: string,
+  ) => Zeitverlauf | typeof NOT_FOUND | null = zeitverlaufFixture,
 ): Promise<URL[]> {
   const requests: URL[] = [];
   await page.route("https://tiles.openfreemap.org/**", (route) =>
@@ -236,14 +354,24 @@ export async function mockApi(
       if (name === "heatmap") body = heatmap();
       else if (name === "karte") body = karte();
       else if (name === "datenstand") body = DATENSTAND;
-      else if (eva) {
+      else if (name === "rankings") {
+        const q = url.searchParams;
+        body = rankings(q.get("typ") ?? "", q.get("metrik") ?? "", Number(q.get("min_n")));
+      } else if (name === "zeitverlauf") {
+        const q = url.searchParams;
+        body = zeitverlauf(q.get("eva"), q.get("linie"), q.get("gattung") ?? "alle");
+      } else if (eva) {
         body = STATIONS.find((s) => s.eva === eva) ?? null;
         if (body === null) return route.fulfill({ status: 404, headers: CORS, json: {} });
-        if (detail) body = statistik(body as Station, url.searchParams.get("gattung") ?? "alle");
+        if (detail === "/linien") body = linien();
+        else if (detail) {
+          body = statistik(body as Station, url.searchParams.get("gattung") ?? "alle");
+        }
       } else {
         const q = (url.searchParams.get("q") ?? "").toLowerCase();
         body = STATIONS.filter((s) => s.name.toLowerCase().includes(q));
       }
+      if (body === NOT_FOUND) return route.fulfill({ status: 404, headers: CORS, json: {} });
       if (body === null) return route.fulfill({ status: 500, headers: CORS, body: "" });
       return route.fulfill({ headers: CORS, json: body });
     },

@@ -1,4 +1,3 @@
-import { useQuery } from "@tanstack/react-query";
 import {
   Link,
   Navigate,
@@ -10,18 +9,19 @@ import {
   useMatch,
   type To,
 } from "react-router";
-import { api, must } from "./api";
+import { useDatenstand } from "./api";
 import HeatmapPage from "./HeatmapPage";
 // ponytail: MapLibre ships in the main bundle (about 400 kB gzip); lazy-load MapPage if other pages' first load matters
 import MapPage from "./MapPage";
 import { t, type MessageKey } from "./i18n";
 import { Icon, type IconName } from "./Icon";
 import { formatPeriod, int } from "./metrics";
+import RankingsPage from "./RankingsPage";
 import StationPage from "./StationPage";
 import { GlobalSearch, useSearchShortcut } from "./StationSearch";
-import { SoonTag } from "./ui";
+import { HEATMAP, RANKINGS, SoonTag, ZEITVERLAUF } from "./ui";
+import ZeitverlaufPage from "./ZeitverlaufPage";
 
-const HEATMAP = "/muster/heatmap";
 const MAP = "/karte";
 const LICENCE = "https://creativecommons.org/licenses/by/4.0/deed.de";
 
@@ -29,21 +29,24 @@ export default function App() {
   return (
     <Routes>
       <Route element={<Shell />}>
-        <Route index element={<ToMap />} />
+        <Route index element={<Redirect to={MAP} />} />
         <Route path={MAP} element={<MapPage />} />
         <Route path="/bahnhof/:eva" element={<StationPage />} />
+        <Route path="/muster" element={<Redirect to={HEATMAP} />} />
         <Route path={HEATMAP} element={<HeatmapPage />} />
+        <Route path={RANKINGS} element={<RankingsPage />} />
+        <Route path={ZEITVERLAUF} element={<ZeitverlaufPage />} />
         <Route path="/mehr" element={<MorePage />} />
-        <Route path="*" element={<ToMap />} />
+        <Route path="*" element={<Redirect to={MAP} />} />
       </Route>
     </Routes>
   );
 }
 
 /** Redirect that keeps the query string, so filters survive. */
-function ToMap() {
+function Redirect({ to }: { to: string }) {
   const { search } = useLocation();
-  return <Navigate to={{ pathname: MAP, search }} replace />;
+  return <Navigate to={{ pathname: to, search }} replace />;
 }
 
 function Shell() {
@@ -78,8 +81,8 @@ function Shell() {
           <Group label="nav.discover" />
           <SideLink icon="map" label="nav.map" to={{ pathname: MAP, search }} />
           <SideLink icon="grid" label="nav.heatmap" to={{ pathname: HEATMAP, search }} />
-          <Soon icon="list" label="nav.rankings" />
-          <Soon icon="trend" label="nav.timeline" />
+          <SideLink icon="list" label="nav.rankings" to={{ pathname: RANKINGS, search }} />
+          <SideLink icon="trend" label="nav.timeline" to={{ pathname: ZEITVERLAUF, search }} />
           <Group label="nav.plan" />
           <Soon icon="route" label="nav.connection" />
           <Soon icon="xfer" label="nav.transfer" />
@@ -112,7 +115,8 @@ function Shell() {
         className={`z-10 grid grid-cols-4 border-t border-border bg-surface px-1 pt-1 pb-2 md:hidden ${full ? "shrink-0" : "fixed inset-x-0 bottom-0"}`}
       >
         <Tab icon="map" label="nav.map" to={{ pathname: MAP, search }} />
-        <Tab icon="grid" label="nav.patterns" to={{ pathname: HEATMAP, search }} />
+        {/* /muster redirects to the heatmap; the tab stays current on every pattern page. */}
+        <Tab icon="grid" label="nav.patterns" to={{ pathname: "/muster", search }} />
         <Tab icon="route" label="nav.plan" />
         <Tab icon="more" label="nav.more" to={{ pathname: "/mehr", search }} />
       </nav>
@@ -175,11 +179,7 @@ function Tab({ icon, label, to }: { icon: IconName; label: MessageKey; to?: To }
 }
 
 function DataNote({ className }: { className: string }) {
-  const { data } = useQuery({
-    queryKey: ["datenstand"],
-    queryFn: () => api.GET("/datenstand").then(must),
-    staleTime: Infinity,
-  });
+  const { data } = useDatenstand();
   const month = data?.monate.at(-1);
   return (
     <div className={className}>

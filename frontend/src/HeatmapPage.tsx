@@ -1,5 +1,5 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Navigate, useSearchParams } from "react-router";
 import { clearParams, useSetParams } from "./useSetParams";
 import { api, must } from "./api";
@@ -15,14 +15,25 @@ import {
   withParam,
   worse,
   writeFilters,
+  type Filters as FilterKeys,
   type Metric,
 } from "./metrics";
 import type { components } from "./schema";
-import { EmptyCard, ErrorBanner, FILL, MetricSwitch, ShareButton, show, useNarrow } from "./ui";
+import {
+  EmptyCard,
+  ErrorBanner,
+  FILL,
+  MetricSwitch,
+  MusterSwitch,
+  ShareButton,
+  show,
+  TipBox,
+  tipAt,
+  useNarrow,
+  useTip,
+} from "./ui";
 
 type Heatmap = components["schemas"]["Heatmap"];
-type Tip = { text: string; x: number; y: number } | null;
-type Point = { target: EventTarget | null; clientX: number; clientY: number };
 
 const DAYS = [0, 1, 2, 3, 4, 5, 6];
 const HOURS = Array.from({ length: 24 }, (_, h) => h);
@@ -30,7 +41,7 @@ const HOURS = Array.from({ length: 24 }, (_, h) => h);
 export default function HeatmapPage() {
   const [params] = useSearchParams();
   const setParams = useSetParams();
-  const f = readFilters(params);
+  const f: FilterKeys = { ...readFilters(params), linie: undefined };
   const q = useQuery({
     queryKey: ["heatmap", f.g, f.bhf, f.von, f.bis],
     queryFn: () =>
@@ -71,6 +82,7 @@ export default function HeatmapPage() {
 
   return (
     <div className="mx-auto max-w-[1200px] px-4 pt-4 md:px-8 md:pt-6">
+      <MusterSwitch />
       <div className="mb-4 flex flex-wrap items-end justify-between gap-4">
         <div>
           <p className="mb-1.5 text-[12.5px] text-text-3">{t("hm.crumb")}</p>
@@ -102,19 +114,7 @@ function HeatmapView({
 }) {
   const transposed = useNarrow();
   const [asTable, setAsTable] = useState(false);
-  const [tip, setTip] = useState<Tip>(null);
-
-  // A tap shows the cell under it and a tap anywhere else clears it; any scroll clears it too.
-  useEffect(() => {
-    const off = () => setTip(null);
-    const tap = (e: PointerEvent) => setTip(tipAt(e));
-    addEventListener("scroll", off, true);
-    addEventListener("pointerdown", tap);
-    return () => {
-      removeEventListener("scroll", off, true);
-      removeEventListener("pointerdown", tap);
-    };
-  }, []);
+  const [tip, setTip] = useTip();
 
   const byKey = new Map(data.cells.map((c) => [c.weekday * 24 + c.hour, c]));
   const slots = DAYS.flatMap((d) =>
@@ -307,24 +307,9 @@ function HeatmapView({
         </ul>
       </section>
 
-      {tip && (
-        <div
-          role="tooltip"
-          className="pointer-events-none fixed z-50 max-w-[260px] -translate-x-1/2 -translate-y-full rounded-[7px] bg-text px-[9px] py-1.5 text-[12.5px] text-bg shadow-card"
-          style={{ left: Math.min(Math.max(tip.x, 138), innerWidth - 138), top: tip.y - 12 }}
-        >
-          {tip.text}
-        </div>
-      )}
+      <TipBox tip={tip} />
     </div>
   );
-}
-
-/** The tooltip for the cell under a pointer, or none outside the cells. */
-function tipAt(e: Point): Tip {
-  const el = e.target instanceof Element ? e.target : null;
-  const td = el?.closest<HTMLElement>("[data-tip]");
-  return td ? { text: td.dataset.tip!, x: e.clientX, y: e.clientY } : null;
 }
 
 function Skeleton() {
