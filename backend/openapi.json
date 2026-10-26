@@ -101,6 +101,85 @@
     }
    }
   },
+  "/karte": {
+   "get": {
+    "summary": "Karte",
+    "operationId": "getKarte",
+    "parameters": [
+     {
+      "name": "gattung",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "enum": [
+        "alle",
+        "regional",
+        "fern"
+       ],
+       "type": "string",
+       "default": "alle",
+       "title": "Gattung"
+      }
+     },
+     {
+      "name": "von",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string",
+         "pattern": "^\\d{4}-(0[1-9]|1[0-2])$"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Von"
+      }
+     },
+     {
+      "name": "bis",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string",
+         "pattern": "^\\d{4}-(0[1-9]|1[0-2])$"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Bis"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Karte"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/stationen": {
    "get": {
     "summary": "Stationen",
@@ -180,6 +259,95 @@
        "application/json": {
         "schema": {
          "$ref": "#/components/schemas/Station"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/stationen/{eva}/statistik": {
+   "get": {
+    "summary": "Statistik",
+    "operationId": "getStatistik",
+    "parameters": [
+     {
+      "name": "eva",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "pattern": "^[0-9]+$",
+       "title": "Eva"
+      }
+     },
+     {
+      "name": "gattung",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "enum": [
+        "alle",
+        "regional",
+        "fern"
+       ],
+       "type": "string",
+       "default": "alle",
+       "title": "Gattung"
+      }
+     },
+     {
+      "name": "von",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string",
+         "pattern": "^\\d{4}-(0[1-9]|1[0-2])$"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Von"
+      }
+     },
+     {
+      "name": "bis",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string",
+         "pattern": "^\\d{4}-(0[1-9]|1[0-2])$"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Bis"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Statistik"
         }
        }
       }
@@ -362,6 +530,65 @@
     ],
     "title": "Day"
    },
+   "Gruppe": {
+    "properties": {
+     "n": {
+      "type": "integer",
+      "title": "N"
+     },
+     "ausfallquote": {
+      "type": "number",
+      "title": "Ausfallquote"
+     },
+     "median": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Median"
+     },
+     "p90": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "P90"
+     },
+     "puenktlich": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Puenktlich"
+     },
+     "gruppe": {
+      "type": "string",
+      "title": "Gruppe"
+     }
+    },
+    "type": "object",
+    "required": [
+     "n",
+     "ausfallquote",
+     "median",
+     "p90",
+     "puenktlich",
+     "gruppe"
+    ],
+    "title": "Gruppe"
+   },
    "HTTPValidationError": {
     "properties": {
      "detail": {
@@ -414,6 +641,116 @@
     ],
     "title": "Heatmap"
    },
+   "Karte": {
+    "properties": {
+     "von": {
+      "type": "string",
+      "title": "Von"
+     },
+     "bis": {
+      "type": "string",
+      "title": "Bis"
+     },
+     "n": {
+      "type": "integer",
+      "title": "N"
+     },
+     "ohne_koordinaten": {
+      "type": "integer",
+      "title": "Ohne Koordinaten"
+     },
+     "stationen": {
+      "items": {
+       "$ref": "#/components/schemas/KartenStation"
+      },
+      "type": "array",
+      "title": "Stationen"
+     }
+    },
+    "type": "object",
+    "required": [
+     "von",
+     "bis",
+     "n",
+     "ohne_koordinaten",
+     "stationen"
+    ],
+    "title": "Karte"
+   },
+   "KartenStation": {
+    "properties": {
+     "n": {
+      "type": "integer",
+      "title": "N"
+     },
+     "ausfallquote": {
+      "type": "number",
+      "title": "Ausfallquote"
+     },
+     "median": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Median"
+     },
+     "p90": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "P90"
+     },
+     "puenktlich": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Puenktlich"
+     },
+     "eva": {
+      "type": "string",
+      "title": "Eva"
+     },
+     "name": {
+      "type": "string",
+      "title": "Name"
+     },
+     "lat": {
+      "type": "number",
+      "title": "Lat"
+     },
+     "lon": {
+      "type": "number",
+      "title": "Lon"
+     }
+    },
+    "type": "object",
+    "required": [
+     "n",
+     "ausfallquote",
+     "median",
+     "p90",
+     "puenktlich",
+     "eva",
+     "name",
+     "lat",
+     "lon"
+    ],
+    "title": "KartenStation"
+   },
    "Station": {
     "properties": {
      "eva": {
@@ -423,14 +760,145 @@
      "name": {
       "type": "string",
       "title": "Name"
+     },
+     "land": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Land"
+     },
+     "n": {
+      "type": "integer",
+      "title": "N"
      }
     },
     "type": "object",
     "required": [
      "eva",
-     "name"
+     "name",
+     "land",
+     "n"
     ],
     "title": "Station"
+   },
+   "Statistik": {
+    "properties": {
+     "station": {
+      "$ref": "#/components/schemas/Station"
+     },
+     "von": {
+      "type": "string",
+      "title": "Von"
+     },
+     "bis": {
+      "type": "string",
+      "title": "Bis"
+     },
+     "n": {
+      "type": "integer",
+      "title": "N"
+     },
+     "gesamt": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/Stats"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "verteilung": {
+      "items": {
+       "type": "integer"
+      },
+      "type": "array",
+      "title": "Verteilung",
+      "description": "Non-cancelled stops per delay bin in whole minutes, 7 values: < 1 (early included), [1, 3), [3, 6), [6, 10), [10, 20), [20, 30), >= 30. Empty when n is 0."
+     },
+     "ausgefallen": {
+      "type": "integer",
+      "title": "Ausgefallen"
+     },
+     "gruppen": {
+      "items": {
+       "$ref": "#/components/schemas/Gruppe"
+      },
+      "type": "array",
+      "title": "Gruppen"
+     }
+    },
+    "type": "object",
+    "required": [
+     "station",
+     "von",
+     "bis",
+     "n",
+     "gesamt",
+     "verteilung",
+     "ausgefallen",
+     "gruppen"
+    ],
+    "title": "Statistik"
+   },
+   "Stats": {
+    "properties": {
+     "n": {
+      "type": "integer",
+      "title": "N"
+     },
+     "ausfallquote": {
+      "type": "number",
+      "title": "Ausfallquote"
+     },
+     "median": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Median"
+     },
+     "p90": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "P90"
+     },
+     "puenktlich": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Puenktlich"
+     }
+    },
+    "type": "object",
+    "required": [
+     "n",
+     "ausfallquote",
+     "median",
+     "p90",
+     "puenktlich"
+    ],
+    "title": "Stats"
    },
    "ValidationError": {
     "properties": {

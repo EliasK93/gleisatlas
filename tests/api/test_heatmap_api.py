@@ -3,17 +3,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from backend import main
-from pipeline.aggregate import stations
 
-
-@pytest.fixture
-def client(mini: pl.DataFrame, source: pl.DataFrame, tmp_path, monkeypatch) -> TestClient:
-    agg, st = tmp_path / "agg.parquet", tmp_path / "stations.parquet"
-    mini.write_parquet(agg)
-    stations(source.lazy()).write_parquet(st)
-    monkeypatch.setattr(main, "AGG_PATH", str(agg))
-    monkeypatch.setattr(main, "STATIONS_PATH", str(st))
-    return TestClient(main.app)
+ALPHA = {"eva": "1", "name": "Alpha", "land": "Nordrhein-Westfalen", "n": 5}
 
 
 def heatmap(client: TestClient, **params) -> dict:
@@ -52,9 +43,13 @@ def test_station_filter_by_eva_not_name(client: TestClient):
 
 def test_stations_without_name_are_skipped(client: TestClient, tmp_path, monkeypatch):
     path = tmp_path / "named.parquet"
-    pl.DataFrame({"eva": ["1", "3"], "name": ["Alpha", None]}).write_parquet(path)
+    pl.DataFrame(
+        {"eva": ["1", "3"], "name": ["Alpha", None], "n": [5, 2], "land": ["Hessen", None]}
+    ).write_parquet(path)
     monkeypatch.setattr(main, "STATIONS_PATH", str(path))
-    assert client.get("/stationen").json() == [{"eva": "1", "name": "Alpha"}]
+    assert client.get("/stationen").json() == [
+        {"eva": "1", "name": "Alpha", "land": "Hessen", "n": 5}
+    ]
 
 
 def test_cells_are_sorted_by_weekday_and_hour():
@@ -100,8 +95,25 @@ def test_weekday_totals_from_histogram(client: TestClient):
 
 
 def test_station_by_eva(client: TestClient):
-    assert client.get("/stationen/1").json() == {"eva": "1", "name": "Alpha"}
+    assert client.get("/stationen/1").json() == ALPHA
     assert client.get("/stationen/999").status_code == 404
+
+
+def test_station_carries_land_and_stop_count(client: TestClient):
+    assert client.get("/stationen/1").json() == ALPHA
+    assert client.get("/stationen/2").json() == {"eva": "2", "name": "Beta", "land": None, "n": 1}
+
+
+def test_search_puts_prefix_matches_first_then_busiest(client: TestClient, tmp_path, monkeypatch):
+    path = tmp_path / "search.parquet"
+    names = ["Bad Alpha", "Alpha Dorf", "Alphaville", "Alpha B", "Beta"]
+    pl.DataFrame(
+        {"eva": list("12345"), "name": names, "n": [100, 1, 50, 1, 500], "land": None}
+    ).write_parquet(path)
+    monkeypatch.setattr(main, "STATIONS_PATH", str(path))
+    found = client.get("/stationen", params={"q": "ALP"}).json()
+    assert [s["name"] for s in found] == ["Alphaville", "Alpha B", "Alpha Dorf", "Bad Alpha"]
+    assert client.get("/stationen", params={"q": "."}).json() == []  # literal, not a regex
 
 
 def test_datenstand(client: TestClient):
@@ -111,4 +123,4 @@ def test_datenstand(client: TestClient):
 def test_endpoints(client: TestClient):
     r = client.get("/heatmap", params={"gattung": "fern", "eva": "1", "von": "2026-09"})
     assert r.status_code == 200 and r.json()["n"] == 1
-    assert client.get("/stationen", params={"q": "alp"}).json() == [{"eva": "1", "name": "Alpha"}]
+    assert client.get("/stationen", params={"q": "alp"}).json() == [ALPHA]

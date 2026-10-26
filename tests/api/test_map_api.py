@@ -1,0 +1,148 @@
+import os
+
+import polars as pl
+import pytest
+from fastapi.testclient import TestClient
+
+from backend import main
+
+# Mini data (see tests/conftest.py): station 1 has coordinates, station 2 has none.
+# Station 1 buckets: regional 0, 0, 7, cancelled; fern 10. Station 2 (2026-10): regional 10.
+
+
+def karte(client: TestClient, **params) -> dict:
+    r = client.get("/karte", params=params)
+    assert r.status_code == 200
+    return r.json()
+
+
+def statistik(client: TestClient, eva: str, **params) -> dict:
+    r = client.get(f"/stationen/{eva}/statistik", params=params)
+    assert r.status_code == 200
+    return r.json()
+
+
+def test_karte_lists_only_stations_with_coordinates(client: TestClient):
+    k = karte(client)
+    assert (k["n"], k["ohne_koordinaten"], k["von"], k["bis"]) == (6, 1, "2026-09", "2026-10")
+    (s,) = k["stationen"]
+    assert (s["eva"], s["name"], s["lat"], s["lon"]) == ("1", "Alpha", 50.0, 7.0)
+    assert (s["n"], s["ausfallquote"], s["median"], s["p90"]) == (5, 0.2, 0.0, 10.0)
+    assert s["puenktlich"] == pytest.approx(0.5)
+
+
+def test_karte_filters_change_n(client: TestClient):
+    assert karte(client, gattung="fern")["n"] == 1
+    assert karte(client, gattung="fern")["stationen"][0]["n"] == 1
+    assert karte(client, bis="2026-09")["n"] == 5
+    assert karte(client, bis="2026-09")["ohne_koordinaten"] == 0  # station 2 has no stops then
+    k = karte(client, von="2026-10")
+    assert (k["n"], k["ohne_koordinaten"], k["stationen"]) == (1, 1, [])
+
+
+def test_karte_is_cached_per_selection_and_follows_the_files(client: TestClient, tmp_path):
+    main.karte_for.cache_clear()
+    first = karte(client)
+    assert karte(client) == first
+    assert main.karte_for.cache_info().hits == 1
+    karte(client, gattung="fern")  # another selection is computed on its own
+    assert main.karte_for.cache_info().misses == 2
+
+    # New data under the same path is never served stale: the modification time is part of the key.
+    path = tmp_path / "stations.parquet"
+    stations = pl.read_parquet(path).with_columns(
+        name=pl.when(pl.col("eva") == "1").then(pl.lit("Renamed")).otherwise(pl.col("name"))
+    )
+    stations.write_parquet(path)
+    os.utime(path, ns=(1, path.stat().st_mtime_ns + 10**9))
+    assert karte(client)["stationen"][0]["name"] == "Renamed"
+
+
+def test_karte_empty_selection(client: TestClient):
+    assert karte(client, von="2027-01") == {
+        "von": "",
+        "bis": "",
+        "n": 0,
+        "ohne_koordinaten": 0,
+        "stationen": [],
+    }
+
+
+def test_statistik_distribution_cancelled_and_groups(client: TestClient):
+    s = statistik(client, "1")
+    assert s["station"]["name"] == "Alpha"
+    assert (s["n"], s["von"], s["bis"]) == (5, "2026-09", "2026-09")
+    assert s["gesamt"]["n"] == 5
+    assert s["verteilung"] == [2, 0, 0, 1, 1, 0, 0]  # 0, 0 | 7 | 10
+    assert s["ausgefallen"] == 1
+    assert [(g["gruppe"], g["n"]) for g in s["gruppen"]] == [("regional", 4), ("fern", 1)]
+
+
+@pytest.mark.parametrize(
+    "eva, params",
+    [
+        ("1", {}),
+        ("1", {"gattung": "regional"}),
+        ("1", {"gattung": "fern"}),
+        ("2", {}),
+        ("2", {"von": "2026-10"}),
+    ],
+)
+def test_statistik_bins_and_cancelled_sum_to_n(client: TestClient, eva: str, params: dict):
+    s = statistik(client, eva, **params)
+    assert sum(s["verteilung"]) + s["ausgefallen"] == s["n"] > 0
+    assert s["gesamt"]["n"] == s["n"]
+    assert sum(g["n"] for g in s["gruppen"]) == s["n"]
+
+
+def test_statistik_filters_change_n(client: TestClient):
+    assert statistik(client, "1", gattung="fern")["n"] == 1
+    assert [g["gruppe"] for g in statistik(client, "1", gattung="fern")["gruppen"]] == ["fern"]
+    assert statistik(client, "2", von="2026-10")["n"] == 1
+
+
+def test_statistik_without_stops_in_selection(client: TestClient):
+    s = statistik(client, "2", bis="2026-09")
+    assert s["station"]["eva"] == "2"
+    assert (s["n"], s["gesamt"], s["verteilung"], s["ausgefallen"], s["gruppen"]) == (
+        0,
+        None,
+        [],
+        0,
+        [],
+    )
+
+
+def test_statistik_unknown_or_unnamed_station_is_404(client: TestClient, tmp_path, monkeypatch):
+    assert client.get("/stationen/999/statistik").status_code == 404
+    path = tmp_path / "unnamed.parquet"
+    pl.DataFrame({"eva": ["1"], "name": [None], "n": [5], "land": [None]}).write_parquet(path)
+    monkeypatch.setattr(main, "STATIONS_PATH", str(path))
+    assert client.get("/stationen/1/statistik").status_code == 404
+
+
+@pytest.mark.parametrize(
+    "path, params",
+    [
+        ("/karte", {"gattung": "bahn"}),
+        ("/karte", {"von": "2026-9"}),
+        ("/karte", {"bis": "26-09"}),
+        ("/stationen/1/statistik", {"gattung": "bahn"}),
+        ("/stationen/1/statistik", {"von": "2026-13"}),
+        ("/stationen/abc/statistik", {}),
+    ],
+)
+def test_invalid_input_is_422(client: TestClient, path: str, params: dict):
+    assert client.get(path, params=params).status_code == 422
+
+
+def test_large_responses_are_gzipped(client: TestClient, tmp_path, monkeypatch):
+    path = tmp_path / "many.parquet"
+    names = [f"Station number {i}" for i in range(100)]
+    pl.DataFrame(
+        {"eva": [str(i) for i in range(100)], "name": names, "n": 1, "land": None}
+    ).write_parquet(path)
+    monkeypatch.setattr(main, "STATIONS_PATH", str(path))
+    r = client.get("/stationen", params={"limit": 100}, headers={"accept-encoding": "gzip"})
+    assert r.headers["content-encoding"] == "gzip"
+    assert len(r.json()) == 100

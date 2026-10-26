@@ -21,6 +21,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/karte": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Karte */
+        get: operations["getKarte"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/stationen": {
         parameters: {
             query?: never;
@@ -47,6 +64,23 @@ export interface paths {
         };
         /** Station */
         get: operations["getStation"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/stationen/{eva}/statistik": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Statistik */
+        get: operations["getStatistik"];
         put?: never;
         post?: never;
         delete?: never;
@@ -115,6 +149,21 @@ export interface components {
             /** Weekday */
             weekday: number;
         };
+        /** Gruppe */
+        Gruppe: {
+            /** N */
+            n: number;
+            /** Ausfallquote */
+            ausfallquote: number;
+            /** Median */
+            median: number | null;
+            /** P90 */
+            p90: number | null;
+            /** Puenktlich */
+            puenktlich: number | null;
+            /** Gruppe */
+            gruppe: string;
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
@@ -133,12 +182,83 @@ export interface components {
             /** Tage */
             tage: components["schemas"]["Day"][];
         };
+        /** Karte */
+        Karte: {
+            /** Von */
+            von: string;
+            /** Bis */
+            bis: string;
+            /** N */
+            n: number;
+            /** Ohne Koordinaten */
+            ohne_koordinaten: number;
+            /** Stationen */
+            stationen: components["schemas"]["KartenStation"][];
+        };
+        /** KartenStation */
+        KartenStation: {
+            /** N */
+            n: number;
+            /** Ausfallquote */
+            ausfallquote: number;
+            /** Median */
+            median: number | null;
+            /** P90 */
+            p90: number | null;
+            /** Puenktlich */
+            puenktlich: number | null;
+            /** Eva */
+            eva: string;
+            /** Name */
+            name: string;
+            /** Lat */
+            lat: number;
+            /** Lon */
+            lon: number;
+        };
         /** Station */
         Station: {
             /** Eva */
             eva: string;
             /** Name */
             name: string;
+            /** Land */
+            land: string | null;
+            /** N */
+            n: number;
+        };
+        /** Statistik */
+        Statistik: {
+            station: components["schemas"]["Station"];
+            /** Von */
+            von: string;
+            /** Bis */
+            bis: string;
+            /** N */
+            n: number;
+            gesamt: components["schemas"]["Stats"] | null;
+            /**
+             * Verteilung
+             * @description Non-cancelled stops per delay bin in whole minutes, 7 values: < 1 (early included), [1, 3), [3, 6), [6, 10), [10, 20), [20, 30), >= 30. Empty when n is 0.
+             */
+            verteilung: number[];
+            /** Ausgefallen */
+            ausgefallen: number;
+            /** Gruppen */
+            gruppen: components["schemas"]["Gruppe"][];
+        };
+        /** Stats */
+        Stats: {
+            /** N */
+            n: number;
+            /** Ausfallquote */
+            ausfallquote: number;
+            /** Median */
+            median: number | null;
+            /** P90 */
+            p90: number | null;
+            /** Puenktlich */
+            puenktlich: number | null;
         };
         /** ValidationError */
         ValidationError: {
@@ -183,6 +303,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Heatmap"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    getKarte: {
+        parameters: {
+            query?: {
+                gattung?: "alle" | "regional" | "fern";
+                von?: string | null;
+                bis?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Karte"];
                 };
             };
             /** @description Validation Error */
@@ -246,6 +399,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Station"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    getStatistik: {
+        parameters: {
+            query?: {
+                gattung?: "alle" | "regional" | "fern";
+                von?: string | null;
+                bis?: string | null;
+            };
+            header?: never;
+            path: {
+                eva: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Statistik"];
                 };
             };
             /** @description Validation Error */
