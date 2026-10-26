@@ -76,7 +76,7 @@ Unknown or invalid values fall back to the default and are removed from the URL 
 - **The mockup's "Bald" group is included** (Live-Lage heute, Verspätungsketten, Gespeicherte Fahrten). Reason: the mockup wins over the earlier plan.
 - **Inter is bundled with Fontsource** (`@fontsource-variable/inter`), no CDN. Reason: no third-party request at runtime. The no-library alternative is copying the woff2 and writing `@font-face` by hand, but the package carries version and licence.
 - **No icon library.** The mockup's SVG paths live in one `Icon` component. Reason: about a dozen icons do not justify a dependency.
-- **The logo is one static file, `frontend/public/favicon.svg`**, used as the tab icon and as the logo image in the sidebar and top bar: a white Germany silhouette with a railway track on the gradient badge. Its colours are literal copies of `--r1` and `--accent`. Reason: a favicon cannot read CSS tokens, and one file keeps tab icon and logo identical.
+- **The logo is two static SVGs in `frontend/public/`.** `favicon.svg` is the mark: a white Germany silhouette with a railway track on the gradient badge, used as tab icon and in the mobile top bar. `logo.svg` is the wordmark: the mark plus "Gleisatlas" in Inter 650 as outlines (taken from the bundled font with fontTools and HarfBuzz), used in the sidebar and the README. Its text colours are literal copies of `--text` light and dark, switched by `prefers-color-scheme` inside the SVG, which follows the page's `color-scheme`. Reason: a favicon cannot read CSS tokens, and text as outlines keeps logo and name aligned in every renderer, GitHub included.
 - **The page logo is an `<h2>` in the `<header>`.** Reason: one banner landmark on desktop and mobile; the page's `<h1>` follows in the main area.
 - **Unbuilt pages are `<span>`s, not links.** Reason: a dead link is worse than an honest "bald".
 
@@ -98,6 +98,7 @@ Unknown or invalid values fall back to the default and are removed from the URL 
 ## 6 Platform checks
 
 - [ ] Static Web Apps serves `index.html` for path routes such as `/muster/heatmap` on reload (SPA fallback), with a direct visit and a shared link. Verify on Azure.
+- [ ] The wordmark text stays dark in Firefox and Safari when the operating system is in dark mode (the page sets `color-scheme: light`; checked in Chromium).
 - [ ] The station popover sits below its chip in Firefox and Safari. Without anchor positioning it falls back to a centred popover; tick when the product owner has seen both browsers.
 
 ## 7 Open decisions

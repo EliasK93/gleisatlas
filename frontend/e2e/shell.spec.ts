@@ -40,12 +40,19 @@ test("/ and the logo link keep the query string", async ({ page }) => {
   );
 });
 
-test("the tab icon and the logo come from the same SVG", async ({ page, request }) => {
+test("the logo is the wordmark on desktop and the mark alone on mobile", async ({
+  page,
+  request,
+  isMobile,
+}) => {
   await page.goto("/muster/heatmap");
   await expect(page.locator('link[rel="icon"]')).toHaveAttribute("href", "/favicon.svg");
-  await expect(page.getByRole("banner").locator('img[src="/favicon.svg"]')).toBeVisible();
-  const res = await request.get("/favicon.svg");
-  expect(res.headers()["content-type"]).toContain("image/svg+xml");
+  const logo = page.getByRole("banner").getByRole("img", { name: "Gleisatlas" });
+  await expect(logo).toBeVisible();
+  const shown = isMobile ? "/favicon.svg" : "/logo.svg";
+  await expect.poll(() => logo.evaluate((img: HTMLImageElement) => img.currentSrc)).toMatch(shown);
+  for (const file of ["/favicon.svg", "/logo.svg"])
+    expect((await request.get(file)).headers()["content-type"]).toContain("image/svg+xml");
 });
 
 test("a filter change after another key keeps the heatmap page mounted", async ({ page }) => {

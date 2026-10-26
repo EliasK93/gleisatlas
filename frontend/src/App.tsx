@@ -59,13 +59,12 @@ function Shell() {
       <div className="md:sticky md:top-0 md:flex md:h-screen md:flex-col md:gap-1 md:overflow-y-auto md:border-r md:border-border md:bg-surface md:px-3 md:py-4">
         <header className="flex items-center gap-3 border-b border-border bg-surface px-4 py-2.5 md:block md:border-0 md:bg-transparent md:p-0">
           <h2>
-            <Link
-              to={{ pathname: "/", search }}
-              className="hit flex items-center gap-2.5 text-base font-[650] tracking-[-0.01em] md:px-2 md:pt-1 md:pb-3.5 md:text-[17px]"
-            >
-              <img src="/favicon.svg" alt="" className="size-7" />
-              {/* On mobile the top bar shows the mark only; the name stays for screen readers. */}
-              <span className="max-md:sr-only">{t("app.title")}</span>
+            <Link to={{ pathname: "/", search }} className="hit flex md:px-2 md:pt-1 md:pb-3.5">
+              {/* Wordmark with the name as outlines; the mobile top bar shows the mark only. */}
+              <picture>
+                <source media="(min-width: 768px)" srcSet="/logo.svg" />
+                <img src="/favicon.svg" alt={t("app.title")} className="h-7 w-auto" />
+              </picture>
             </Link>
           </h2>
           <div className="min-w-0 flex-1 md:hidden">

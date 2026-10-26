@@ -1,4 +1,4 @@
-# <img src="frontend/public/favicon.svg" width="32" height="32" align="absmiddle" alt=""> Gleisatlas
+# <img src="frontend/public/logo.svg" height="44" alt="Gleisatlas">
 
 [![CI](https://github.com/EliasK93/gleisatlas/actions/workflows/gate.yml/badge.svg)](https://github.com/EliasK93/gleisatlas/actions/workflows/gate.yml) [![Tests](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/EliasK93/3b48a1a6b1af4d54d8e76c88ed1e72d4/raw/tests.json)](https://github.com/EliasK93/gleisatlas/actions/workflows/gate.yml) [![License](https://img.shields.io/github/license/EliasK93/gleisatlas)](LICENSE) ![Platform](https://img.shields.io/badge/platform-Web-blue)
 
