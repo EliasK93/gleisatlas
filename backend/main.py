@@ -2,6 +2,7 @@
 
 import calendar
 import os
+import threading
 from dataclasses import dataclass
 from datetime import date
 from functools import lru_cache
@@ -146,6 +147,18 @@ class Datenstand(BaseModel):
     fahrplanwechsel: list[str]  # ISO dates of the timetable changes inside the data range
 
 
+MAX_QUERIES = 4
+_queries = threading.BoundedSemaphore(MAX_QUERIES)
+
+
+def collect(lf: pl.LazyFrame) -> pl.DataFrame:
+    """Run a query with at most MAX_QUERIES in flight: dozens of routes in FastAPI's thread pool
+    would otherwise exhaust Polars' blocking thread pool. The only place a query is executed."""
+    # ponytail: one cap per process; revisit with async routes or several replicas
+    with _queries:
+        return lf.collect()
+
+
 def to_stats(s: CellStats) -> Stats:
     return Stats(
         n=s.n,
@@ -167,12 +180,12 @@ def stats_of(group: pl.DataFrame) -> Stats:
 
 def named_stations() -> pl.DataFrame:
     # a few EVAs have no name in the source
-    return pl.read_parquet(STATIONS_PATH).drop_nulls("name")
+    return collect(pl.scan_parquet(STATIONS_PATH)).drop_nulls("name")
 
 
 @lru_cache(maxsize=1)
 def _monate_for(path: str, mtime: int) -> pl.DataFrame:  # mtime is part of the key: never stale
-    return pl.read_parquet(path).sort("month")
+    return collect(pl.scan_parquet(path)).sort("month")
 
 
 def monate() -> pl.DataFrame:
@@ -222,9 +235,11 @@ def selection(
 
 def span(lf: pl.LazyFrame) -> tuple[str, str, int] | None:
     """(first month, last month, stops) of a selection; None when it is empty."""
-    row = lf.select(
-        von=pl.col("month").min(), bis=pl.col("month").max(), n=pl.col("n").sum(), rows=pl.len()
-    ).collect()
+    row = collect(
+        lf.select(
+            von=pl.col("month").min(), bis=pl.col("month").max(), n=pl.col("n").sum(), rows=pl.len()
+        )
+    )
     return (
         None if row["rows"].item() == 0 else (row["von"].item(), row["bis"].item(), row["n"].item())
     )
@@ -241,11 +256,10 @@ def heatmap_from(
     found = span(sel)
     if found is None:
         return Heatmap(von="", bis="", n=0, cells=[], tage=[])
-    merged = (
+    merged = collect(
         sel.group_by("weekday", "hour", "bucket")
         .agg(n=pl.col("n").sum())
         .sort("weekday", "hour")  # group_by order is arbitrary; keep cells stable
-        .collect()
     )
     per_day = merged.group_by("weekday", "bucket").agg(n=pl.col("n").sum()).sort("weekday")
     # partition keys are typed as object; they are the integer weekday and hour
@@ -325,7 +339,7 @@ def station_stats_for(
     found = span(sel)
     if found is None:
         return None, {}
-    per_station = sel.group_by("eva", "bucket").agg(n=pl.col("n").sum()).collect()
+    per_station = collect(sel.group_by("eva", "bucket").agg(n=pl.col("n").sum()))
     parts = sorted(per_station.partition_by("eva", as_dict=True).items())  # pyright: ignore[reportArgumentType]
     return found, {eva: cell_stats_of(g) for (eva,), g in parts}
 
@@ -342,11 +356,10 @@ class Entry:
 
 def line_entries(sel: pl.LazyFrame, linien: str) -> list[Entry]:
     """Statistics per line of a lines selection."""
-    per_line = (
+    per_line = collect(
         sel.group_by("linie", "bucket")
         .agg(n=pl.col("n").sum())
         .join(pl.scan_parquet(linien), on="linie")
-        .collect()
     )
     return [
         Entry(id=linie, name=g["label"][0], typ=g["typ"][0], stats=cell_stats_of(g))
@@ -443,7 +456,7 @@ def statistik(
         return Statistik(
             station=st, von="", bis="", n=0, gesamt=None, verteilung=[], ausgefallen=0, gruppen=[]
         )
-    per_group = sel.group_by("gruppe", "bucket").agg(n=pl.col("n").sum()).collect()
+    per_group = collect(sel.group_by("gruppe", "bucket").agg(n=pl.col("n").sum()))
     merged = per_group.group_by("bucket").agg(n=pl.col("n").sum())
     bins = delay_bins(merged.iter_rows())
     groups = dict(per_group.partition_by("gruppe", as_dict=True))  # pyright: ignore[reportArgumentType]
@@ -505,7 +518,7 @@ def zeitverlauf(
         raise HTTPException(status_code=422, detail="Give either eva or linie, not both")
     titel = None
     if linie:
-        labels = pl.read_parquet(LINIEN_PATH).filter(pl.col("linie") == linie)["label"]
+        labels = collect(pl.scan_parquet(LINIEN_PATH).filter(pl.col("linie") == linie))["label"]
         if labels.is_empty():
             raise HTTPException(status_code=404, detail="Unknown line")
         titel = labels[0]
@@ -514,8 +527,8 @@ def zeitverlauf(
         lf = pl.scan_parquet(AGG_PATH)
         if eva:
             titel = known_station(eva).name
-    grouped = (
-        selection(lf, gattung, eva).group_by("month", "bucket").agg(n=pl.col("n").sum()).collect()
+    grouped = collect(
+        selection(lf, gattung, eva).group_by("month", "bucket").agg(n=pl.col("n").sum())
     )
     groups = {m: g for (m,), g in grouped.partition_by("month", as_dict=True).items()}  # pyright: ignore[reportArgumentType]
     return Zeitverlauf(
