@@ -1,16 +1,29 @@
-import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { useRef } from "react";
 import { useSearchParams } from "react-router";
 import { api, must } from "./api";
 import { t } from "./i18n";
 import { Icon } from "./Icon";
 import { readFilters, withParam } from "./metrics";
+import { StationSearch } from "./StationSearch";
 
 const chip = (on: boolean) =>
   `chip ${on ? "border-transparent bg-accent-soft text-accent" : "border-border bg-surface text-text-2"}`;
 
-/** Global filter bar of the Discover area. All state lives in the URL. */
-export function Filters({ period }: { period?: string }) {
+/**
+ * Global filter bar of the Discover area. All state lives in the URL. `noStation` leaves out the
+ * Bahnhof chip. `stationName` is the selected station's name when the page already has it:
+ * a string uses it, `null` waits for the page's data, `undefined` looks the station up.
+ */
+export function Filters({
+  period,
+  noStation,
+  stationName,
+}: {
+  period?: string;
+  noStation?: boolean;
+  stationName?: string | null;
+}) {
   const [params, setParams] = useSearchParams();
   const f = readFilters(params);
   return (
@@ -33,7 +46,13 @@ export function Filters({ period }: { period?: string }) {
           <option value="fern">{t("filter.fern")}</option>
         </select>
       </label>
-      <StationFilter eva={f.bhf} onPick={(eva) => setParams(withParam("bhf", eva))} />
+      {!noStation && (
+        <StationFilter
+          eva={f.bhf}
+          name={stationName}
+          onPick={(eva) => setParams(withParam("bhf", eva))}
+        />
+      )}
       <button
         type="button"
         onClick={() => setParams({})}
@@ -50,35 +69,24 @@ const ANCHORED =
   "supports-[anchor-name:--a]:inset-auto supports-[anchor-name:--a]:m-0 supports-[anchor-name:--a]:mt-1 supports-[anchor-name:--a]:[position-anchor:--bhf] supports-[anchor-name:--a]:[position-try-fallbacks:flip-inline] supports-[anchor-name:--a]:[top:anchor(bottom)] supports-[anchor-name:--a]:[left:anchor(left)]";
 
 /** Chip with a native popover holding a small combobox over /stationen. Filters by EVA only. */
-function StationFilter({ eva, onPick }: { eva?: string; onPick: (eva: string) => void }) {
-  const [q, setQ] = useState("");
-  const [active, setActive] = useState(0);
+function StationFilter({
+  eva,
+  name,
+  onPick,
+}: {
+  eva?: string;
+  name?: string | null;
+  onPick: (eva: string) => void;
+}) {
   const pop = useRef<HTMLDivElement>(null);
   const invoker = useRef<HTMLButtonElement>(null);
   const input = useRef<HTMLInputElement>(null);
   const station = useQuery({
     queryKey: ["station", eva],
     queryFn: () => api.GET("/stationen/{eva}", { params: { path: { eva: eva! } } }).then(must),
-    enabled: !!eva,
+    enabled: !!eva && name === undefined,
     staleTime: Infinity,
   });
-  const term = q.trim();
-  // ponytail: one request per keystroke, cached per term; debounce if the API gets slow
-  const hits = useQuery({
-    queryKey: ["stationen", term],
-    queryFn: () => api.GET("/stationen", { params: { query: { q: term, limit: 8 } } }).then(must),
-    enabled: term !== "",
-    staleTime: Infinity,
-    placeholderData: keepPreviousData,
-  });
-  const list = term ? (hits.data ?? []) : [];
-  const pick = (i: number) => {
-    const s = list[i];
-    if (!s) return;
-    onPick(s.eva);
-    pop.current?.hidePopover();
-    setQ("");
-  };
   return (
     <>
       <button
@@ -89,7 +97,7 @@ function StationFilter({ eva, onPick }: { eva?: string; onPick: (eva: string) =>
       >
         {t("filter.chip", { label: t("filter.station") })}
         <b className={`px-1 font-semibold ${eva ? "" : "text-text"}`}>
-          {!eva ? t("filter.all") : (station.data?.name ?? t("filter.eva", { eva }))}
+          {!eva ? t("filter.all") : (name ?? station.data?.name ?? t("filter.eva", { eva }))}
         </b>
         <Icon name="chev" className="size-4" />
       </button>
@@ -108,50 +116,15 @@ function StationFilter({ eva, onPick }: { eva?: string; onPick: (eva: string) =>
         }}
         className={`w-80 max-w-[calc(100vw-32px)] rounded-[10px] border border-border bg-surface p-1 text-text shadow-card ${ANCHORED}`}
       >
-        <input
-          ref={input}
-          role="combobox"
-          aria-label={t("filter.stationSearch")}
-          aria-expanded={list.length > 0}
-          aria-controls="bhf-list"
-          aria-autocomplete="list"
-          aria-activedescendant={list[active] ? `bhf-${list[active].eva}` : undefined}
-          placeholder={t("filter.stationSearchPlaceholder")}
-          autoComplete="off"
-          value={q}
-          onChange={(e) => {
-            setQ(e.target.value);
-            setActive(0);
+        <StationSearch
+          variant="inline"
+          label={t("filter.stationSearch")}
+          inputRef={input}
+          onPick={(picked) => {
+            onPick(picked);
+            pop.current?.hidePopover();
           }}
-          onKeyDown={(e) => {
-            if (e.key === "ArrowDown")
-              setActive((a) => Math.max(0, Math.min(a + 1, list.length - 1)));
-            else if (e.key === "ArrowUp") setActive((a) => Math.max(a - 1, 0));
-            else if (e.key === "Enter") pick(active);
-            else return;
-            e.preventDefault();
-          }}
-          className="h-9 w-full rounded-lg border border-border bg-surface-2 px-2.5 focus:border-accent focus:bg-surface"
         />
-        <ul id="bhf-list" role="listbox" aria-label={t("filter.station")} className="mt-1">
-          {list.map((s, i) => (
-            <li
-              key={s.eva}
-              id={`bhf-${s.eva}`}
-              role="option"
-              aria-selected={i === active}
-              onClick={() => pick(i)}
-              onPointerMove={() => setActive(i)}
-              className={`cursor-pointer rounded-md px-2.5 py-1.5 ${i === active ? "bg-surface-2" : ""}`}
-            >
-              <span className="block font-semibold">{s.name}</span>
-              <span className="block text-xs text-text-3">{t("filter.eva", { eva: s.eva })}</span>
-            </li>
-          ))}
-        </ul>
-        {term && hits.isSuccess && list.length === 0 && (
-          <p className="px-2.5 py-2 text-xs text-text-3">{t("filter.stationNone")}</p>
-        )}
       </div>
     </>
   );

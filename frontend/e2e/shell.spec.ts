@@ -2,7 +2,6 @@ import { expect, test } from "@playwright/test";
 import { mockApi } from "./fixtures";
 
 const UNBUILT = [
-  "Karte",
   "Rankings",
   "Zeitverlauf",
   "Verbindung planen",
@@ -15,7 +14,7 @@ test.beforeEach(async ({ page }) => {
 });
 
 test("the shell shows title, disclaimer and attribution", async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/muster/heatmap");
   await expect(
     page.getByRole("banner").getByRole("heading", { name: "Verlässlich" }),
   ).toBeVisible();
@@ -25,21 +24,31 @@ test("the shell shows title, disclaimer and attribution", async ({ page }) => {
   await expect(page.getByRole("main")).toBeAttached();
 });
 
-test("/ redirects to the heatmap, unknown paths too", async ({ page }) => {
+test("/ redirects to the map, unknown paths too", async ({ page }) => {
   await page.goto("/");
-  await expect(page).toHaveURL(/\/muster\/heatmap$/);
-  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Wann ist es am schlimmsten?");
+  await expect(page).toHaveURL(/\/karte$/);
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Wie zuverlässig ist die Bahn?");
   await page.goto("/gibt-es-nicht");
-  await expect(page).toHaveURL(/\/muster\/heatmap$/);
+  await expect(page).toHaveURL(/\/karte$/);
 });
 
 test("/ and the logo link keep the query string", async ({ page }) => {
   await page.goto("/?g=fern");
-  await expect(page).toHaveURL(/\/muster\/heatmap\?g=fern$/);
+  await expect(page).toHaveURL(/\/karte\?g=fern$/);
   await expect(page.getByRole("banner").getByRole("link", { name: "Verlässlich" })).toHaveAttribute(
     "href",
     "/?g=fern",
   );
+});
+
+test("a filter change after another key keeps the heatmap page mounted", async ({ page }) => {
+  await page.goto("/muster/heatmap?k=median");
+  const title = page.getByRole("heading", { level: 1 });
+  await expect(title).toBeVisible();
+  await title.evaluate((el) => (el.dataset.mark = "kept"));
+  await page.getByLabel("Gattung:").selectOption("fern");
+  await expect(page).toHaveURL(/\/muster\/heatmap\?g=fern&k=median$/);
+  await expect(title).toHaveAttribute("data-mark", "kept");
 });
 
 test("Inter is loaded", async ({ page }) => {
@@ -65,6 +74,7 @@ test.describe("desktop", () => {
     const current = nav.getByRole("link", { name: "Wochentag × Uhrzeit" });
     await expect(current).toHaveAttribute("aria-current", "page");
     await expect(current).toHaveAttribute("href", "/muster/heatmap?g=fern");
+    await expect(nav.getByRole("link", { name: "Karte" })).toHaveAttribute("href", "/karte?g=fern");
     for (const name of UNBUILT) {
       await expect(nav.getByText(name, { exact: true })).toBeVisible();
       await expect(page.getByRole("link", { name })).toHaveCount(0);
@@ -88,7 +98,8 @@ test.describe("mobile", () => {
     await expect(nav).toHaveCount(1);
     await expect(nav.getByRole("link", { name: "Muster" })).toHaveAttribute("aria-current", "page");
     await expect(nav.getByRole("link", { name: "Mehr" })).toBeVisible();
-    await expect(nav.getByRole("link", { name: /Karte|Planen/ })).toHaveCount(0);
+    await expect(nav.getByRole("link", { name: "Karte" })).toHaveAttribute("href", "/karte");
+    await expect(nav.getByRole("link", { name: /Planen/ })).toHaveCount(0);
     await expect(
       page.getByRole("link", { name: "Wochentag × Uhrzeit", includeHidden: true }),
     ).toBeHidden();

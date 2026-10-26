@@ -16,6 +16,8 @@ const PATHS = {
   alert: '<path d="M12 3 2 20h20L12 3zM12 10v4M12 17h.01"/>',
   chev: '<path d="m6 9 6 6 6-6"/>',
   star: '<path d="m12 3 2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z"/>',
+  search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
+  x: '<path d="M6 6l12 12M18 6 6 18"/>',
   empty: '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5M8 11h6"/>',
 };
 

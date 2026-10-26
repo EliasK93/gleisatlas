@@ -2,7 +2,7 @@
 import { LOCALE, t } from "./i18n";
 import type { components } from "./schema";
 
-type Stats = components["schemas"]["Day"];
+type Stats = components["schemas"]["Stats"];
 
 export const METRICS = ["puenktlich", "median", "p90", "ausfall"] as const;
 export type Metric = (typeof METRICS)[number];
@@ -66,6 +66,14 @@ export const DEFS: Record<Metric, Def> = {
     format: (v) => withUnit(oneDecimal.format(v), "unit.pct"),
   },
 };
+
+/** A share of all stops in whole percent; a non-zero share below 0.5 % reads "< 1 %", never "0 %". */
+export const share = (pct: number) => withUnit(pct > 0 && pct < 0.5 ? "< 1" : int(pct), "unit.pct");
+
+/** Lower limits in minutes of the seven delay bins of `verteilung`; the last bin is open. */
+const BIN_FROM = [0, 1, 3, 6, 10, 20, 30];
+export const binLabel = (i: number) =>
+  i === BIN_FROM.length - 1 ? `> ${BIN_FROM[i]}` : `${BIN_FROM[i]}–${BIN_FROM[i + 1]}`;
 
 /** Class 1 (very reliable) … 5 (very unreliable). */
 export function classOf(m: Metric, v: number): 1 | 2 | 3 | 4 | 5 {
@@ -138,9 +146,15 @@ export function writeFilters({ k, ...rest }: Filters): URLSearchParams {
   return new URLSearchParams(Object.entries(keys).filter((e): e is [string, string] => !!e[1]));
 }
 
-/** URL updater: sets one key, or removes it when the value is empty. */
+/**
+ * URL updater: sets one filter key, or removes it when the value is empty. The result is always
+ * in canonical order, so a write never makes the page rewrite its own URL (and remount).
+ */
 export const withParam = (key: string, value: string) => (p: URLSearchParams) => {
   if (value) p.set(key, value);
   else p.delete(key);
-  return p;
+  return writeFilters(readFilters(p));
 };
+
+/** "x von 10" for a share in whole percent: rounded down, so 96 % never reads "10 von 10". */
+export const tenths = (pct: number) => Math.floor(pct / 10);

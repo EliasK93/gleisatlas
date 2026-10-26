@@ -27,6 +27,21 @@ body {
   }
 }
 
+/* MapLibre's controls, made 44 px on mobile like every other control. The selectors are more
+   specific than MapLibre's own, which loads after this file. The attribution toggle keeps its
+   look and only gets a larger tap area. */
+@media (width < 48rem) {
+  .maplibregl-ctrl-bottom-right .maplibregl-ctrl-group button {
+    width: 44px;
+    height: 44px;
+  }
+  .maplibregl-ctrl-attrib.maplibregl-compact .maplibregl-ctrl-attrib-button::after {
+    content: "";
+    position: absolute;
+    inset: -10px;
+  }
+}
+
 @utility card {
   @apply rounded-xl border border-border bg-surface p-[18px];
 }
@@ -51,4 +66,9 @@ body {
     var(--color-surface-2) 0 3px,
     var(--color-border) 3px 5px
   );
+}
+
+/* A cancelled share: diagonal stripes in the cancellation colour, readable without colour. */
+@utility hatch-cancel {
+  background: repeating-linear-gradient(135deg, var(--color-cancel) 0 3px, transparent 3px 6px);
 }
