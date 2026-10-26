@@ -8,5 +8,6 @@ dist/
 graphify-out/
 test-results/
 playwright-report/
+*.tsbuildinfo
 CLAUDE.local.md
 *.local
