@@ -236,5 +236,5 @@ Not part of the v1.0 DoD: CI/CD auto-deploy, monitoring, UI tests, backtest of p
 | O3 | Current Azure prices / free grants | Verify before creating resources |
 | O4 | Tooling for parallel work on Windows | Check before starting; assumption: Windows-native tooling suffices |
 | O5 | Project time frame | Not fixed; optional features only after v1.0 |
-| O6 | Handling of the timetable change (train numbers) | Decide and document in the multi-month pipeline milestone |
+| O6 | Handling of the timetable change (train numbers) | Decided: mark the change; the split per period comes with the planner (see [docs/pipeline.md](docs/pipeline.md)) |
 | O7 | Freshness of the community dataset | If no new month appears for > 2 months: evaluate an own collector as fallback |

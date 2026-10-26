@@ -68,7 +68,7 @@ The filter keys `g`, `von`, `bis` and `k` are the ones of the shell (see [app-sh
 - **Escape closes the panel and the focus moves to the map.** Reason: keyboard users would otherwise lose their place when the panel disappears.
 - **Search hits of an old term are not opened.** Enter is ignored while the answer for a new term loads. Reason: pasting a new name over an old one must not open the old one.
 - **Touch targets are 44 px** on the search field, the zoom buttons and the attribution toggle, without changing how they look. Reason: design.md §5.
-- **`/karte` is cached per process** by filter combination and file modification times. Reason: the first computation takes about 0.8 s, later calls about 50 ms; the cache follows the files, so new data is never served stale.
+- **`/karte` is cached per process** by filter combination and file modification times. Reason: the first computation takes about 2 s on 11 months, later calls about 50 ms; the cache follows the files, so new data is never served stale.
 - **GZip on all responses.** Reason: the all-stations response is about 900 KB as JSON and about 230 KB compressed.
 - **The worker is bundled** (`maplibre-gl-worker.mjs?worker&url`). Reason: MapLibre v6 otherwise looks for it relative to its own module, which breaks once bundled.
 - **The MapLibre container sits in a positioned wrapper.** Reason: MapLibre's stylesheet sets its container to `position: relative`, which collapsed a container that was meant to be `absolute`.
@@ -88,7 +88,7 @@ The filter keys `g`, `von`, `bis` and `k` are the ones of the shell (see [app-sh
 
 ## 5 Milestones
 
-- [x] Station coordinates: source, join and coverage. Re-check: `uv run pytest -q`, `tests/pipeline/test_coords.py` (`test_parse_bindings_dedups_and_keeps_missing_state`), `tests/pipeline/test_aggregate.py` (`test_join_coords_on_normalised_eva`, `test_cli_aborts_without_coords`), `tests/core/test_core.py` (`test_ibnr_strips_leading_zeros`); the coverage figures in the ADR come from `pipeline.aggregate`.
+- [x] Station coordinates: source, join and coverage. Re-check: `uv run pytest -q`, `tests/pipeline/test_coords.py` (`test_parse_bindings_dedups_and_keeps_missing_state`), `tests/pipeline/test_aggregate.py` (`test_join_coords_on_normalised_eva`, `test_unlocated_station_takes_coords_of_its_only_namesake`), `tests/pipeline/test_update.py` (`test_update_aborts_without_coords_before_fetching`), `tests/core/test_core.py` (`test_ibnr_strips_leading_zeros`); the coverage figures in the ADR come from the combine step of `pipeline.update`.
 - [x] Map and station statistics API. Re-check: `uv run pytest -q`, `tests/api/test_map_api.py` (`test_karte_lists_only_stations_with_coordinates`, `test_karte_is_cached_per_selection_and_follows_the_files`, `test_statistik_bins_and_cancelled_sum_to_n`, `test_statistik_unknown_or_unnamed_station_is_404`, `test_invalid_input_is_422`, `test_large_responses_are_gzipped`), `tests/api/test_heatmap_api.py` (`test_search_puts_prefix_matches_first_then_busiest`), `tests/core/test_core.py` (`test_delay_bins_edges_negatives_and_cancelled`).
 - [x] Map start page with panel. Re-check: `npm.cmd --prefix frontend run test:e2e`, `frontend/e2e/map.spec.ts` (redirect, stations drawn without footer, `?bhf=` panel, Escape, metric switch without refetch, keys in any order load the map once, focus returns to the map, empty and error states, 360 px panel, mobile bottom sheet and 44 px map controls).
 - [x] Station search and detail page. Re-check: `frontend/e2e/search.spec.ts` (keyboard pick keeps filters, duplicate hint, stale Enter, Ctrl+K, mobile field) and `frontend/e2e/station.spec.ts` (header, tiles, distribution with a separate cancelled bar, mini heatmap and metric, soon cards, unknown and invalid station, breadcrumb back to the map, mobile).
@@ -108,7 +108,7 @@ The filter keys `g`, `von`, `bis` and `k` are the ones of the shell (see [app-sh
 - A list alternative to the map, with the rankings.
 - Whether Ctrl+K should grow into a palette (stations, lines, pages) once lines exist.
 - What the "bald" cards show first when multi-month data and lines arrive.
-- How to place the three stations that still have no coordinates: Berlin-Karlshorst `08089193`, Bochum-Langendreer `08000358` and Bürstadt (Ried) `08098360`. There are two options:
+- How to place the four stations that still have no coordinates on the 27 months: Berlin-Karlshorst `08089193`, Bochum-Langendreer `08000358`, Bürstadt (Ried) `08098360` and Trebitz (b Könnern). There are two options:
   - Add their IBNR to the matching Wikidata items, so the next `pipeline.coords` run picks them up. This is CC0 and benefits everyone. Recommended.
   - A small committed override file (EVA, lat, lon, source) taken from Wikidata or OpenStreetMap.
 
@@ -123,7 +123,7 @@ The filter keys `g`, `von`, `bis` and `k` are the ones of the shell (see [app-sh
 - The term explanations on the detail page are native `title` tooltips, which are hover-only; use a popover for touch (`ponytail:` in `StationPage.tsx`).
 - The search sends one request per keystroke, cached per term; add a debounce if the API gets slow (`ponytail:` in `StationSearch.tsx`).
 - `/karte` is cached per process, with at most 16 selections; memory and the first computation grow with the number of months, then vectorise the statistics in Polars (`ponytail:` in `backend/main.py`).
-- Stations without coordinates are not on the map (3 of 5,219 named stations; 99.9 % of stops are covered) but remain in search and detail. Secondary EVAs placed by the same-name fallback sit under their main station's dot. The federal state is missing for some stations that have coordinates.
+- Stations without coordinates are not on the map (4 of 5,419 named stations on 27 months; 99.9 % of stops are covered) but remain in search and detail. Secondary EVAs placed by the same-name fallback sit under their main station's dot. The federal state is missing for some stations that have coordinates.
 - The duplicate-name hint only knows the eight results shown.
 - The mini heatmap is a colour grid with one accessible label; the full heatmap is the accessible table. The category bars are scaled to the larger category for all metrics except punctuality.
 - MapLibre's compact attribution starts expanded until the first map move; on mobile it covers a strip above the legend until then.

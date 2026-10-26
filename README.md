@@ -13,10 +13,9 @@ uv sync
 npm.cmd --prefix frontend install
 uv run python scripts/install_hooks.py
 
-# data: download one month, fetch station coordinates, build the aggregate
-uv run python -m pipeline.download 2026-09
+# data: fetch station coordinates, then download and aggregate every month (a second run skips finished months)
 uv run python -m pipeline.coords
-uv run python -m pipeline.aggregate data/raw/monthly_processed_data/data-2026-09.parquet data/aggregate.parquet
+uv run python -m pipeline.update
 
 # API (port 8000) and web UI (separate terminals)
 uv run uvicorn backend.main:app --port 8000

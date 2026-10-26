@@ -22,7 +22,7 @@ The frame around every page: sidebar, filter bar, mobile top bar and tab bar, fo
 |---|---|---|
 | `g` | `regional`, `fern` | all categories |
 | `bhf` | EVA number | all stations |
-| `von`, `bis` | `YYYY-MM` | whole data range |
+| `von`, `bis` | `YYYY-MM` | `von`: first month with full coverage; `bis`: last month |
 | `k` | `median`, `p90`, `ausfall` | punctuality |
 
 Unknown or invalid values fall back to the default and are removed from the URL once. Sidebar and tab-bar links carry the current query string, so filters persist across pages. What `bhf` means on the map and on the station page is described in [map.md](map.md).
@@ -31,7 +31,7 @@ Unknown or invalid values fall back to the default and are removed from the URL 
 
 **Filter bar**
 
-- Zeitraum: read-only, shows the period of the current response.
+- Zeitraum: two native month `<select>`s ("von" and "bis"), filled from `/datenstand` `monate`. They show the URL's `von` and `bis`, or the defaults (full coverage start, last month), and write both to the URL. A pick that crosses the other edge moves that edge to the same month. The chip is highlighted only when `von` or `bis` is set.
 - Gattung: native `<select>` with Alle, Regionalverkehr, Fernverkehr. "Regionalverkehr" is everything that is not long-distance (S-Bahn, RB, RE and regional operators); buses are excluded in the pipeline.
 - Bahnhof: a chip that opens a native `popover` with a combobox over `/stationen`. It shows name and "EVA …" and filters by EVA only.
 - Zurücksetzen: clears all keys.
@@ -54,7 +54,7 @@ Unknown or invalid values fall back to the default and are removed from the URL 
 
 **API used by the shell**
 
-- `GET /datenstand` returns `monate` and `bahnhoefe` for the sidebar footer and `/mehr`.
+- `GET /datenstand` returns `monate` and `bahnhoefe` for the sidebar footer and `/mehr`, and `monate` and `vollabdeckung_ab` for the Zeitraum picker.
 - `GET /stationen/{eva}` resolves `bhf` to a name after a reload; 404 for an unknown EVA.
 - `GET /stationen?q=&limit=` feeds the station combobox and the search field.
 - `GET /heatmap` feeds the page (see [patterns.md](patterns.md)).
@@ -66,6 +66,7 @@ Unknown or invalid values fall back to the default and are removed from the URL 
 - **Native HTML and Tailwind, no component library.** Reason: the design is small and specific; `<select>`, `popover` and `<table>` cover the controls and keep accessibility native.
 - **Mobile layout in the first shell milestone.** Reason: retrofitting a transposed grid and tab bar later would rework the page.
 - **The heatmap is a semantic `<table>`** with a caption, header cells and hidden text in every cell, for example "Montag 7–8 Uhr: 72 % pünktlich, n = 1.240". "Als Tabelle anzeigen" shows those values in the cells. Reason: this is the accessible alternative design.md asks for, without a second component.
+- **The Zeitraum is a pair of month selects, not presets or a calendar.** Reason: the data is monthly, so a month is the finest useful unit; native selects need no library and keep the 44 px hit areas.
 - **Weekday totals come from the backend** (`tage`, from the summed histogram), not from the browser. Reason: a mean of cell medians is statistically wrong; the mockup averages medians.
 - **Colour classes follow the displayed, rounded value** (whole % and minutes, cancellations to one decimal). Reason: colour and printed number always agree. The boundary: 0.894 shows 89 % (class 2), 0.895 shows 90 % (class 1). The mockup classes the raw value, which would put 0.895 in class 2.
 - **The low-data rule counts arrived stops for the delay metrics**: `n × (1 − ausfallquote)`, because the median, P90 and punctuality come from arrived stops only. Ausfälle uses `n`. Reason: 20 stops with half cancelled would otherwise show a confident-looking value from 10 arrivals.
@@ -95,6 +96,8 @@ Unknown or invalid values fall back to the default and are removed from the URL 
 
 - [x] App shell per design: sidebar, routing, filter bar, heatmap view, mobile layout, Inter bundled. Re-check: `npm.cmd --prefix frontend run test:e2e` passes, including `frontend/e2e/shell.spec.ts` (redirects, query string kept, Inter loaded, sidebar and "bald" items, mobile tab bar and transposed grid, Mehr) and `frontend/e2e/heatmap.spec.ts` (grid, class boundaries, only-cancelled cells, low-data gate, tooltip, table mode, filters, reset, share, empty and error states, 44 px hit areas).
 
+- [x] Zeitraum picker. Re-check: `npm.cmd --prefix frontend run test:e2e`, `frontend/e2e/period.spec.ts` (12 months offered with the defaults selected, a pick writes `von` and `bis` and the next request carries both, crossing edges, map and station page, reset, mobile without sideways scroll and with 44 px hit areas).
+
 ## 6 Platform checks
 
 - [ ] Static Web Apps serves `index.html` for path routes such as `/muster/heatmap` on reload (SPA fallback), with a direct visit and a shared link. Verify on Azure.
@@ -103,12 +106,11 @@ Unknown or invalid values fall back to the default and are removed from the URL 
 
 ## 7 Open decisions
 
-- The Zeitraum picker: presets or free month range (arrives with multi-month data).
+- Whether the Zeitraum picker also gets presets such as "last 3 months" next to the two month selects.
 - Which single categories (S, RB, ICE …) become filter values; they need a new aggregate key.
 
 ## 8 Known shortcuts
 
-- Zeitraum is read-only until multi-month data and a picker exist.
 - No Linie chip: the aggregate has no line key (see [patterns.md](patterns.md)).
 - The station search sends one request per keystroke, cached per term. Add a debounce if the API gets slow.
 - Teilen gives no feedback when the browser denies the clipboard.
@@ -116,4 +118,5 @@ Unknown or invalid values fall back to the default and are removed from the URL 
 - The mobile "Muster" segmented switch (Heatmap, Rankings, Zeitverlauf) is missing until Rankings exist.
 - The sidebar has no collapse to a rail.
 - Light mode only; the tokens are ready for dark.
+- A valid month outside the data range in `von` or `bis` leaves its select blank; the API returns what it has.
 - The station popover is positioned with CSS anchor positioning, with the centred default as fallback (see Platform checks).
