@@ -117,7 +117,8 @@ def test_search_puts_prefix_matches_first_then_busiest(client: TestClient, tmp_p
 
 
 def test_datenstand(client: TestClient):
-    assert client.get("/datenstand").json() == {"monate": ["2026-09", "2026-10"], "bahnhoefe": 2}
+    d = client.get("/datenstand").json()
+    assert (d["monate"], d["bahnhoefe"]) == (["2026-09", "2026-10"], 2)
 
 
 def test_endpoints(client: TestClient):

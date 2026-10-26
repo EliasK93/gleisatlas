@@ -1,6 +1,8 @@
 """FastAPI routes over the aggregate. Route and parameter names are the public (German) contract."""
 
+import calendar
 import os
+from datetime import date
 from functools import lru_cache
 from typing import Annotated, Literal
 
@@ -11,10 +13,12 @@ from fastapi.middleware.gzip import GZipMiddleware
 from pydantic import BaseModel, Field
 
 from core.categories import FERN, REGIONAL
+from core.periods import full_coverage_start, timetable_changes
 from core.stats import cell_stats, delay_bins
 
 AGG_PATH = os.environ.get("AGGREGATE_PATH", "data/aggregate.parquet")
 STATIONS_PATH = os.environ.get("STATIONS_PATH", "data/stations.parquet")
+MONATE_PATH = os.environ.get("MONATE_PATH", "data/monate.parquet")
 
 app = FastAPI(title="Gleisatlas")
 app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:5173"], allow_methods=["GET"])
@@ -96,6 +100,9 @@ class Statistik(BaseModel):
 class Datenstand(BaseModel):
     monate: list[str]  # 'YYYY-MM'
     bahnhoefe: int  # named stations
+    vollabdeckung_ab: str  # first month with at least half the stations of the largest month
+    fehlende_stunden: dict[str, int]  # month -> hours without any stop; only months with gaps
+    fahrplanwechsel: list[str]  # ISO dates of the timetable changes inside the data range
 
 
 def stats_of(group: pl.DataFrame) -> Stats:
@@ -115,6 +122,29 @@ def named_stations() -> pl.DataFrame:
     return pl.read_parquet(STATIONS_PATH).drop_nulls("name")
 
 
+@lru_cache(maxsize=1)
+def _monate_for(path: str, mtime: int) -> pl.DataFrame:  # mtime is part of the key: never stale
+    return pl.read_parquet(path).sort("month")
+
+
+def monate() -> pl.DataFrame:
+    """Per month: missing_hours and stations."""
+    return _monate_for(MONATE_PATH, os.stat(MONATE_PATH).st_mtime_ns)
+
+
+def coverage_start() -> str | None:
+    df = monate()
+    return full_coverage_start(dict(zip(df["month"], df["stations"], strict=True)))
+
+
+def period_start(von: str | None, bis: str | None) -> str | None:
+    """The requested start, else the full-coverage start unless `bis` ends before it."""
+    if von:
+        return von
+    start = coverage_start()
+    return start if start and (not bis or bis >= start) else None
+
+
 def known_station(eva: str) -> Station:
     rows = named_stations().filter(pl.col("eva") == eva).iter_rows(named=True)
     found = next(rows, None)
@@ -129,7 +159,7 @@ def selection(
     eva: str | None = None,
     von: str | None = None,
     bis: str | None = None,
-) -> pl.DataFrame:
+) -> pl.LazyFrame:
     """von/bis: months 'YYYY-MM' (inclusive). Stations are always filtered by EVA."""
     if gattung != "alle":
         lf = lf.filter(pl.col("gruppe") == gattung)
@@ -139,7 +169,17 @@ def selection(
         lf = lf.filter(pl.col("month") >= von)
     if bis:
         lf = lf.filter(pl.col("month") <= bis)
-    return lf.collect()
+    return lf
+
+
+def span(lf: pl.LazyFrame) -> tuple[str, str, int] | None:
+    """(first month, last month, stops) of a selection; None when it is empty."""
+    row = lf.select(
+        von=pl.col("month").min(), bis=pl.col("month").max(), n=pl.col("n").sum(), rows=pl.len()
+    ).collect()
+    return (
+        None if row["rows"].item() == 0 else (row["von"].item(), row["bis"].item(), row["n"].item())
+    )
 
 
 def heatmap_from(
@@ -149,17 +189,22 @@ def heatmap_from(
     von: str | None = None,
     bis: str | None = None,
 ) -> Heatmap:
-    df = selection(lf, gattung, eva, von, bis)
-    if df.is_empty():
+    sel = selection(lf, gattung, eva, von, bis)
+    found = span(sel)
+    if found is None:
         return Heatmap(von="", bis="", n=0, cells=[], tage=[])
-    merged = df.group_by("weekday", "hour", "bucket").agg(n=pl.col("n").sum())
-    merged = merged.sort("weekday", "hour")  # group_by order is arbitrary; keep cells stable
-    per_day = df.group_by("weekday", "bucket").agg(n=pl.col("n").sum()).sort("weekday")
+    merged = (
+        sel.group_by("weekday", "hour", "bucket")
+        .agg(n=pl.col("n").sum())
+        .sort("weekday", "hour")  # group_by order is arbitrary; keep cells stable
+        .collect()
+    )
+    per_day = merged.group_by("weekday", "bucket").agg(n=pl.col("n").sum()).sort("weekday")
     # partition keys are typed as object; they are the integer weekday and hour
     return Heatmap(
-        von=str(df["month"].min()),
-        bis=str(df["month"].max()),
-        n=int(df["n"].sum()),
+        von=found[0],
+        bis=found[1],
+        n=found[2],
         cells=[
             Cell(weekday=int(w), hour=int(h), **stats_of(g).model_dump())  # pyright: ignore[reportArgumentType]
             for (w, h), g in merged.partition_by("weekday", "hour", as_dict=True).items()
@@ -178,13 +223,13 @@ def heatmap(
     von: Month = None,
     bis: Month = None,
 ) -> Heatmap:
-    return heatmap_from(pl.scan_parquet(AGG_PATH), gattung, eva, von, bis)
+    return heatmap_from(pl.scan_parquet(AGG_PATH), gattung, eva, period_start(von, bis), bis)
 
 
 @app.get("/karte", response_model=Karte, operation_id="getKarte")
 def karte(gattung: Gattung = "alle", von: Month = None, bis: Month = None) -> Karte:
     mtimes = (os.stat(AGG_PATH).st_mtime_ns, os.stat(STATIONS_PATH).st_mtime_ns)
-    return karte_for(AGG_PATH, STATIONS_PATH, mtimes, gattung, von, bis)
+    return karte_for(AGG_PATH, STATIONS_PATH, mtimes, gattung, period_start(von, bis), bis)
 
 
 # ponytail: per-process cache, so a month combination is computed once per process; revisit when the
@@ -198,18 +243,19 @@ def karte_for(
     von: str | None,
     bis: str | None,
 ) -> Karte:
-    df = selection(pl.scan_parquet(agg), gattung, None, von, bis)
-    if df.is_empty():
+    sel = selection(pl.scan_parquet(agg), gattung, None, von, bis)
+    found = span(sel)
+    if found is None:
         return Karte(von="", bis="", n=0, ohne_koordinaten=0, stationen=[])
-    per_station = df.group_by("eva", "bucket").agg(n=pl.col("n").sum())
+    per_station = sel.group_by("eva", "bucket").agg(n=pl.col("n").sum()).collect()
     named = named_stations().filter(pl.col("eva").is_in(per_station["eva"].implode()))
     located = named.drop_nulls("lat").sort("eva")
     stations = {r["eva"]: r for r in located.iter_rows(named=True)}
     listed = per_station.filter(pl.col("eva").is_in(located["eva"].implode()))
     return Karte(
-        von=str(df["month"].min()),
-        bis=str(df["month"].max()),
-        n=int(df["n"].sum()),
+        von=found[0],
+        bis=found[1],
+        n=found[2],
         ohne_koordinaten=named.height - located.height,
         stationen=[
             KartenStation(
@@ -246,20 +292,21 @@ def statistik(
     eva: Eva, gattung: Gattung = "alle", von: Month = None, bis: Month = None
 ) -> Statistik:
     st = known_station(eva)
-    df = selection(pl.scan_parquet(AGG_PATH), gattung, eva, von, bis)
-    if df.is_empty():
+    sel = selection(pl.scan_parquet(AGG_PATH), gattung, eva, period_start(von, bis), bis)
+    found = span(sel)
+    if found is None:
         return Statistik(
             station=st, von="", bis="", n=0, gesamt=None, verteilung=[], ausgefallen=0, gruppen=[]
         )
-    merged = df.group_by("bucket").agg(n=pl.col("n").sum())
+    per_group = sel.group_by("gruppe", "bucket").agg(n=pl.col("n").sum()).collect()
+    merged = per_group.group_by("bucket").agg(n=pl.col("n").sum())
     bins = delay_bins(merged.iter_rows())
-    per_group = df.group_by("gruppe", "bucket").agg(n=pl.col("n").sum())
     groups = dict(per_group.partition_by("gruppe", as_dict=True))  # pyright: ignore[reportArgumentType]
     return Statistik(
         station=st,
-        von=str(df["month"].min()),
-        bis=str(df["month"].max()),
-        n=int(df["n"].sum()),
+        von=found[0],
+        bis=found[1],
+        n=found[2],
         gesamt=stats_of(merged),
         verteilung=list(bins.bins),
         ausgefallen=bins.cancelled,
@@ -273,5 +320,21 @@ def statistik(
 
 @app.get("/datenstand", response_model=Datenstand, operation_id="getDatenstand")
 def datenstand() -> Datenstand:
-    months = pl.scan_parquet(AGG_PATH).select("month").unique().sort("month").collect()
-    return Datenstand(monate=months["month"].to_list(), bahnhoefe=named_stations().height)
+    df = monate()
+    first, last = df["month"][0], df["month"][-1]
+    last_year, last_month = int(last[:4]), int(last[5:])
+    return Datenstand(
+        monate=df["month"].to_list(),
+        bahnhoefe=named_stations().height,
+        vollabdeckung_ab=coverage_start() or "",
+        fehlende_stunden={
+            m: h for m, h in zip(df["month"], df["missing_hours"], strict=True) if h > 0
+        },
+        fahrplanwechsel=[
+            d.isoformat()
+            for d in timetable_changes(
+                date.fromisoformat(f"{first}-01"),
+                date(last_year, last_month, calendar.monthrange(last_year, last_month)[1]),
+            )
+        ],
+    )

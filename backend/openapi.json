@@ -462,12 +462,33 @@
      "bahnhoefe": {
       "type": "integer",
       "title": "Bahnhoefe"
+     },
+     "vollabdeckung_ab": {
+      "type": "string",
+      "title": "Vollabdeckung Ab"
+     },
+     "fehlende_stunden": {
+      "additionalProperties": {
+       "type": "integer"
+      },
+      "type": "object",
+      "title": "Fehlende Stunden"
+     },
+     "fahrplanwechsel": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Fahrplanwechsel"
      }
     },
     "type": "object",
     "required": [
      "monate",
-     "bahnhoefe"
+     "bahnhoefe",
+     "vollabdeckung_ab",
+     "fehlende_stunden",
+     "fahrplanwechsel"
     ],
     "title": "Datenstand"
    },

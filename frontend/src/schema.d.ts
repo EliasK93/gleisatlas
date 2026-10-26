@@ -133,6 +133,14 @@ export interface components {
             monate: string[];
             /** Bahnhoefe */
             bahnhoefe: number;
+            /** Vollabdeckung Ab */
+            vollabdeckung_ab: string;
+            /** Fehlende Stunden */
+            fehlende_stunden: {
+                [key: string]: number;
+            };
+            /** Fahrplanwechsel */
+            fahrplanwechsel: string[];
         };
         /** Day */
         Day: {
