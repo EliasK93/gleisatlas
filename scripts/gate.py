@@ -2,6 +2,8 @@
 
 Manual mode stages everything first and fails on unstaged or untracked files.
 `--hook` (pre-commit) runs only the checks.
+`--ci` runs the checks without staging, scans the whole git history for secrets (nothing is
+staged in CI) and fails if a check left changed or untracked files behind.
 """
 
 import shutil
@@ -21,30 +23,28 @@ CHECKS: list[tuple[str, list[str], Path]] = [
         (f"frontend {s}", [NPM, "run", s], ROOT / "frontend")
         for s in ("typecheck", "lint", "format:check", "gen:check", "test:e2e")
     ),
-    (
-        "gitleaks",
-        ["gitleaks", "git", "--pre-commit", "--staged", "--redact", "--no-banner"],
-        ROOT,
-    ),
 ]
+GITLEAKS = ["gitleaks", "git", "--redact", "--no-banner"]
 
 
 def run(cmd: list[str], cwd: Path) -> tuple[int, str]:
     if shutil.which(cmd[0]) is None:
         return 127, f"command not found: {cmd[0]}"
     p = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, errors="replace")
-    return p.returncode, (p.stdout + p.stderr).strip()
+    # rstrip only: `git status --porcelain` lines start with a meaningful space
+    return p.returncode, (p.stdout + p.stderr).rstrip()
 
 
 def main() -> int:
-    hook = "--hook" in sys.argv[1:]
-    if not hook:
+    hook, ci = "--hook" in sys.argv[1:], "--ci" in sys.argv[1:]
+    if not (hook or ci):
         code, out = run(["git", "add", "-A"], ROOT)
         if code:
             print(out)
             return 1
+    secrets = GITLEAKS if ci else [*GITLEAKS, "--pre-commit", "--staged"]
     failed: list[str] = []
-    for name, cmd, cwd in CHECKS:
+    for name, cmd, cwd in [*CHECKS, ("gitleaks", secrets, ROOT)]:
         code, out = run(cmd, cwd)
         print(f"{'PASS' if code == 0 else 'FAIL'} {name}")
         if code:
