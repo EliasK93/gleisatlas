@@ -28,6 +28,9 @@ export const de = {
 
   "filter.chip": "{label}:",
   "filter.period": "Zeitraum",
+  "filter.periodFrom": "Zeitraum von",
+  "filter.periodTo": "Zeitraum bis",
+  "filter.periodSeparator": "–",
   "filter.category": "Gattung",
   "filter.all": "Alle",
   "filter.regional": "Regionalverkehr",

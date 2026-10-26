@@ -1,6 +1,7 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { Navigate, useSearchParams } from "react-router";
+import { clearParams, useSetParams } from "./useSetParams";
 import { api, must } from "./api";
 import { Filters } from "./Filters";
 import { t, tx } from "./i18n";
@@ -27,7 +28,8 @@ const DAYS = [0, 1, 2, 3, 4, 5, 6];
 const HOURS = Array.from({ length: 24 }, (_, h) => h);
 
 export default function HeatmapPage() {
-  const [params, setParams] = useSearchParams();
+  const [params] = useSearchParams();
+  const setParams = useSetParams();
   const f = readFilters(params);
   const q = useQuery({
     queryKey: ["heatmap", f.g, f.bhf, f.von, f.bis],
@@ -51,7 +53,11 @@ export default function HeatmapPage() {
   else if (!data) body = <Skeleton />;
   else if (data.n === 0)
     body = (
-      <EmptyCard title={t("hm.empty")} hint={t("hm.emptyHint")} onReset={() => setParams({})} />
+      <EmptyCard
+        title={t("hm.empty")}
+        hint={t("hm.emptyHint")}
+        onReset={() => setParams(clearParams)}
+      />
     );
   else
     body = (
@@ -77,7 +83,7 @@ export default function HeatmapPage() {
         </div>
         <ShareButton />
       </div>
-      <Filters period={period} />
+      <Filters />
       {body}
     </div>
   );

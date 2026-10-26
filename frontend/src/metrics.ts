@@ -156,6 +156,23 @@ export const withParam = (key: string, value: string) => (p: URLSearchParams) =>
   return writeFilters(readFilters(p));
 };
 
+/**
+ * URL updater for the month range: sets `edge` and, when that crosses the other edge (shown or
+ * defaulted from `now`), moves the other edge to the same month, so von never lies after bis.
+ */
+export const withPeriod =
+  (edge: "von" | "bis", month: string, now: { von: string; bis: string }) =>
+  (p: URLSearchParams) => {
+    const f = readFilters(p);
+    const other = edge === "von" ? "bis" : "von";
+    const kept = f[other] ?? now[other];
+    const crossed = edge === "von" ? month > kept : month < kept;
+    const next: Filters = { ...f };
+    next[edge] = month;
+    if (crossed) next[other] = month;
+    return writeFilters(next);
+  };
+
 /** "x von 10" for a share in whole percent: rounded down, so 96 % never reads "10 von 10". */
 export const tenths = (pct: number) => Math.floor(pct / 10);
 

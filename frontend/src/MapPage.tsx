@@ -10,6 +10,7 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import workerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url";
 import { useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import { Link, Navigate, useLocation, useSearchParams } from "react-router";
+import { clearParams, useSetParams } from "./useSetParams";
 import { api, must } from "./api";
 import { Filters } from "./Filters";
 import { t, tx } from "./i18n";
@@ -107,7 +108,8 @@ const categoryName = (g: FilterKeys["g"]) =>
   g ? t(g === "fern" ? "filter.fern" : "filter.regional") : t("map.allCategories");
 
 export default function MapPage() {
-  const [params, setParams] = useSearchParams();
+  const [params] = useSearchParams();
+  const setParams = useSetParams();
   const root = useRef<HTMLDivElement>(null);
   const f = readFilters(params);
   const q = useQuery({
@@ -158,7 +160,7 @@ export default function MapPage() {
           className="-mx-2.5 -my-2 px-2.5 py-2 md:m-0 md:p-0"
         />
         <div className="-mb-2.5">
-          <Filters period={period} stationName={data ? station?.name : null} />
+          <Filters stationName={data ? station?.name : null} />
         </div>
       </div>
 
@@ -167,7 +169,7 @@ export default function MapPage() {
       {data && data.stationen.length === 0 && (
         <EmptyCard
           title={t("map.empty")}
-          onReset={() => setParams({})}
+          onReset={() => setParams(clearParams)}
           className="absolute top-1/2 left-1/2 z-10 w-[min(340px,calc(100%-32px))] -translate-x-1/2 -translate-y-1/2 rounded-xl border border-border bg-surface p-5 shadow-card"
         />
       )}

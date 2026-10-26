@@ -152,7 +152,26 @@ export const emptyStatistik = (station: Station): Statistik => ({
   gruppen: [],
 });
 
-const DATENSTAND: Datenstand = { monate: ["2026-09"], bahnhoefe: 5219 };
+const DATENSTAND: Datenstand = {
+  monate: [
+    "2025-10",
+    "2025-11",
+    "2025-12",
+    "2026-01",
+    "2026-02",
+    "2026-03",
+    "2026-04",
+    "2026-05",
+    "2026-06",
+    "2026-07",
+    "2026-08",
+    "2026-09",
+  ],
+  bahnhoefe: 5219,
+  vollabdeckung_ab: "2025-11",
+  fehlende_stunden: {},
+  fahrplanwechsel: ["2025-12-14"],
+};
 
 const base = { n: 1240, ausfallquote: 0.02, median: 2, p90: 8, puenktlich: 0.75 };
 

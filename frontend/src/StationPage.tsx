@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Fragment, useId, type ReactNode } from "react";
 import { Link, Navigate, useParams, useSearchParams } from "react-router";
+import { clearParams, useSetParams } from "./useSetParams";
 import { api, must } from "./api";
 import { Filters } from "./Filters";
 import { t, type MessageKey } from "./i18n";
@@ -54,7 +55,8 @@ const TILES: { metric: Metric; title: MessageKey; term?: MessageKey }[] = [
 export default function StationPage() {
   const { eva = "" } = useParams();
   const valid = /^\d+$/.test(eva);
-  const [params, setParams] = useSearchParams();
+  const [params] = useSearchParams();
+  const setParams = useSetParams();
   // The station is the page, so a bhf key has no meaning here.
   const f: FilterKeys = { ...readFilters(params), bhf: undefined };
   const q = useQuery({
@@ -98,7 +100,7 @@ export default function StationPage() {
       <EmptyCard
         title={t("station.empty")}
         hint={t("station.emptyHint")}
-        onReset={() => setParams({})}
+        onReset={() => setParams(clearParams)}
       />
     );
   else
@@ -137,7 +139,7 @@ export default function StationPage() {
           <SoonAction icon="xfer" label="station.transfers" />
         </div>
       </div>
-      <Filters period={period} noStation />
+      <Filters noStation />
       {body}
     </Page>
   );

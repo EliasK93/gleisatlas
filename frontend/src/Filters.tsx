@@ -1,10 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
-import { useRef } from "react";
+import { Fragment, useRef } from "react";
 import { useSearchParams } from "react-router";
+import { clearParams, useSetParams } from "./useSetParams";
 import { api, must } from "./api";
 import { t } from "./i18n";
 import { Icon } from "./Icon";
-import { readFilters, withParam } from "./metrics";
+import { formatPeriod, readFilters, withParam, withPeriod } from "./metrics";
 import { StationSearch } from "./StationSearch";
 
 const chip = (on: boolean) =>
@@ -16,23 +17,50 @@ const chip = (on: boolean) =>
  * a string uses it, `null` waits for the page's data, `undefined` looks the station up.
  */
 export function Filters({
-  period,
   noStation,
   stationName,
 }: {
-  period?: string;
   noStation?: boolean;
   stationName?: string | null;
 }) {
-  const [params, setParams] = useSearchParams();
+  const setParams = useSetParams();
+  const [params] = useSearchParams();
   const f = readFilters(params);
+  // Shared with the data note in the shell: one request. The API's default range is the covered one.
+  const datenstand = useQuery({
+    queryKey: ["datenstand"],
+    queryFn: () => api.GET("/datenstand").then(must),
+    staleTime: Infinity,
+  });
+  const months = datenstand.data?.monate ?? [];
+  const now = {
+    von: f.von ?? datenstand.data?.vollabdeckung_ab ?? "",
+    bis: f.bis ?? months.at(-1) ?? "",
+  };
   return (
     // The vertical padding keeps the mobile tap areas of the chips inside the scroll box.
     <div className="-mx-4 -mt-1.5 mb-2.5 flex gap-2 overflow-x-auto px-4 pt-1.5 pb-2 [scrollbar-width:none] md:mx-0 md:flex-wrap md:overflow-visible md:px-0">
-      {/* ponytail: read-only until multi-month data and a picker arrive */}
-      <span className={chip(true)}>
+      <span className={chip(!!(f.von || f.bis))}>
         {t("filter.chip", { label: t("filter.period") })}
-        <b className="px-1 font-semibold">{period ?? "–"}</b>
+        {(["von", "bis"] as const).map((edge, i) => (
+          <Fragment key={edge}>
+            {i > 0 && t("filter.periodSeparator")}
+            <label className="hit">
+              <select
+                aria-label={t(edge === "von" ? "filter.periodFrom" : "filter.periodTo")}
+                value={now[edge]}
+                onChange={(e) => setParams(withPeriod(edge, e.target.value, now))}
+                className={`cursor-pointer bg-transparent px-1 font-semibold ${f.von || f.bis ? "" : "text-text"}`}
+              >
+                {months.map((m) => (
+                  <option key={m} value={m}>
+                    {formatPeriod(m)}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </Fragment>
+        ))}
       </span>
       <label className={chip(!!f.g)}>
         {t("filter.chip", { label: t("filter.category") })}
@@ -55,7 +83,7 @@ export function Filters({
       )}
       <button
         type="button"
-        onClick={() => setParams({})}
+        onClick={() => setParams(clearParams)}
         className="hit h-8 shrink-0 cursor-pointer px-2 text-[13px] text-text-3 hover:text-text"
       >
         {t("filter.reset")}
