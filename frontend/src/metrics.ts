@@ -158,3 +158,13 @@ export const withParam = (key: string, value: string) => (p: URLSearchParams) =>
 
 /** "x von 10" for a share in whole percent: rounded down, so 96 % never reads "10 von 10". */
 export const tenths = (pct: number) => Math.floor(pct / 10);
+
+/**
+ * Base map label in the UI language: the OpenFreeMap styles prefer English (`name_en`). Any text
+ * field that reads a name becomes the name in our language, else the local one; road numbers stay.
+ */
+export function localLabel<T>(field: T): T {
+  return JSON.stringify(field).includes('"name')
+    ? (["coalesce", ["get", `name:${LOCALE.slice(0, 2)}`], ["get", "name"]] as T)
+    : field;
+}

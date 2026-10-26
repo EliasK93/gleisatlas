@@ -1,9 +1,23 @@
 import { expect, test, type Page } from "@playwright/test";
+import { localLabel } from "../src/metrics";
 import { EMPTY_KARTE, karteFixture, mockApi } from "./fixtures";
 
 const map = (page: Page) => page.getByTestId("map");
 const panel = (page: Page) => page.getByRole("complementary");
 const legend = (page: Page) => page.getByRole("region", { name: "Legende" });
+
+test("base map labels use German names, other text fields stay", () => {
+  // The label expression of the OpenFreeMap positron style, which prefers English names.
+  const english = [
+    "case",
+    ["has", "name:nonlatin"],
+    ["concat", ["get", "name:latin"], "\n", ["get", "name:nonlatin"]],
+    ["coalesce", ["get", "name_en"], ["get", "name"]],
+  ];
+  expect(localLabel(english)).toEqual(["coalesce", ["get", "name:de"], ["get", "name"]]);
+  const shield = ["to-string", ["get", "ref"]];
+  expect(localLabel(shield)).toBe(shield);
+});
 
 test("/ and unknown paths land on the map with the query kept", async ({ page }) => {
   await mockApi(page);

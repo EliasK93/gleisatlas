@@ -20,6 +20,7 @@ import {
   formatPeriod,
   int,
   legend,
+  localLabel,
   LOW_N,
   readFilters,
   tenths,
@@ -242,8 +243,11 @@ function StationMap({
     );
     m.on("style.load", () => {
       for (const l of m.getStyle().layers)
-        if (l.type === "symbol")
+        if (l.type === "symbol") {
           m.setLayerZoomRange(l.id, Math.max(l.minzoom ?? 0, LABEL_ZOOM), l.maxzoom ?? 24);
+          const field = l.layout?.["text-field"];
+          if (field) m.setLayoutProperty(l.id, "text-field", localLabel(field));
+        }
     });
     m.on("load", () => {
       m.addSource("stations", { type: "geojson", data: NO_STATIONS });
