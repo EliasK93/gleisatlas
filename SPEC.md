@@ -102,7 +102,7 @@ Decision criteria: stability, legal/terms of service, effort, regional + long-di
 ### 4.3 Optional (optional features)
 - Weather: DWD Open Data or Meteostat.
 - Official DB punctuality figures (deutschebahn.com) for the comparison feature.
-- Station coordinates for the map: source to be decided (ADR, see roadmap M2).
+- Station coordinates for the map: Wikidata, see [ADR 0001](docs/adr/0001-station-coordinates.md).
 
 ### 4.4 Matching rules (important for correctness)
 - A "train" across days = (`train_type`, `train_number`) + same route section; train numbers apply per timetable year → separate statistics **per timetable period** or mark the change (mid-December).

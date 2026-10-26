@@ -2,7 +2,7 @@
 
 ## 1 Overview
 
-The frame around every page: sidebar, filter bar, mobile top bar and tab bar, footer and the first page, the weekday × hour heatmap. Visual targets are in [design.md](design.md) and the clickable [mockup](design/mockup.html); where they differ, the mockup wins. The heatmap metrics and API are described in [patterns.md](patterns.md).
+The frame around every page: sidebar, filter bar, mobile top bar and tab bar, footer and the weekday × hour heatmap. Visual targets are in [design.md](design.md) and the clickable [mockup](design/mockup.html); where they differ, the mockup wins. The heatmap metrics and API are described in [patterns.md](patterns.md); the map start page, the station detail page and the search are in [map.md](map.md).
 
 ## 2 Spec
 
@@ -10,9 +10,11 @@ The frame around every page: sidebar, filter bar, mobile top bar and tab bar, fo
 
 | Path | Page |
 |---|---|
+| `/karte` | Map start page (see [map.md](map.md)) |
+| `/bahnhof/{eva}` | Station detail page (see [map.md](map.md)) |
 | `/muster/heatmap` | Heatmap "Wann ist es am schlimmsten?" |
 | `/mehr` | Mobile list of the remaining items, data status and licence |
-| `/` and any unknown path | Redirect to `/muster/heatmap`, query string kept |
+| `/` and any unknown path | Redirect to `/karte`, query string kept |
 
 **URL keys** (all filter state lives in the URL, so a link restores the view)
 
@@ -23,14 +25,14 @@ The frame around every page: sidebar, filter bar, mobile top bar and tab bar, fo
 | `von`, `bis` | `YYYY-MM` | whole data range |
 | `k` | `median`, `p90`, `ausfall` | punctuality |
 
-Unknown or invalid values fall back to the default and are removed from the URL once. Sidebar and tab-bar links carry the current query string, so filters persist across pages.
+Unknown or invalid values fall back to the default and are removed from the URL once. Sidebar and tab-bar links carry the current query string, so filters persist across pages. What `bhf` means on the map and on the station page is described in [map.md](map.md).
 
-**Sidebar** (from 768 px): logo, then the groups "Entdecken" (Karte, Wochentag × Uhrzeit, Rankings, Zeitverlauf), "Planen" (Verbindung planen, Umstieg prüfen) and "Bald" (Live-Lage heute, Verspätungsketten, Gespeicherte Fahrten), then "So lesen Sie die Zahlen". Only the heatmap is a link. Every other item is dimmed with a "bald" tag and is not a link; it becomes a link when its page ships. The footer shows "Datenstand: {month} · {n} Bahnhöfe" and the CC BY 4.0 link.
+**Sidebar** (from 768 px): logo, the station search field (see [map.md](map.md)), then the groups "Entdecken" (Karte, Wochentag × Uhrzeit, Rankings, Zeitverlauf), "Planen" (Verbindung planen, Umstieg prüfen) and "Bald" (Live-Lage heute, Verspätungsketten, Gespeicherte Fahrten), then "So lesen Sie die Zahlen". Karte and Wochentag × Uhrzeit are links. Every other item is dimmed with a "bald" tag and is not a link; it becomes a link when its page ships. The footer shows "Datenstand: {month} · {n} Bahnhöfe" and the CC BY 4.0 link. The page footer with the disclaimer is hidden on the map, which fills the viewport.
 
 **Filter bar**
 
 - Zeitraum: read-only, shows the period of the current response.
-- Gattung: native `<select>` with Alle, Nahverkehr, Fernverkehr.
+- Gattung: native `<select>` with Alle, Regionalverkehr, Fernverkehr. "Regionalverkehr" is everything that is not long-distance (S-Bahn, RB, RE and regional operators); buses are excluded in the pipeline.
 - Bahnhof: a chip that opens a native `popover` with a combobox over `/stationen`. It shows name and "EVA …" and filters by EVA only.
 - Zurücksetzen: clears all keys.
 
@@ -45,7 +47,7 @@ Unknown or invalid values fall back to the default and are removed from the URL 
 
 **Mobile (below 768 px)**
 
-- Sidebar replaced by a top bar with the logo and a bottom tab bar Karte, Muster, Planen, Mehr. Unbuilt tabs read "bald".
+- Sidebar replaced by a top bar with the logo mark and the search field, and a bottom tab bar Karte, Muster, Planen, Mehr. Unbuilt tabs read "bald".
 - Filter chips scroll sideways; the metric switch is one sideways-scrolling row.
 - The heatmap is transposed to 24 hour rows × 7 weekday columns, with a "Ø" row for the weekday totals. The page never scrolls sideways.
 - From 1024 px the heatmap and "Auf einen Blick" sit side by side.
@@ -54,7 +56,7 @@ Unknown or invalid values fall back to the default and are removed from the URL 
 
 - `GET /datenstand` returns `monate` and `bahnhoefe` for the sidebar footer and `/mehr`.
 - `GET /stationen/{eva}` resolves `bhf` to a name after a reload; 404 for an unknown EVA.
-- `GET /stationen?q=&limit=` feeds the station combobox.
+- `GET /stationen?q=&limit=` feeds the station combobox and the search field.
 - `GET /heatmap` feeds the page (see [patterns.md](patterns.md)).
 
 ## 3 Decisions
@@ -81,7 +83,7 @@ Unknown or invalid values fall back to the default and are removed from the URL 
 
 - `frontend/src/App.tsx`: routes, `Shell` (sidebar, mobile top bar, tab bar, footer), `/mehr`, data note.
 - `frontend/src/HeatmapPage.tsx`: the page, grid, legend, tooltip, insights and states.
-- `frontend/src/Filters.tsx`: filter bar and the station combobox.
+- `frontend/src/Filters.tsx`: filter bar and the station chip.
 - `frontend/src/metrics.ts`: pure functions, no React: metric definitions with class limits, `classOf`, number and date formats, `readFilters` and `writeFilters` for the URL keys.
 - `frontend/src/Icon.tsx`: the icon set. `frontend/src/api.ts`: typed client over `schema.d.ts`; `must()` turns any non-2xx response into a query error.
 - UI text only via `frontend/src/i18n/de.ts` (`t()`, and `tx()` for placeholders filled with React nodes). Colours only via the tokens in `frontend/src/theme.css`; component classes in `index.css` use tokens only. Both rules are stated in [CLAUDE.md](../CLAUDE.md).
@@ -99,7 +101,6 @@ Unknown or invalid values fall back to the default and are removed from the URL 
 
 ## 7 Open decisions
 
-- Where the search field and Ctrl+K palette go, and what they search (stations, lines); they need station detail first.
 - The Zeitraum picker: presets or free month range (arrives with multi-month data).
 - Which single categories (S, RB, ICE …) become filter values; they need a new aggregate key.
 
@@ -109,9 +110,8 @@ Unknown or invalid values fall back to the default and are removed from the URL 
 - No Linie chip: the aggregate has no line key (see [patterns.md](patterns.md)).
 - The station search sends one request per keystroke, cached per term. Add a debounce if the API gets slow.
 - Teilen gives no feedback when the browser denies the clipboard.
-- An unknown station in `bhf` shows the generic empty state, not "Diesen Bahnhof kennen wir nicht" with a search (design.md §7).
+- An unknown station in `bhf` on the heatmap shows the generic empty state, not "Diesen Bahnhof kennen wir nicht" with a search (design.md §7); the station page has that state (see [map.md](map.md)).
 - The mobile "Muster" segmented switch (Heatmap, Rankings, Zeitverlauf) is missing until Rankings exist.
 - The sidebar has no collapse to a rail.
-- No search field and no Ctrl+K palette yet.
 - Light mode only; the tokens are ready for dark.
 - The station popover is positioned with CSS anchor positioning, with the centred default as fallback (see Platform checks).

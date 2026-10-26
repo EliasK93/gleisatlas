@@ -83,7 +83,7 @@ Personal and machine-specific rules live in `CLAUDE.local.md` (gitignored).
 
 ## Project: Verlässlich
 
-Historical reliability of German rail traffic: pattern analysis, connection comparison within a time window, transfer recommendations. Requirements: [SPEC.md](SPEC.md). Roadmap: [docs/roadmap.md](docs/roadmap.md). Design target: [docs/design.md](docs/design.md) with the clickable reference [docs/design/mockup.html](docs/design/mockup.html). App shell and heatmap UI: [docs/app-shell.md](docs/app-shell.md).
+Historical reliability of German rail traffic: pattern analysis, connection comparison within a time window, transfer recommendations. Requirements: [SPEC.md](SPEC.md). Roadmap: [docs/roadmap.md](docs/roadmap.md). Design target: [docs/design.md](docs/design.md) with the clickable reference [docs/design/mockup.html](docs/design/mockup.html). App shell and heatmap UI: [docs/app-shell.md](docs/app-shell.md). Map, station detail and search: [docs/map.md](docs/map.md).
 
 ### Stack
 - Python 3.12+ with `uv`; Polars for data processing; FastAPI + Pydantic for the API.

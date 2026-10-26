@@ -2,14 +2,15 @@
 
 ## 1 Overview
 
-Turns one monthly source file from `piebro/deutsche-bahn-data` into a compact aggregate (weekday × hour × category × station × month, delay histogram) plus a station name table. The API reads only these two outputs; raw data stays local.
+Turns one monthly source file from `piebro/deutsche-bahn-data` into a compact aggregate (weekday × hour × category × station × month, delay histogram) plus a station table with names, stop counts and coordinates. The API reads only these two outputs; raw data stays local.
 
 ## 2 Spec
 
 Commands (PowerShell, from the repo root):
 
 - `uv run python -m pipeline.download YYYY-MM` downloads one monthly file into `data/raw/`.
-- `uv run python -m pipeline.aggregate <source.parquet> <data/aggregate.parquet>` writes the aggregate and `data/stations.parquet` (next to the aggregate).
+- `uv run python -m pipeline.coords` runs one SPARQL query against Wikidata and writes `data/coords.parquet`. Needs network access; run it once and again to refresh.
+- `uv run python -m pipeline.aggregate <source.parquet> <data/aggregate.parquet>` writes the aggregate and `data/stations.parquet` (next to the aggregate) and prints a coverage report. It reads `coords.parquet` from the aggregate's folder and aborts with a message if the file is missing, so run `pipeline.coords` first.
 - `uv run python scripts/check_sample.py <source.parquet>` compares computed arrival delays against raw rows (spot check for AC-4, outside the gate).
 
 Required source columns: `eva`, `station_name`, `train_type`, `time`, `arrival_planned_time`, `arrival_change_time`, `arrival_is_canceled`. A missing column aborts with a message naming it (AC-2).
@@ -32,7 +33,9 @@ Aggregate rows: one row per (`weekday`, `hour`, `gruppe`, `eva`, `month`, `bucke
 
 - `pipeline/aggregate.py` reads the monthly Parquet lazily with Polars, validates the schema, filters, and groups.
 - Output keys: `weekday`, `hour`, `gruppe`, `eva`, `month` (`YYYY-MM`), `bucket` (Int32, nullable), `n`.
-- `data/stations.parquet`: `eva`, `name` (most frequent `station_name` per EVA).
+- `data/stations.parquet`: `eva`, `name` (most frequent `station_name` per EVA), `n` (all stops of the EVA in the source, cancelled included; used to rank search results and size map dots), `lat`, `lon`, `land` (federal state). `lat`, `lon` and `land` are NULL where Wikidata has no match or no state.
+- `data/coords.parquet`: `ibnr`, `lat`, `lon`, `land`, one row per IBNR for the whole of Wikidata (not only Germany). The join strips the leading zero of our EVA (`08000207` to `8000207`) with `core.stations.ibnr_expr`. Details and the source decision: [adr/0001-station-coordinates.md](adr/0001-station-coordinates.md).
+- Coverage report: named stations with coordinates (number and share), the share of stops that belong to them, and the unmatched named stations with the most stops. Source file 2026-09: 5,209 of 5,219 stations (99.8 %), 99.5 % of stops.
 - The source also contains `xml_station_name`, `id`, `is_additional_stop` and more; they are not used yet.
 - Time zone: Europe/Berlin, as in the source.
 
@@ -58,3 +61,4 @@ Aggregate rows: one row per (`weekday`, `hour`, `gruppe`, `eva`, `month`, `bucke
 - Single month only; no incremental download yet.
 - No deduplication or plausibility cleaning yet.
 - Spot check script runs on demand, not in the gate.
+- `pipeline.coords` is not run by tests or the gate (it needs the network); only its parser is tested, on canned JSON.

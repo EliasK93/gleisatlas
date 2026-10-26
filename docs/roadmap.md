@@ -16,8 +16,11 @@ MVP = **v0.1, local pattern analysis** (SPEC 3.1). Azure (v0.2) and the planner 
 - [x] Single category rule: removed the test-only `category_of` copy in `core/categories.py` (re-check: `uv run pytest -q`, `test_category_expr`; `git grep category_of -- core backend pipeline tests` finds nothing)
 
 ## M2 Map start page
-- [ ] Decide the station-coordinate source (ADR)
-- [ ] Map and station detail
+Details in [map.md](map.md).
+- [x] Decide the station-coordinate source (ADR) (re-check: [adr/0001-station-coordinates.md](adr/0001-station-coordinates.md); `uv run pytest -q`, `test_join_coords_on_normalised_eva`, `test_cli_aborts_without_coords`)
+- [x] Map start page with station panel (re-check: `npm.cmd --prefix frontend run test:e2e`, `frontend/e2e/map.spec.ts`; `uv run pytest -q`, `tests/api/test_map_api.py`)
+- [x] Station detail page (re-check: `npm.cmd --prefix frontend run test:e2e`, `frontend/e2e/station.spec.ts`; `uv run pytest -q`, `test_statistik_bins_and_cancelled_sum_to_n`, `test_delay_bins_edges_negatives_and_cancelled`)
+- [x] Station search with Ctrl+K (re-check: `npm.cmd --prefix frontend run test:e2e`, `frontend/e2e/search.spec.ts`; `uv run pytest -q`, `test_search_puts_prefix_matches_first_then_busiest`)
 
 ## M3 More data
 - [ ] Multi-month pipeline: incremental download, schema validation, cleaning, timetable periods

@@ -18,14 +18,17 @@ Filters: train category (`alle`, `regional`, `fern`), station by EVA, month rang
 Current API:
 
 - `GET /heatmap` – query parameters: `gattung` (`alle` default, `regional`, `fern`), `eva` (station EVA, digits only, optional), `von` and `bis` (month `YYYY-MM`, optional, inclusive). Returns `von`, `bis`, `n`, `cells` (`weekday`, `hour`, `n`, `ausfallquote`, `median`, `p90`, `puenktlich`) and `tage` (the same statistics per weekday over all hours, from the summed histogram). An empty selection returns `n = 0`, no cells and no days.
-- `GET /stationen` – query parameters: `q` (case-insensitive substring of the name), `limit` (1–100, default 20). Returns `eva` and `name`, sorted by name.
-- `GET /stationen/{eva}` – one station as `eva` and `name`; 404 for an unknown EVA.
+- `GET /karte` – query parameters: `gattung`, `von`, `bis` as for the heatmap. Returns `von`, `bis`, `n` (all stops in the selection), `ohne_koordinaten` (named stations with stops in the selection but no coordinates) and `stationen` (`eva`, `name`, `lat`, `lon` and the four statistics of the heatmap cell). Only stations with coordinates are listed. The response is gzip-compressed and cached per process.
+- `GET /stationen` – query parameters: `q` (case-insensitive substring of the name), `limit` (1–100, default 20). Returns `eva`, `name`, `land` (federal state, nullable) and `n` (stops over the data set). Name-prefix matches come first, then the busiest station, then the name.
+- `GET /stationen/{eva}` – one station as `Station` (`eva`, `name`, `land`, `n`); 404 for an unknown EVA.
+- `GET /stationen/{eva}/statistik` – query parameters: `gattung`, `von`, `bis`. Returns the `station`, `von`, `bis`, `n`, `gesamt` (the four statistics), `verteilung` (non-cancelled stops in 7 delay bins, edges in whole minutes: < 1, [1, 3), [3, 6), [6, 10), [10, 20), [20, 30), ≥ 30), `ausgefallen` (cancelled stops; `verteilung` plus `ausgefallen` sums to `n`) and `gruppen` (the statistics per `regional` and `fern`, only groups with stops). An empty selection returns `n = 0`, `gesamt` null and no bins; 404 for an unknown EVA.
 - `GET /datenstand` – `monate` (months present in the aggregate) and `bahnhoefe` (number of named stations).
 - Invalid input returns 422: `limit` outside 1–100, `von` or `bis` not matching `YYYY-MM`, `eva` not all ASCII digits, `gattung` outside the three values.
+- Responses are gzip-compressed (`GZipMiddleware`).
 
-The UI on top of this is described in [app-shell.md](app-shell.md).
+The UI on top of this is described in [app-shell.md](app-shell.md) and [map.md](map.md).
 
-Planned per roadmap: rankings (M3), time series (M3), map and station detail (M2).
+Planned per roadmap: rankings and time series (M3).
 
 ## 3 Decisions
 
@@ -39,7 +42,7 @@ Planned per roadmap: rankings (M3), time series (M3), map and station detail (M2
 
 ## 4 Architecture and data keys
 
-- `backend/main.py` loads `data/aggregate.parquet` (override: `AGGREGATE_PATH`) and `data/stations.parquet` (override: `STATIONS_PATH`) with Polars on each request.
+- `backend/main.py` loads `data/aggregate.parquet` (override: `AGGREGATE_PATH`) and `data/stations.parquet` (override: `STATIONS_PATH`) with Polars on each request; `/karte` keeps its result per process (see Known shortcuts).
 - Aggregate keys: `weekday`, `hour`, `gruppe`, `eva`, `month`, `bucket`, `n` (see [pipeline.md](pipeline.md)).
 - OpenAPI schema is exported to `backend/openapi.json` (`uv run python scripts/export_openapi.py`); the TypeScript client is generated from it, and the gate fails when either is stale.
 - CORS allows the local dev origin `http://localhost:5173`, GET only.
@@ -64,5 +67,6 @@ Planned per roadmap: rankings (M3), time series (M3), map and station detail (M2
 
 - Data covers a single month, so month filters are not yet meaningful.
 - Parquet is re-read on every request; fine for one month, to be reconsidered with more data.
-- Only the heatmap and station endpoints exist; no rankings, time series or map.
+- Only the heatmap, map and station endpoints exist; no rankings or time series.
 - The `/stationen` list omits the 6 EVAs that have no name in the source.
+- `/karte` is cached per process by selection and file modification time, at most 16 entries; the first computation takes about 0.8 s on one month. Vectorise the statistics in Polars when more months make that slow.
