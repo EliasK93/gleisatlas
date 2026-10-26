@@ -7,6 +7,7 @@ import polars as pl
 
 from core.categories import category_expr, is_excluded_expr
 from core.delay import arrival_delay_expr
+from core.stations import ibnr_expr
 
 REQUIRED = {
     "eva",
@@ -65,15 +66,47 @@ def stations(lf: pl.LazyFrame) -> pl.DataFrame:
     )
 
 
+def stop_counts(lf: pl.LazyFrame) -> pl.DataFrame:
+    """Stops per EVA over the whole source: all categories and months, cancelled included."""
+    return _arrivals(lf).group_by("eva").agg(n=pl.len()).sort("eva").collect()
+
+
+def with_coords(st: pl.DataFrame, coords: pl.DataFrame) -> pl.DataFrame:
+    """Add lat, lon, land; coords are keyed by IBNR, our EVAs carry a leading zero."""
+    keyed = st.with_columns(ibnr=ibnr_expr(pl.col("eva")))
+    return keyed.join(coords, on="ibnr", how="left").drop("ibnr")
+
+
+def coverage_report(st: pl.DataFrame) -> str:
+    named = st.drop_nulls("name")
+    hit = named.filter(pl.col("lat").is_not_null())
+    stops, hit_stops = int(named["n"].sum()), int(hit["n"].sum())
+    lines = [
+        f"named stations with coordinates: {hit.height} of {named.height}"
+        f" ({100 * hit.height / named.height:.1f} %)",
+        f"share of stops with coordinates: {100 * hit_stops / stops:.1f} %",
+        "20 unmatched named stations with the most stops (eva, name, n):",
+    ]
+    miss = named.filter(pl.col("lat").is_null()).sort("n", descending=True).head(20)
+    lines += [f"  {eva}  {name}  {n}" for eva, name, n, *_ in miss.iter_rows()]
+    return "\n".join(lines)
+
+
 def main(argv: list[str]) -> None:
     if len(argv) != 2:
         sys.exit("usage: python -m pipeline.aggregate <source.parquet> <aggregate.parquet>")
     src, dst = Path(argv[0]), Path(argv[1])
+    coords_path = dst.with_name("coords.parquet")
+    if not coords_path.exists():
+        sys.exit(f"Missing {coords_path}: run `uv run python -m pipeline.coords` first")
     dst.parent.mkdir(parents=True, exist_ok=True)
     source = pl.scan_parquet(src)
     aggregate(source).write_parquet(dst)
-    stations(source).write_parquet(dst.with_name("stations.parquet"))
+    joined = stations(source).join(stop_counts(source), on="eva")
+    out = with_coords(joined, pl.read_parquet(coords_path))
+    out.write_parquet(dst.with_name("stations.parquet"))
     print(f"written: {dst}")
+    print(coverage_report(out))
 
 
 if __name__ == "__main__":

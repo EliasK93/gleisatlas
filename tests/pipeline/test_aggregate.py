@@ -1,7 +1,7 @@
 import polars as pl
 import pytest
 
-from pipeline.aggregate import aggregate, main, stations
+from pipeline.aggregate import aggregate, main, stations, stop_counts, with_coords
 
 
 def test_delay_and_cancel(mini: pl.DataFrame):
@@ -33,9 +33,34 @@ def test_schema_abort(source: pl.DataFrame):
         aggregate(source.drop("arrival_is_canceled").lazy())
 
 
-def test_cli_writes_aggregate_and_stations(source: pl.DataFrame, tmp_path):
+def test_station_stop_counts(source: pl.DataFrame):
+    # all categories and months, cancelled included; bus and no-arrival rows excluded
+    assert dict(stop_counts(source.lazy()).iter_rows()) == {"1": 5, "2": 1}
+
+
+def test_join_coords_on_normalised_eva(source: pl.DataFrame, coords: pl.DataFrame):
+    s = stations(source.lazy()).join(stop_counts(source.lazy()), on="eva")
+    s = s.with_columns(eva=pl.col("eva").str.pad_start(8, "0"))
+    out = with_coords(s, coords).sort("eva")
+    assert out.columns == ["eva", "name", "n", "lat", "lon", "land"]
+    assert out["lat"].to_list() == [50.0, None]
+    assert out["land"].to_list() == ["Nordrhein-Westfalen", None]
+
+
+def test_cli_writes_aggregate_and_stations(source: pl.DataFrame, coords: pl.DataFrame, tmp_path):
     src, dst = tmp_path / "src.parquet", tmp_path / "out" / "aggregate.parquet"
     source.write_parquet(src)
+    dst.parent.mkdir()
+    coords.write_parquet(dst.with_name("coords.parquet"))
     main([str(src), str(dst)])
     assert pl.read_parquet(dst)["n"].sum() == 6
-    assert pl.read_parquet(dst.with_name("stations.parquet")).height == 2
+    out = pl.read_parquet(dst.with_name("stations.parquet"))
+    assert out.height == 2
+    assert out.columns == ["eva", "name", "n", "lat", "lon", "land"]
+
+
+def test_cli_aborts_without_coords(source: pl.DataFrame, tmp_path):
+    src, dst = tmp_path / "src.parquet", tmp_path / "out" / "aggregate.parquet"
+    source.write_parquet(src)
+    with pytest.raises(SystemExit, match="pipeline.coords"):
+        main([str(src), str(dst)])

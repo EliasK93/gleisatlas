@@ -2,8 +2,10 @@ from datetime import datetime as dt
 
 import polars as pl
 import pytest
+from fastapi.testclient import TestClient
 
-from pipeline.aggregate import aggregate
+from backend import main
+from pipeline.aggregate import aggregate, stations, stop_counts, with_coords
 
 DAY = "2026-09-07"  # a Monday
 
@@ -41,5 +43,27 @@ def source() -> pl.DataFrame:
 
 
 @pytest.fixture
+def coords() -> pl.DataFrame:
+    """Wikidata-style coordinates: IBNR without leading zero; only station 1 is known."""
+    return pl.DataFrame(
+        {"ibnr": ["1"], "lat": [50.0], "lon": [7.0], "land": ["Nordrhein-Westfalen"]}
+    )
+
+
+@pytest.fixture
 def mini(source: pl.DataFrame) -> pl.DataFrame:
     return aggregate(source.lazy())
+
+
+@pytest.fixture
+def client(
+    mini: pl.DataFrame, source: pl.DataFrame, coords: pl.DataFrame, tmp_path, monkeypatch
+) -> TestClient:
+    """API over mini data; the stations table is built like the pipeline's `main` builds it."""
+    agg, st = tmp_path / "agg.parquet", tmp_path / "stations.parquet"
+    mini.write_parquet(agg)
+    lazy = source.lazy()
+    with_coords(stations(lazy).join(stop_counts(lazy), on="eva"), coords).write_parquet(st)
+    monkeypatch.setattr(main, "AGG_PATH", str(agg))
+    monkeypatch.setattr(main, "STATIONS_PATH", str(st))
+    return TestClient(main.app)
