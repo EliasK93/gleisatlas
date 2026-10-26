@@ -11,7 +11,8 @@ class E:
 
 
 def e(name: str, n: int, value: float | None) -> E:
-    return E(name, CellStats(n, value or 0.0, value, value, value))
+    rate = (value or 0.0) / 1000  # small, so the cancellation order follows the value
+    return E(name, CellStats(n, rate, value, value, value))
 
 
 def names(entries: list[E]) -> list[str]:
@@ -38,6 +39,17 @@ def test_min_n_and_none_are_excluded():
     entries = [*ENTRIES, e("small", 99, 0.0), e("none", 500, None)]
     worst, best = rank(entries, "median", min_n=100)
     assert sorted(names(worst)) == sorted(names(best)) == ["a", "b", "c"]
+
+
+def test_delay_metrics_need_min_n_arrived_stops_but_cancellations_count_all():
+    mostly_cancelled = E("mc", CellStats(100, 0.95, 1.0, 1.0, 1.0))  # 100 stops, 5 arrived
+    entries = [*ENTRIES, mostly_cancelled]
+    for metric in ("punctual_share", "median", "p90"):
+        worst, best = rank(entries, metric, min_n=50)
+        assert "mc" not in names(worst) and "mc" not in names(best)
+    worst, best = rank(entries, "cancellation_rate", min_n=50)
+    assert names(worst)[0] == "mc"
+    assert rank(entries, "median", min_n=5)[0][-1].name == "mc"  # 5 arrived reach min_n 5
 
 
 def test_ties_go_to_larger_n_then_name():

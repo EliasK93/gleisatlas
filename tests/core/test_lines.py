@@ -108,6 +108,33 @@ def test_line_table_labels_and_typ():
     ]
 
 
+def test_line_table_digit_names_get_the_train_type_in_front():
+    # "36" is only a number in the source; id stays, "S36" is shown. Operator codes and
+    # other types keep the bare number; names with letters are untouched.
+    nets = pl.DataFrame(
+        {
+            "name": ["36", "36", "7", "7", "RB60"],
+            "eva": ["A", "X", "A", "X", "A"],
+            "net": ["A", "X", "A", "A", "A"],
+        }
+    )
+    stops = pl.DataFrame(
+        {
+            "name": ["36", "36", "7", "RB60"],
+            "eva": ["A", "X", "A", "A"],
+            "train_type": ["S", "S", "SWE", "RB"],
+            "n": [3, 2, 4, 1],
+        }
+    )
+    names = pl.DataFrame({"eva": ["A", "X"], "name": ["Aheim", "Xdorf"]})
+    assert line_table(nets, stops, names).select("linie", "name", "label").rows() == [
+        ("36:A", "S36", "S36 · Aheim"),
+        ("36:X", "S36", "S36 · Xdorf"),
+        ("7:A", "7", "7"),
+        ("RB60:A", "RB60", "RB60"),
+    ]
+
+
 def test_line_table_leaves_out_networks_without_stops():
     # X-Y and the whole name RE9 only have stops without an arrival (no row in `stops`).
     nets = pl.DataFrame(

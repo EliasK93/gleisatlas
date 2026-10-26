@@ -4,6 +4,8 @@
 # (Polars' string and aggregation stubs are partially unknown under strict mode.)
 import polars as pl
 
+NUMBER_TYPES = ["S", "RB", "RE", "IRE", "MEX"]
+
 
 def line_name_expr() -> pl.Expr:
     """`line_number`, or "{train_type} {train_number}" where it is missing (e.g. "ICE 679")."""
@@ -56,13 +58,21 @@ def _top(df: pl.DataFrame, col: str) -> pl.DataFrame:
 def line_table(
     nets: pl.DataFrame, stops: pl.DataFrame, station_names: pl.DataFrame
 ) -> pl.DataFrame:
-    """One row per line: linie, name, label, typ. The label is the bare name when the name has one
-    network, else "{name} · {busiest station}"; typ is the train_type with the most stops. Networks
-    without any stop (only first stops in the source) are left out."""
+    """One row per line: linie, name, label, typ. A name of only digits is shown with its train type
+    in front when that is S, RB, RE, IRE or MEX ("S36"); `linie` keeps the source name. The label
+    is the bare name when the name has one network, else "{name} · {busiest station}"; typ is the
+    train_type with the most stops. Networks without any stop (only first stops in the source)
+    are left out."""
     lines = line_ids(nets)
     stops = stops.join(lines, on=["name", "eva"])
     lines = lines.join(stops.select("linie").unique(), on="linie", how="semi")
     count = pl.col("net").n_unique().over("name")
+    # A bare number gets its regional train type in front ("S36"); operator codes stay out.
+    shown = (
+        pl.when(pl.col("name").str.contains(r"^\d+$") & pl.col("train_type").is_in(NUMBER_TYPES))
+        .then(pl.concat_str("train_type", "name"))
+        .otherwise(pl.col("name"))
+    )
     return (
         lines.select("linie", "name", "net")
         .unique()
@@ -71,10 +81,10 @@ def line_table(
         .join(_top(stops, "train_type"), on="linie", how="left")
         .select(
             "linie",
-            "name",
+            name=shown,
             label=pl.when(count == 1)
-            .then(pl.col("name"))
-            .otherwise(pl.concat_str("name", pl.lit(" · "), pl.coalesce("station", "eva"))),
+            .then(shown)
+            .otherwise(pl.concat_str(shown, pl.lit(" · "), pl.coalesce("station", "eva"))),
             typ="train_type",
         )
         .sort("linie")
