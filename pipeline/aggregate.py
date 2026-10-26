@@ -72,9 +72,27 @@ def stop_counts(lf: pl.LazyFrame) -> pl.DataFrame:
 
 
 def with_coords(st: pl.DataFrame, coords: pl.DataFrame) -> pl.DataFrame:
-    """Add lat, lon, land; coords are keyed by IBNR, our EVAs carry a leading zero."""
+    """Add lat, lon, land; coords are keyed by IBNR, our EVAs carry a leading zero.
+
+    A secondary EVA (e.g. the S-Bahn platforms of a station) is often missing in Wikidata; it
+    takes the coordinates of the one located station with exactly the same name.
+    """
     keyed = st.with_columns(ibnr=ibnr_expr(pl.col("eva")))
-    return keyed.join(coords, on="ibnr", how="left").drop("ibnr")
+    out = keyed.join(coords, on="ibnr", how="left").drop("ibnr")
+    geo = ["lat", "lon", "land"]
+    namesake = (
+        out.drop_nulls(["name", "lat"])
+        .filter(pl.len().over("name") == 1)
+        .select("name", *(pl.col(c).alias(f"{c}_same") for c in geo))
+    )
+    missing = pl.col("lat").is_null()
+    return (
+        out.join(namesake, on="name", how="left", maintain_order="left")
+        .with_columns(
+            pl.when(missing).then(pl.col(f"{c}_same")).otherwise(pl.col(c)).alias(c) for c in geo
+        )
+        .drop(f"{c}_same" for c in geo)
+    )
 
 
 def coverage_report(st: pl.DataFrame) -> str:

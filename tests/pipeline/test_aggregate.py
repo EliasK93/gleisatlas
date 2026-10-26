@@ -47,6 +47,32 @@ def test_join_coords_on_normalised_eva(source: pl.DataFrame, coords: pl.DataFram
     assert out["land"].to_list() == ["Nordrhein-Westfalen", None]
 
 
+def test_unlocated_station_takes_coords_of_its_only_namesake():
+    # A secondary EVA (S-Bahn platforms) shares the name of the located main station.
+    st = pl.DataFrame(
+        {
+            "eva": ["08000001", "08089001", "08000002", "08000003", "08000004", "08089003"],
+            "name": ["Alpha", "Alpha", "Beta", "Gamma", "Gamma", "Gamma"],
+            "n": [10, 5, 3, 2, 2, 1],
+        }
+    )
+    coords = pl.DataFrame(
+        {
+            "ibnr": ["8000001", "8000003", "8000004"],
+            "lat": [50.0, 51.0, 52.0],
+            "lon": [7.0, 8.0, 9.0],
+            "land": ["Hessen", None, None],
+        }
+    )
+    out = with_coords(st, coords).sort("eva")
+    lat = dict(zip(out["eva"], out["lat"], strict=True))
+    assert lat["08089001"] == 50.0  # its only located namesake
+    assert out.filter(pl.col("eva") == "08089001")["land"].item() == "Hessen"
+    assert lat["08000002"] is None  # no located namesake
+    assert lat["08089003"] is None  # two located namesakes: ambiguous
+    assert out.columns == ["eva", "name", "n", "lat", "lon", "land"]
+
+
 def test_cli_writes_aggregate_and_stations(source: pl.DataFrame, coords: pl.DataFrame, tmp_path):
     src, dst = tmp_path / "src.parquet", tmp_path / "out" / "aggregate.parquet"
     source.write_parquet(src)
