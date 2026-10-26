@@ -26,6 +26,30 @@ def quantile(buckets: list[tuple[int, int]], q: float) -> float:
     raise ValueError("no buckets")
 
 
+@dataclass(frozen=True)
+class DelayBins:
+    bins: tuple[int, ...]  # 7 counts, see BIN_EDGES
+    cancelled: int
+
+
+# Lower edges in whole minutes: bins are <1, [1,3), [3,6), [6,10), [10,20), [20,30), >=30
+BIN_EDGES = (1, 3, 6, 10, 20, 30)
+
+
+def delay_bins(rows: Iterable[tuple[int | None, int]]) -> DelayBins:
+    """Counts per delay bin. Buckets are whole minutes (core.delay), so a bucket falls in the
+    bin whose lower edge is the largest one <= bucket; early arrivals (negative) share the
+    first bin. A NULL bucket is a cancelled stop and is counted separately."""
+    bins = [0] * (len(BIN_EDGES) + 1)
+    cancelled = 0
+    for bucket, n in rows:
+        if bucket is None:
+            cancelled += n
+        else:
+            bins[sum(bucket >= e for e in BIN_EDGES)] += n
+    return DelayBins(bins=tuple(bins), cancelled=cancelled)
+
+
 def cell_stats(rows: Iterable[tuple[int | None, int]]) -> CellStats:
     pairs = list(rows)
     ok = sorted((b, n) for b, n in pairs if b is not None)

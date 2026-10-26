@@ -5,7 +5,13 @@ import pytest
 
 from core.categories import category_expr
 from core.delay import arrival_delay_expr
-from core.stats import cell_stats, quantile
+from core.stations import ibnr_expr
+from core.stats import cell_stats, delay_bins, quantile
+
+
+def test_ibnr_strips_leading_zeros():
+    df = pl.DataFrame({"eva": ["08000207", "8000207", "00000001"]})
+    assert df.select(ibnr_expr(pl.col("eva")))["eva"].to_list() == ["8000207", "8000207", "1"]
 
 
 def test_category_expr():
@@ -52,3 +58,31 @@ def test_cell_stats_all_cancelled():
     s = cell_stats([(None, 3)])
     assert (s.n, s.cancellation_rate) == (3, 1.0)
     assert s.median is None and s.p90 is None and s.punctual_share is None
+
+
+def test_delay_bins_edges_negatives_and_cancelled():
+    rows = [
+        (-10, 1),  # early: first bin
+        (0, 2),
+        (1, 3),  # lower edge of the second bin
+        (2, 4),
+        (3, 5),
+        (5, 6),
+        (6, 7),
+        (9, 8),
+        (10, 9),
+        (19, 10),
+        (20, 11),
+        (29, 12),
+        (30, 13),
+        (120, 14),
+        (None, 15),  # cancelled: never in a delay bin
+    ]
+    b = delay_bins(rows)
+    assert b.bins == (1 + 2, 3 + 4, 5 + 6, 7 + 8, 9 + 10, 11 + 12, 13 + 14)
+    assert b.cancelled == 15
+
+
+def test_delay_bins_empty_and_repeated_buckets():
+    assert delay_bins([]).bins == (0,) * 7
+    assert delay_bins([(5, 1), (5, 2), (None, 1), (None, 2)]).bins[2] == 3
