@@ -25,7 +25,7 @@ def main(argv: list[str]) -> None:
         pl.col("arrival_is_canceled"),
     )
     secs = changed.dt.epoch("s") - planned.dt.epoch("s")
-    computed = arrival_delay_expr(planned, changed, cancelled, lo=-10_000, hi=10_000)
+    computed = arrival_delay_expr(planned, changed, cancelled)
     checked = df.select(
         got=computed,
         # Independent re-computation from raw seconds, truncated toward zero like total_minutes().

@@ -1,52 +1,100 @@
-"""Monthly source file -> delay histogram per weekday x hour x category x station x month."""
+"""One monthly source file -> cleaned per-month tables (delay histogram, lines, networks, ...)."""
 
 import sys
-from pathlib import Path
+from datetime import datetime
 
 import polars as pl
 
 from core.categories import category_expr, is_excluded_expr
-from core.delay import arrival_delay_expr
+from core.delay import arrival_delay_expr, plausible_expr
+from core.lines import line_name_expr, networks
 from core.stations import ibnr_expr
 
-REQUIRED = {
-    "eva",
-    "station_name",
-    "train_type",
-    "time",
-    "arrival_planned_time",
-    "arrival_change_time",
-    "arrival_is_canceled",
-}
+COLUMNS = frozenset(
+    {
+        "station_name",
+        "xml_station_name",
+        "eva",
+        "train_number",
+        "line_number",
+        "final_destination_station",
+        "delay_in_min",
+        "time",
+        "arrival_is_canceled",
+        "departure_is_canceled",
+        "train_type",
+        "is_additional_stop",
+        "is_replacement_train",
+        "replaced_train_type",
+        "replaced_train_number",
+        "has_plan_record",
+        "train_line_ride_id",
+        "train_line_station_num",
+        "arrival_planned_time",
+        "arrival_change_time",
+        "departure_planned_time",
+        "departure_change_time",
+        "id",
+    }
+)
+GAP_SHARE = 0.5  # source gaps are partial: an hour under half its usual rows is incomplete
+DUPLICATE_KEY = ("eva", "train_type", "train_number", "arrival_planned_time")
+
+_planned = pl.col("arrival_planned_time")
+_arrival = _planned.is_not_null()
+# Rows without an arrival (first stops) are never duplicates: they only feed the networks.
+_first = ~_arrival | pl.struct(*DUPLICATE_KEY).is_first_distinct()
+_plausible = pl.col("arrival_is_canceled").fill_null(False) | plausible_expr(
+    _planned, pl.col("arrival_change_time")
+)
 
 
 def check_schema(lf: pl.LazyFrame) -> None:
-    missing = REQUIRED - set(lf.collect_schema().names())
-    if missing:
-        sys.exit(f"Schema error: missing columns {sorted(missing)}")
+    names = set(lf.collect_schema().names())
+    missing, new = sorted(COLUMNS - names), sorted(names - COLUMNS)
+    if missing or new:
+        sys.exit(f"Schema error: missing columns {missing}, new columns {new}")
+
+
+def _rail(lf: pl.LazyFrame) -> pl.LazyFrame:
+    check_schema(lf)
+    return lf.filter(~is_excluded_expr(pl.col("train_type")))
+
+
+def clean(lf: pl.LazyFrame) -> pl.LazyFrame:
+    """Rail stops without implausible delays and without duplicates (cancelled stops stay).
+    Implausible rows go first, so a plausible copy of a duplicate survives."""
+    return _rail(lf).filter(_plausible).filter(_first)
+
+
+def dropped(lf: pl.LazyFrame) -> tuple[int, int]:
+    """(duplicates, implausible rows) that `clean` drops."""
+    rail = _rail(lf)
+    bad = rail.select((~_plausible).sum()).collect().item()
+    dup = rail.filter(_plausible).select((~_first).sum()).collect().item()
+    return dup, bad
 
 
 def _arrivals(lf: pl.LazyFrame) -> pl.LazyFrame:
-    check_schema(lf)
-    train_type = pl.col("train_type")
-    return lf.filter(pl.col("arrival_planned_time").is_not_null() & ~is_excluded_expr(train_type))
+    return clean(lf).filter(_arrival)
+
+
+_month = pl.col("time").dt.strftime("%Y-%m")  # `time` lies within the file month, unlike planned
+_bucket = arrival_delay_expr(_planned, pl.col("arrival_change_time"), pl.col("arrival_is_canceled"))
+_gruppe = category_expr(pl.col("train_type"))
 
 
 def aggregate(lf: pl.LazyFrame) -> pl.DataFrame:
     """One row per (weekday, hour, gruppe, eva, month, bucket); bucket NULL = cancelled."""
-    planned = pl.col("arrival_planned_time")
     return (
         _arrivals(lf)
         .select(
-            weekday=planned.dt.weekday() - 1,  # 0 = Monday
-            hour=planned.dt.hour(),
-            gruppe=category_expr(pl.col("train_type")),
+            weekday=_planned.dt.weekday() - 1,  # 0 = Monday
+            hour=_planned.dt.hour(),
+            gruppe=_gruppe,
             eva=pl.col("eva"),
-            # Month comes from `time`: a monthly file holds stops planned on the boundary days.
-            month=pl.col("time").dt.strftime("%Y-%m"),
-            bucket=arrival_delay_expr(
-                planned, pl.col("arrival_change_time"), pl.col("arrival_is_canceled")
-            ),
+            month=_month,
+            bucket=_bucket,
         )
         .group_by("weekday", "hour", "gruppe", "eva", "month", "bucket")
         .agg(n=pl.len())
@@ -55,20 +103,74 @@ def aggregate(lf: pl.LazyFrame) -> pl.DataFrame:
     )
 
 
+def lines(lf: pl.LazyFrame) -> pl.DataFrame:
+    """Delay histogram per line name: (name, train_type, eva, gruppe, month, bucket, n)."""
+    keys = ["name", "train_type", "eva", "gruppe", "month", "bucket"]
+    return (
+        _arrivals(lf)
+        .select(
+            name=line_name_expr(),
+            train_type="train_type",
+            eva="eva",
+            gruppe=_gruppe,
+            month=_month,
+            bucket=_bucket,
+        )
+        .group_by(keys)
+        .agg(n=pl.len())
+        .sort(keys, nulls_last=True)
+        .collect()
+    )
+
+
+def month_networks(lf: pl.LazyFrame) -> pl.DataFrame:
+    """(name, eva, net): stations joined by a line's trips, stops without arrival included."""
+    members = clean(lf).select(name=line_name_expr(), group="train_line_ride_id", eva="eva")
+    return networks(members.unique().collect())
+
+
 def stations(lf: pl.LazyFrame) -> pl.DataFrame:
-    """Station names per EVA (display only; filtering always uses the EVA)."""
+    """(eva, name, n): most frequent name per EVA (display only) and its stops, cancelled ones
+    included; filtering always uses the EVA."""
     return (
         _arrivals(lf)
         .group_by("eva")
-        .agg(name=pl.col("station_name").mode().sort().first())  # sorted: deterministic on ties
+        .agg(name=pl.col("station_name").mode().sort().first(), n=pl.len())  # sorted: ties
         .sort("eva")
         .collect()
     )
 
 
-def stop_counts(lf: pl.LazyFrame) -> pl.DataFrame:
-    """Stops per EVA over the whole source: all categories and months, cancelled included."""
-    return _arrivals(lf).group_by("eva").agg(n=pl.len()).sort("eva").collect()
+def meta(lf: pl.LazyFrame, month: str) -> pl.DataFrame:
+    """(month, missing_hours, stations). The usual level of an hour of day is the lowest, over the
+    seven weekdays, of the median row count of that (weekday, hour) in the month; so quiet Sunday
+    mornings are normal. An hour is missing when its row count is below GAP_SHARE of that level
+    (no rows at all counts). Hours count against the real month in local time: the skipped hour
+    of the March clock change is not missing, the doubled October hour (both hours land in one)
+    is not either."""
+    start = datetime.strptime(month, "%Y-%m")
+    end = datetime(start.year + start.month // 12, start.month % 12 + 1, 1)
+    hours = pl.datetime_range(start, end, "1h", closed="left", time_zone="Europe/Berlin")
+    month_rows = clean(lf).filter(_month == month)
+    per_hour = (
+        month_rows.group_by(hour=pl.col("time").dt.truncate("1h")).agg(rows=pl.len()).collect()
+    )
+    every_hour = pl.select(hour=hours.dt.replace_time_zone(None).unique()).with_columns(
+        pl.col("hour").cast(per_hour.schema["hour"])
+    )
+    counts = (
+        every_hour.join(per_hour, on="hour", how="left")
+        .with_columns(pl.col("rows").fill_null(0))
+        .with_columns(weekday=pl.col("hour").dt.weekday(), hour_of_day=pl.col("hour").dt.hour())
+        .with_columns(usual=pl.col("rows").median().over("weekday", "hour_of_day"))
+        .with_columns(usual=pl.col("usual").min().over("hour_of_day"))
+    )
+    thin = counts.filter(pl.col("rows") < GAP_SHARE * pl.col("usual")).height
+    stations = month_rows.select(pl.col("eva").filter(_arrival).n_unique()).collect().item()
+    return pl.DataFrame(
+        {"month": [month], "missing_hours": [thin], "stations": [stations]},
+        schema={"month": pl.String, "missing_hours": pl.Int32, "stations": pl.UInt32},
+    )
 
 
 def with_coords(st: pl.DataFrame, coords: pl.DataFrame) -> pl.DataFrame:
@@ -108,24 +210,3 @@ def coverage_report(st: pl.DataFrame) -> str:
     miss = named.filter(pl.col("lat").is_null()).sort("n", descending=True).head(20)
     lines += [f"  {eva}  {name}  {n}" for eva, name, n, *_ in miss.iter_rows()]
     return "\n".join(lines)
-
-
-def main(argv: list[str]) -> None:
-    if len(argv) != 2:
-        sys.exit("usage: python -m pipeline.aggregate <source.parquet> <aggregate.parquet>")
-    src, dst = Path(argv[0]), Path(argv[1])
-    coords_path = dst.with_name("coords.parquet")
-    if not coords_path.exists():
-        sys.exit(f"Missing {coords_path}: run `uv run python -m pipeline.coords` first")
-    dst.parent.mkdir(parents=True, exist_ok=True)
-    source = pl.scan_parquet(src)
-    aggregate(source).write_parquet(dst)
-    joined = stations(source).join(stop_counts(source), on="eva")
-    out = with_coords(joined, pl.read_parquet(coords_path))
-    out.write_parquet(dst.with_name("stations.parquet"))
-    print(f"written: {dst}")
-    print(coverage_report(out))
-
-
-if __name__ == "__main__":
-    main(sys.argv[1:])
