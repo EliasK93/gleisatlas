@@ -17,12 +17,14 @@ const API_PATH =
   /^\/(heatmap|datenstand|stationen|karte|rankings|zeitverlauf)(?:\/([^/]+)(\/statistik|\/linien)?)?$/;
 const CORS = { "access-control-allow-origin": "*" };
 
-/** Stands in for the OpenFreeMap style, so map tests never touch the network. */
-const BASE_STYLE = {
+/** Stand in for the OpenFreeMap styles (light and dark), so map tests never touch the network. */
+const baseStyle = (background: string) => ({
   version: 8,
   sources: {},
-  layers: [{ id: "background", type: "background", paint: { "background-color": "#eef0f3" } }],
-};
+  layers: [{ id: "background", type: "background", paint: { "background-color": background } }],
+});
+const BASE_STYLE = baseStyle("#eef0f3");
+const DARK_STYLE = baseStyle("#1f242c");
 
 export const STATIONS: Station[] = [
   { eva: "8000207", name: "Köln Hbf", land: "Nordrhein-Westfalen", n: 90000 },
@@ -340,7 +342,10 @@ export async function mockApi(
 ): Promise<URL[]> {
   const requests: URL[] = [];
   await page.route("https://tiles.openfreemap.org/**", (route) =>
-    route.fulfill({ headers: CORS, json: BASE_STYLE }),
+    route.fulfill({
+      headers: CORS,
+      json: route.request().url().endsWith("/styles/dark") ? DARK_STYLE : BASE_STYLE,
+    }),
   );
   await page.route(
     (url) => API_PATH.test(url.pathname),

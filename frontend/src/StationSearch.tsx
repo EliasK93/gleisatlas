@@ -13,7 +13,7 @@ type Variant = "global" | "inline";
 const STYLE = {
   global: {
     input:
-      "h-9 w-full rounded-lg border border-border bg-surface-2 pr-3 pl-[34px] focus:border-accent focus:bg-surface md:pr-11",
+      "h-9 w-full rounded-lg border border-border bg-surface-2 pr-3 pl-[32px] focus:border-accent focus:bg-surface md:pr-11",
     box: "absolute inset-x-0 top-[calc(100%+4px)] z-50 rounded-[10px] border border-border bg-surface shadow-card",
     list: "max-h-80 overflow-auto p-1",
     none: "px-3 py-2.5 text-xs text-text-3",
@@ -68,7 +68,7 @@ export function StationSearch({
       {variant === "global" && (
         <Icon
           name="search"
-          className="pointer-events-none absolute top-[9px] left-2.5 size-[18px] text-text-3"
+          className="pointer-events-none absolute top-[9px] left-2.5 z-10 size-[18px] text-text-3"
         />
       )}
       {/* The label gives the field a 44 px tap area on mobile; a tap on it focuses the input. */}

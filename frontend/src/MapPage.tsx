@@ -30,6 +30,7 @@ import {
   type Filters as FilterKeys,
   type Metric,
 } from "./metrics";
+import { useTheme, type Theme } from "./prefs";
 import type { components } from "./schema";
 import {
   EmptyCard,
@@ -50,7 +51,10 @@ type Tip = { text: string; x: number; y: number } | null;
 // Bundled worker per the MapLibre v6 docs for Vite.
 setWorkerUrl(workerUrl);
 
-const STYLE = "https://tiles.openfreemap.org/styles/positron";
+const STYLE: Record<Theme, string> = {
+  light: "https://tiles.openfreemap.org/styles/positron",
+  dark: "https://tiles.openfreemap.org/styles/dark",
+};
 const GERMANY: [[number, number], [number, number]] = [
   [5.9, 47.3],
   [15.0, 55.05],
@@ -62,17 +66,19 @@ const NO_STATIONS = { type: "FeatureCollection" as const, features: [] };
 
 const token = (name: string) =>
   getComputedStyle(document.documentElement).getPropertyValue(`--${name}`).trim();
+const palette: Partial<Record<Theme, Record<string, string>>> = {};
 const SCALE_TOKENS = ["r", "c"].flatMap((scale) => [1, 2, 3, 4, 5].map((i) => `${scale}${i}`));
 
 /**
- * One point per station with everything the layers need. Colours come from the theme tokens
- * at call time, so a theme switch only has to rebuild this.
+ * One point per station with everything the layers need. Colours are the tokens of `theme`, so a
+ * theme switch only has to rebuild this.
  * ponytail: a metric switch rebuilds and re-sends all ~5k points; move to feature-state if it stutters
  */
-function toFeatures(data: Karte, metric: Metric) {
-  const colours = Object.fromEntries(
+function toFeatures(data: Karte, metric: Metric, theme: Theme) {
+  // <html data-theme> already is `theme` when this runs; the tokens are read once per theme.
+  const colours = (palette[theme] ??= Object.fromEntries(
     ["surface", "cancel", ...SCALE_TOKENS].map((n) => [n, token(n)]),
-  );
+  ));
   const surface = colours.surface;
   const most = data.stationen.reduce((a, s) => Math.max(a, s.n), 1);
   return {
@@ -212,6 +218,18 @@ function StationMap({
   const box = useRef<HTMLDivElement>(null);
   const [map, setMap] = useState<MapLibre | null>(null);
   const [tip, setTip] = useState<Tip>(null);
+  const { resolved } = useTheme();
+  // The theme of the base style the map shows or is loading.
+  const styled = useRef(resolved);
+  const features = useMemo(
+    () => data && toFeatures(data, metric, resolved),
+    [data, metric, resolved],
+  );
+  // What a freshly loaded base style needs to draw the stations again.
+  const current = useEffectEvent(() => ({
+    data: features ?? NO_STATIONS,
+    eva: selected?.eva ?? "",
+  }));
   // The station picked on the map itself, which needs no camera move.
   const clicked = useRef<string | null>(null);
   const pick = useEffectEvent((eva: string) => {
@@ -224,7 +242,7 @@ function StationMap({
   useEffect(() => {
     const m = new MapLibre({
       container: box.current!,
-      style: STYLE,
+      style: STYLE[styled.current],
       bounds: GERMANY,
       // Room for the floating filter card on top.
       fitBoundsOptions: {
@@ -243,6 +261,7 @@ function StationMap({
       new AttributionControl({ compact: true, customAttribution: t("map.attribution") }),
       "bottom-right",
     );
+    // Runs for every base style, so a theme switch (which drops our source and layers) gets them back.
     m.on("style.load", () => {
       for (const l of m.getStyle().layers)
         if (l.type === "symbol") {
@@ -250,9 +269,8 @@ function StationMap({
           const field = l.layout?.["text-field"];
           if (field) m.setLayoutProperty(l.id, "text-field", localLabel(field));
         }
-    });
-    m.on("load", () => {
-      m.addSource("stations", { type: "geojson", data: NO_STATIONS });
+      const now = current();
+      m.addSource("stations", { type: "geojson", data: now.data });
       m.addLayer({
         id: "stations",
         type: "circle",
@@ -270,7 +288,7 @@ function StationMap({
         id: "selected",
         type: "circle",
         source: "stations",
-        filter: ["==", ["get", "eva"], ""],
+        filter: ["==", ["get", "eva"], now.eva],
         paint: {
           "circle-radius": ["+", ["get", "r"], 4],
           "circle-opacity": 0,
@@ -278,8 +296,8 @@ function StationMap({
           "circle-stroke-width": 2.5,
         },
       });
-      setMap(m);
     });
+    m.on("load", () => setMap(m));
     const hover = matchMedia("(hover: hover)").matches;
     m.on("mousemove", "stations", (e) => {
       m.getCanvas().style.cursor = "pointer";
@@ -297,13 +315,27 @@ function StationMap({
     return () => m.remove();
   }, []);
 
-  const features = useMemo(() => data && toFeatures(data, metric), [data, metric]);
+  useEffect(() => {
+    // Only a change after the map exists; the first style is already the right one.
+    if (!map || styled.current === resolved) return;
+    styled.current = resolved;
+    const el = box.current!;
+    el.dataset.ready = "false";
+    // A full reload, so style.load fires again and re-adds the station layers.
+    map.setStyle(STYLE[resolved], { diff: false });
+    map.once("idle", () => {
+      el.dataset.ready = "true";
+    });
+  }, [map, resolved]);
+
   useEffect(() => {
     const el = box.current;
-    if (!map || !features || !el) return;
+    // While a new base style loads there is no source yet; style.load adds it with the latest data.
+    const source = map?.getSource("stations") as GeoJSONSource | undefined;
+    if (!map || !source || !features || !el) return;
     // Tests wait for data-ready: the map is idle with this data drawn.
     el.dataset.ready = "false";
-    (map.getSource("stations") as GeoJSONSource).setData(features);
+    source.setData(features);
     map.once("idle", () => {
       el.dataset.ready = "true";
     });
@@ -314,7 +346,8 @@ function StationMap({
   const lat = selected?.lat;
   useEffect(() => {
     if (!map) return;
-    map.setFilter("selected", ["==", ["get", "eva"], eva ?? ""]);
+    // While a new base style loads the layer is missing (setFilter would throw); style.load adds it with this selection.
+    if (map.getLayer("selected")) map.setFilter("selected", ["==", ["get", "eva"], eva ?? ""]);
     if (clicked.current === eva) {
       clicked.current = null;
       return;

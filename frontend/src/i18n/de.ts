@@ -18,14 +18,24 @@ export const de = {
   "nav.live": "Live-Lage heute",
   "nav.chains": "Verspätungsketten",
   "nav.saved": "Gespeicherte Fahrten",
-  "nav.method": "So lesen Sie die Zahlen",
+  "nav.method": "So liest man die Zahlen",
   "nav.patterns": "Muster",
   "nav.heatmapShort": "Heatmap",
   "nav.more": "Mehr",
 
+  "theme.label": "Darstellung",
+  "theme.system": "System",
+  "theme.light": "Hell",
+  "theme.dark": "Dunkel",
+
+  "lang.label": "Sprache",
+  "lang.de": "Deutsch",
+  "lang.en": "English",
+
   "data.status": "Datenstand: {month} · {stations} Bahnhöfe",
   "data.source": "Daten: DB via piebro/deutsche-bahn-data,",
   "data.licence": "CC BY 4.0",
+  "data.licenceUrl": "https://creativecommons.org/licenses/by/4.0/deed.de",
 
   "filter.chip": "{label}:",
   "filter.period": "Zeitraum",
@@ -57,6 +67,8 @@ export const de = {
   "metric.ausfall.cell": "{v} ausgefallen",
   "unit.min": "min",
   "unit.pct": "%",
+  "format.pct": "{v} %",
+  "format.monthShort": "{month} {yy}",
 
   "hm.crumb": "Entdecken",
   "hm.title": "Wann ist es am schlimmsten?",
@@ -79,7 +91,7 @@ export const de = {
   "hm.best": "Am zuverlässigsten: {slot} · {value}",
   "hm.thin": "{count} Felder haben zu wenige Fahrten für eine Aussage.",
   "hm.empty": "Für diese Filter gibt es keine Fahrten",
-  "hm.emptyHint": "Probieren Sie eine andere Gattung oder einen anderen Bahnhof.",
+  "hm.emptyHint": "Eine andere Gattung oder ein anderer Bahnhof hilft vielleicht weiter.",
 
   "rk.lead": "Nur Einträge mit genügend Fahrten, damit Zufall nicht gewinnt.",
   "rk.typeLabel": "Linien oder Bahnhöfe",
@@ -92,7 +104,8 @@ export const de = {
   "rk.meta.linien": "{count} Linien mit mindestens {min} Halten · {period}",
   "rk.meta.bahnhoefe": "{count} Bahnhöfe mit mindestens {min} Halten · {period}",
   "rk.empty": "Keine Einträge mit mindestens {min} Halten",
-  "rk.emptyHint": "Senken Sie die Mindest-Stichprobe oder wählen Sie einen längeren Zeitraum.",
+  "rk.emptyHint":
+    "Eine kleinere Mindest-Stichprobe oder ein längerer Zeitraum bringt mehr Einträge.",
 
   "zv.lead": "Monat für Monat. Ausfälle stehen bewusst in einem eigenen Diagramm.",
   "zv.delay": "Verspätung",
@@ -120,7 +133,7 @@ export const de = {
   "zv.emptyHint": "Für diese Auswahl gibt es zu wenige Monate.",
 
   "map.title": "Wie zuverlässig ist die Bahn?",
-  "map.lead": "Jeder Punkt ist ein Bahnhof. Klicken Sie einen an.",
+  "map.lead": "Jeder Punkt ist ein Bahnhof – ein Klick zeigt die Details.",
   "map.region": "Deutschlandkarte mit Bahnhöfen",
   "map.attribution": "Daten: Deutsche Bahn via piebro/deutsche-bahn-data, CC BY 4.0",
   "map.attributionToggle": "Quellenangaben ein- oder ausblenden",
@@ -207,6 +220,6 @@ export const de = {
   "share.done": "Link kopiert",
   "state.loading": "Daten werden geladen …",
   "state.error": "Daten konnten nicht geladen werden.",
-  "state.errorHint": "Der Server antwortet gerade nicht. Ihre Filter bleiben erhalten.",
+  "state.errorHint": "Der Server antwortet gerade nicht. Die Filter bleiben erhalten.",
   "state.retry": "Erneut versuchen",
 };

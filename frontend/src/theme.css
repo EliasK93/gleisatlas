@@ -7,7 +7,7 @@
   --border: #e1e4e9;
   --text: #141820;
   --text-2: #4a5363;
-  --text-3: #697182;
+  --text-3: #656d7e;
   --accent: #4b47d6;
   --accent-soft: #ecebfd;
   --on-accent: #ffffff;
@@ -27,6 +27,36 @@
   --cat3: #b54aa8;
   --shadow: 0 4px 16px rgb(16 24 40 / 0.08), 0 1px 3px rgb(16 24 40 / 0.06);
   color-scheme: light;
+}
+
+/* Set on <html> as the resolved theme (see prefs.ts). Only the colours differ from the light set. */
+:root[data-theme="dark"] {
+  --bg: #0f1216;
+  --surface: #171b21;
+  --surface-2: #1f242c;
+  --border: #2a3039;
+  --text: #e8ebf0;
+  --text-2: #a6afbd;
+  --text-3: #838b99;
+  --accent: #8b88ff;
+  --accent-soft: #25244a;
+  --on-accent: #0f1216;
+  --r1: #5aa2e6;
+  --r2: #8fc4e8;
+  --r3: #e3cb6e;
+  --r4: #f39a5c;
+  --r5: #e5576a;
+  --cancel: #8a93a3;
+  --c1: #3a404b;
+  --c2: #555d6a;
+  --c3: #76808e;
+  --c4: #a0a8b5;
+  --c5: #d5d9e0;
+  --cat1: #8b88ff;
+  --cat2: #6f7888;
+  --cat3: #e07ad3;
+  --shadow: 0 4px 20px rgb(0 0 0 / 0.45);
+  color-scheme: dark;
 }
 
 @theme inline {

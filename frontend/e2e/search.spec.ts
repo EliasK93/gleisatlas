@@ -175,3 +175,35 @@ test.describe("mobile", () => {
     expect(top).toBe(true);
   });
 });
+
+for (const [locale, placeholder] of [
+  ["de-DE", "Bahnhof suchen …"],
+  ["en-US", "Search stations …"],
+] as const)
+  test.describe(`the global field in ${locale}`, () => {
+    test.use({ locale });
+
+    const field = (page: Page) => page.locator("input[data-global-search]:visible");
+
+    test("the placeholder fits the field and the magnifier is drawn", async ({ page }) => {
+      await page.goto("/muster/heatmap");
+      await expect(field(page)).toHaveAttribute("placeholder", placeholder);
+      const [text, room] = await field(page).evaluate((input) => {
+        const style = getComputedStyle(input);
+        const ctx = document.createElement("canvas").getContext("2d")!;
+        ctx.font = style.font;
+        return [
+          ctx.measureText((input as HTMLInputElement).placeholder).width,
+          input.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight),
+        ];
+      });
+      expect(text).toBeLessThanOrEqual(room);
+      // The icon sits behind the field's own background unless it is stacked above it.
+      const icon = field(page).locator("xpath=../..").locator("svg");
+      const clip = (await icon.boundingBox())!;
+      const shot = () => page.screenshot({ clip });
+      const shown = await shot();
+      await icon.evaluate((el) => (el.style.visibility = "hidden"));
+      expect(shown.equals(await shot())).toBe(false);
+    });
+  });

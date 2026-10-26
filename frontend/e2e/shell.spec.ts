@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { mockApi } from "./fixtures";
 
-const UNBUILT = ["Verbindung planen", "Umstieg prüfen", "So lesen Sie die Zahlen"];
+const UNBUILT = ["Verbindung planen", "Umstieg prüfen", "So liest man die Zahlen"];
 
 test.beforeEach(async ({ page }) => {
   await mockApi(page);

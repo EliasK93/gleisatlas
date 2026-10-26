@@ -232,9 +232,12 @@ function Lists({
   );
 }
 
-/** Rank, name, bar, value, cancellation rate; the last column fits "✕ 10,9 %" on one line. */
+/**
+ * Rank, name, bar, value, cancellation rate. The last column is 80 px, which fits the English
+ * header "Cancellations" (about 77 px at 12 px) and "✕ 10,9 %" on one line; the bar gives way.
+ */
 const GRID =
-  "grid grid-cols-[24px_minmax(0,1fr)_56px_52px_56px] gap-2 md:grid-cols-[24px_minmax(0,1fr)_96px_58px_56px] md:gap-2.5";
+  "grid grid-cols-[24px_minmax(0,1fr)_40px_52px_80px] gap-2 md:grid-cols-[24px_minmax(0,1fr)_72px_58px_80px] md:gap-2.5";
 const ROW = `${GRID} min-h-11 items-center border-b border-border px-1 py-2`;
 
 function Row({

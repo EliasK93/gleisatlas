@@ -18,7 +18,9 @@ const oneDecimal = new Intl.NumberFormat(LOCALE, {
 });
 export const int = (v: number) => whole.format(v);
 const NBSP = String.fromCharCode(0xa0); // keeps value and unit on one line
-const withUnit = (v: string, unit: "unit.pct" | "unit.min") => `${v}${NBSP}${t(unit)}`;
+// The percent sign is spaced per language (German "87 %", English "87%"), so it comes from the catalog.
+export const withUnit = (v: string, unit: "unit.pct" | "unit.min") =>
+  unit === "unit.pct" ? t("format.pct", { v }) : `${v}${NBSP}${t(unit)}`;
 const pct = (v: number) => withUnit(int(v), "unit.pct");
 const min = (v: number) => withUnit(int(v), "unit.min");
 const round = (v: number | null, factor = 1) =>
@@ -104,9 +106,12 @@ const monthFormat = new Intl.DateTimeFormat(LOCALE, {
 const monthDate = (ym: string) => new Date(`${ym}-01T00:00:00Z`);
 
 const monthName = new Intl.DateTimeFormat(LOCALE, { month: "long", timeZone: "UTC" });
-/** "2026-03" → "Mär 26": three letters and the year, as on the chart axes. */
+/** "2026-03" → "Mär 26" (en: "Mar '26"): three letters and the year, as on the chart axes. */
 export const formatMonth = (ym: string) =>
-  `${monthName.format(monthDate(ym)).slice(0, 3)} ${ym.slice(2, 4)}`;
+  t("format.monthShort", {
+    month: monthName.format(monthDate(ym)).slice(0, 3),
+    yy: ym.slice(2, 4),
+  });
 
 /** "2026-09" → "Sept. 2026"; a range becomes "Okt. 2025 – Sept. 2026". */
 export const formatPeriod = (von: string, bis = von) =>

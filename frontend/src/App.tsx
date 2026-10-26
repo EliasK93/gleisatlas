@@ -13,17 +13,17 @@ import { useDatenstand } from "./api";
 import HeatmapPage from "./HeatmapPage";
 // ponytail: MapLibre ships in the main bundle (about 400 kB gzip); lazy-load MapPage if other pages' first load matters
 import MapPage from "./MapPage";
-import { t, type MessageKey } from "./i18n";
+import { LANG, t, type Lang, type MessageKey } from "./i18n";
 import { Icon, type IconName } from "./Icon";
 import { formatPeriod, int } from "./metrics";
+import { setLang, useTheme, type ThemePref } from "./prefs";
 import RankingsPage from "./RankingsPage";
 import StationPage from "./StationPage";
 import { GlobalSearch, useSearchShortcut } from "./StationSearch";
-import { HEATMAP, RANKINGS, SoonTag, ZEITVERLAUF } from "./ui";
+import { HEATMAP, RANKINGS, Segmented, SoonTag, ZEITVERLAUF } from "./ui";
 import ZeitverlaufPage from "./ZeitverlaufPage";
 
 const MAP = "/karte";
-const LICENCE = "https://creativecommons.org/licenses/by/4.0/deed.de";
 
 export default function App() {
   return (
@@ -94,6 +94,8 @@ function Shell() {
             <Soon icon="info" label="nav.method" />
           </div>
         </nav>
+        <ThemeSwitch className="hidden px-2.5 pt-2 md:block" />
+        <LangSwitch className="hidden px-2.5 pt-2 md:block" />
         <DataNote className="hidden px-2.5 pt-2 text-xs text-text-3 md:block" />
       </div>
 
@@ -178,6 +180,69 @@ function Tab({ icon, label, to }: { icon: IconName; label: MessageKey; to?: To }
   );
 }
 
+const THEMES: ThemePref[] = ["system", "light", "dark"];
+const THEME_OPTIONS = THEMES.map((value) => ({ value, label: t(`theme.${value}`) }));
+
+const LANGS: Lang[] = ["de", "en"];
+const LANG_OPTIONS = LANGS.map((value) => ({ value, label: t(`lang.${value}`) }));
+
+/** A labelled segmented preference switch. */
+function PrefSwitch<T extends string>({
+  label,
+  options,
+  value,
+  onChange,
+  className,
+}: {
+  label: string;
+  options: { value: T; label: string }[];
+  value: T;
+  onChange: (v: T) => void;
+  className: string;
+}) {
+  return (
+    <div className={className}>
+      <div className="pb-1.5 text-[11px] font-semibold tracking-[0.06em] text-text-3 uppercase">
+        {label}
+      </div>
+      <Segmented
+        label={label}
+        options={options}
+        value={value}
+        onChange={onChange}
+        className="-my-2 py-2 md:m-0 md:p-0"
+      />
+    </div>
+  );
+}
+
+/** System, Light or Dark; System follows the device. */
+function ThemeSwitch({ className }: { className: string }) {
+  const { pref, setPref } = useTheme();
+  return (
+    <PrefSwitch
+      label={t("theme.label")}
+      options={THEME_OPTIONS}
+      value={pref}
+      onChange={setPref}
+      className={className}
+    />
+  );
+}
+
+/** Each language is named in itself, so it can be found from either UI. */
+function LangSwitch({ className }: { className: string }) {
+  return (
+    <PrefSwitch
+      label={t("lang.label")}
+      options={LANG_OPTIONS}
+      value={LANG}
+      onChange={setLang}
+      className={className}
+    />
+  );
+}
+
 function DataNote({ className }: { className: string }) {
   const { data } = useDatenstand();
   const month = data?.monate.at(-1);
@@ -188,7 +253,7 @@ function DataNote({ className }: { className: string }) {
       )}
       <p>
         {t("data.source")}{" "}
-        <a href={LICENCE} target="_blank" rel="noopener" className="underline">
+        <a href={t("data.licenceUrl")} target="_blank" rel="noopener" className="underline">
           {t("data.licence")}
         </a>
       </p>
@@ -208,6 +273,8 @@ function MorePage() {
         <Soon icon="clock" label="nav.live" />
         <Soon icon="star" label="nav.saved" />
       </div>
+      <ThemeSwitch className="card mt-4" />
+      <LangSwitch className="card mt-4" />
       <DataNote className="card mt-4 flex flex-col gap-1 text-xs text-text-3" />
     </div>
   );

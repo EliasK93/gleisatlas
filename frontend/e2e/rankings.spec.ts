@@ -238,7 +238,7 @@ test("a threshold nobody reaches shows an empty state", async ({ page }) => {
   await mockApi(page, undefined, undefined, undefined, emptyRangliste);
   await page.goto("/muster/rankings?min=5000");
   await expect(page.getByText("Keine Einträge mit mindestens 5.000 Halten")).toBeVisible();
-  await expect(page.getByText(/Senken Sie die Mindest-Stichprobe/)).toBeVisible();
+  await expect(page.getByText(/Eine kleinere Mindest-Stichprobe/)).toBeVisible();
   await page.getByRole("button", { name: "100", exact: true }).click();
   await expect(page).toHaveURL(/[?&]min=100/);
 });
@@ -311,3 +311,54 @@ test.describe("mobile", () => {
     for (const c of controls) expect(await tall(c), `${await c.textContent()}`).toBe(true);
   });
 });
+
+for (const [locale, worst, label, metric, figure] of [
+  ["de-DE", WORST, "Ausfälle", "Pünktlichkeit", "✕ 10,9 %"],
+  ["en-US", "Least reliable", "Cancellations", "Punctuality", "✕ 10.9%"],
+] as const)
+  test.describe(`the cancellation column in ${locale}`, () => {
+    test.use({ locale });
+
+    test("its label stays on one line and lines up with the figures at every width", async ({
+      page,
+      isMobile,
+    }) => {
+      await mockApi(page, undefined, undefined, undefined, (typ, metrik, minN) => {
+        const data = rankingFixture(typ, metrik, minN);
+        const [first, ...rest] = data.schlechteste;
+        return { ...data, schlechteste: [{ ...first, ausfallquote: 0.109 }, ...rest] };
+      });
+      // Two cards from 1024 px, stacked below, and the phone project's own size with tabs.
+      for (const width of isMobile ? [0] : [1024, 900, 768, 1280]) {
+        if (width) await page.setViewportSize({ width, height: 800 });
+        await page.goto("/muster/rankings");
+        const card = column(page, worst);
+        const head = card.getByText(label, { exact: true });
+        const cell = card.getByText(figure);
+        await expect(cell).toBeVisible();
+        // The text's own box: an element box would hide text that runs out of a narrow cell.
+        const ink = (l: Locator) =>
+          l.evaluate((el) => {
+            const range = document.createRange();
+            range.selectNodeContents(el);
+            const { x, width, height } = range.getBoundingClientRect();
+            return { x, width, height };
+          });
+        const [h, c, m, box] = await Promise.all([
+          ink(head),
+          ink(cell),
+          ink(card.getByText(metric, { exact: true })),
+          card.boundingBox(),
+        ]);
+        const at = `${locale} ${width || "mobile"}`;
+        expect(h.height, at).toBeLessThan(20);
+        expect(Math.abs(h.x + h.width - (c.x + c.width)), at).toBeLessThanOrEqual(2);
+        expect(m.x + m.width, at).toBeLessThanOrEqual(h.x);
+        expect(h.x + h.width, at).toBeLessThanOrEqual(box!.x + box!.width);
+        const fits = await card
+          .getByRole("link")
+          .evaluateAll((all) => all.every((a) => a.scrollWidth <= a.clientWidth));
+        expect(fits, at).toBe(true);
+      }
+    });
+  });

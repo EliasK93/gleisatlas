@@ -12,6 +12,7 @@ import {
   readFilters,
   seriesMetric,
   withParam,
+  withUnit,
   writeFilters,
   type Filters as FilterKeys,
   type Metric,
@@ -49,7 +50,6 @@ const VIEWS = [
 ] as const;
 
 const num = new Intl.NumberFormat(LOCALE);
-const NBSP = " ";
 
 /**
  * The series of one selection: one row per month with its statistics, `titel` names it. A station
@@ -154,7 +154,7 @@ function Plot({
   height: number;
   top: number;
   ticks: number[];
-  unit: string;
+  unit: "unit.pct" | "unit.min";
   children: (s: Scale) => ReactNode;
 }) {
   const band = (width - PAD.l - PAD.r) / months.length;
@@ -185,9 +185,7 @@ function Plot({
             textAnchor="end"
             className="fill-text-3 text-[11px]"
           >
-            {num.format(v)}
-            {NBSP}
-            {unit}
+            {withUnit(num.format(v), unit)}
           </text>
         </g>
       ))}
@@ -500,7 +498,7 @@ function View({
                 height={260}
                 top={top}
                 ticks={niceTicks(delay ? [0, ...values] : values)}
-                unit={t(delay ? "unit.min" : "unit.pct")}
+                unit={delay ? "unit.min" : "unit.pct"}
               >
                 {(scale) => (
                   <>
@@ -564,7 +562,7 @@ function View({
                 height={150}
                 top={8}
                 ticks={niceTicks([0, ...nonNull(months.map(cancelRate))])}
-                unit={t("unit.pct")}
+                unit="unit.pct"
               >
                 {(scale) =>
                   months.map((m, i) => {
@@ -713,7 +711,7 @@ export function Sparkline({
               height={110}
               top={8}
               ticks={niceTicks(nonNull(months.map(percent)))}
-              unit={t("unit.pct")}
+              unit="unit.pct"
             >
               {(scale) => (
                 <Line

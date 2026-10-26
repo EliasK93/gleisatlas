@@ -10,6 +10,13 @@ body {
   outline-offset: 2px;
 }
 
+/* The selects are transparent inside their chip, and a transparent option gives the popup the
+   browser's light default under the chip's light text in Dunkel. Opaque tokens fix both. */
+select option {
+  background-color: var(--color-surface);
+  color: var(--color-text);
+}
+
 /* Below 768 px: a transparent tap area of at least 44 px (design §5) without changing the look.
    It sits behind the control's content, so a select or text inside still gets its own taps. */
 @utility hit {
