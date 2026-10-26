@@ -13,7 +13,7 @@ The start page of the app: a map of Germany with one dot per station, coloured b
 | `/karte` | Map start page; `/` and unknown paths redirect here, query string kept |
 | `/bahnhof/{eva}` | Station detail page |
 
-The filter keys `g`, `von`, `bis` and `k` are the ones of the shell (see [app-shell.md](app-shell.md)). On the map, `bhf` is the selected station: it opens the panel, so a link or a reload restores the selection. The detail page takes the station from the path and drops a `bhf` key from the URL once. A station picked from the search goes to `/bahnhof/{eva}` and keeps `g`, `von`, `bis` and `k`. From the detail page, the breadcrumb "Karte" and "Groß ansehen →" (the heatmap) carry the filters plus `bhf={eva}`. Every URL write puts the keys in one canonical order, so a filter change never reloads the page.
+The filter keys `g`, `von`, `bis` and `k` are the ones of the shell (see [app-shell.md](app-shell.md)). On the map, `bhf` is the selected station: it opens the panel, so a link or a reload restores the selection. The detail page takes the station from the path and drops a `bhf` or `linie` key from the URL once; the map drops `linie` too. A station picked from the search goes to `/bahnhof/{eva}` and keeps `g`, `von`, `bis` and `k`. From the detail page, the breadcrumb "Karte" and "Groß ansehen →" (the heatmap) carry the filters plus `bhf={eva}`. Every URL write puts the keys in one canonical order, so a filter change never reloads the page.
 
 **API used**
 
@@ -22,6 +22,7 @@ The filter keys `g`, `von`, `bis` and `k` are the ones of the shell (see [app-sh
 - `GET /heatmap?eva=` feeds the mini heatmap on the detail page and shares the cache with the heatmap page.
 - `GET /stationen?q=&limit=` feeds the search: name-prefix matches first, then by number of stops, so Köln Hbf comes before Köln-Dellbrück.
 - `GET /stationen/{eva}` resolves a `bhf` that is not in the map data (a station without coordinates).
+- `GET /stationen/{eva}/linien` (same filters) feeds the table of lines; `GET /zeitverlauf?eva=` (category only) feeds the sparkline, together with `/datenstand` for the gap hours.
 
 **Map page**
 
@@ -36,7 +37,9 @@ The filter keys `g`, `von`, `bis` and `k` are the ones of the shell (see [app-sh
 **Station detail page**
 
 - Header: breadcrumb "Karte › name", h1, "EVA … · federal state", "Teilen"; "Verbindung ab hier" and "Umstiege hier" are tagged "bald". Filter bar without the Bahnhof chip.
-- A little-data banner, four tiles (Pünktlichkeit, Typische Verspätung, Schlechte Tage (P90), Ausfälle) each with value, sentence and meta line, the delay distribution with a separate hatched "ausgefallen" bar, the mini heatmap with "Groß ansehen →", bars for Regionalverkehr and Fernverkehr, and the cards "Linien an diesem Bahnhof" and "Letzte 12 Monate", both tagged "bald".
+- A little-data banner, four tiles (Pünktlichkeit, Typische Verspätung, Schlechte Tage (P90), Ausfälle) each with value, sentence and meta line, the delay distribution with a separate hatched "ausgefallen" bar, the mini heatmap with "Groß ansehen →", bars for Regionalverkehr and Fernverkehr, the table "Linien an diesem Bahnhof" and the card "Letzte 12 Monate".
+- "Linien an diesem Bahnhof" lists the lines that stop here, worst punctuality first by default, with a segmented toggle "Schlechteste zuerst" · "Beste zuerst" (client-side: only the lines with enough data are reversed, the ones with too little data stay last in both orders), with the train-type badge, the name, a thin bar with the punctuality value, n and the cancellation rate as its own grey "✕" figure. It shows the first ten and "Alle {count} Linien anzeigen" expands the rest in place and the same button then reads "Weniger anzeigen" and collapses back to ten. A line with too little data is hatched and shows no value, by the rule of the heatmap. Every row links to the time series of that line, with the category and, for Typische Verspätung and Schlechte Tage (P90), the delay view. After "Alle {count} Linien anzeigen" the focus moves to the first newly shown row; after "Weniger anzeigen" it stays on the button. On mobile each row becomes a bordered card with the bar below the name. It has its own loading, error and empty state ("Mit diesen Filtern gibt es hier keine Linien."), so the rest of the page stays.
+- "Letzte 12 Monate" is a sparkline of the punctuality of the station's last 12 months with the latest value and its n ("pünktlich im {month} · n = …", the latest month with enough data, or "–" when no month has) and the link "Zeitverlauf →" to the station's time series. It follows the category filter but not `von` and `bis`, which the series does not use. Months with little data (the rule of the heatmap) or gaps are dashed, with a hollow point, and a tap or hover shows the month's tooltip. It has its own loading, error and empty state.
 - The metric switch above the mini heatmap drives the mini heatmap and the category bars and writes `k`.
 - States: skeleton, empty period with "Filter zurücksetzen", error banner, and "Diesen Bahnhof kennen wir nicht" with a search for an unknown or invalid EVA (an invalid EVA does not ask the API).
 - Mobile: one column, tiles 2 × 2.
@@ -57,8 +60,11 @@ The filter keys `g`, `von`, `bis` and `k` are the ones of the shell (see [app-sh
 - **The mockup wins over design.md** where they differ: the sheet is fixed at 62 %, there is no `z` map-position key, the footer is hidden on the map and the metric switch scrolls sideways on mobile. Reason: the mockup is the clickable reference.
 - **Search per mockup, no palette dialog.** Reason: product owner's choice; Ctrl+K only focuses the field.
 - **The field's accessible name is "Bahnhofssuche"**, the filter chip's combobox stays "Bahnhof suchen". Reason: two comboboxes with one name would break tests that find the chip by name, and accessibility labels are not changed to make tests easier. The placeholder reads "Bahnhof suchen …" in both.
-- **"bald" sections** (lines, last 12 months, "Verbindung ab hier", "Umstiege hier") are shown as dimmed cards or tags, not hidden. Reason: product owner's choice; the detail page builds what the data supports and says what is missing.
-- **No list alternative to the map.** Reason: search and panel reach every station without the map; a station table arrives with the rankings.
+- **Unbuilt actions** ("Verbindung ab hier", "Umstiege hier") are shown with a "bald" tag, not hidden. Reason: product owner's choice; the detail page builds what the data supports and says what is missing.
+- **"Linien an diesem Bahnhof" shows punctuality only, worst first, and does not follow the metric switch.** The first ten rows show, the rest expands in place. Reason: the API orders lines by punctuality, and a table that re-sorted with the metric would need a second ordering rule; sorting by column is not built (see Known shortcuts).
+- **A line row opens the time series, not a line page.** Reason: a line has no page of its own, and the series answers the next question directly.
+- **"Letzte 12 Monate" is punctuality over the last 12 months of the data, not a calendar year.** The series is the time series endpoint's, so the sparkline and the full page show the same numbers. Reason: one source for both, and the period picker stays out of it like on the full series.
+- **No list alternative to the map.** Reason: search and panel reach every station without the map. The rankings show only the ten worst and ten best, so they are no full station list either.
 - **The duplicate-name hint is computed in the browser** from the shown results, not by the backend. Reason: names are not unique, but a backend field for one hint is not worth the contract.
 - **Delay bins are half-open in whole minutes**: < 1 (early arrivals included), [1, 3), [3, 6), [6, 10), [10, 20), [20, 30), ≥ 30. Reason: the source stores whole minutes, and the edge at 6 matches the punctuality rule. Cancelled stops are counted apart and never fall into a bin.
 - **The distribution shows shares of all planned stops**, with cancellations as their own bar. Reason: the mockup does it, and the bars then add up to 100 %.
@@ -76,9 +82,9 @@ The filter keys `g`, `von`, `bis` and `k` are the ones of the shell (see [app-sh
 ## 4 Architecture and data keys
 
 - `frontend/src/MapPage.tsx`: the page, `StationMap` (MapLibre lifecycle, one GeoJSON source with a circle layer and a selection ring, features built from the theme tokens at runtime), `Legend`, `StationPanel`.
-- `frontend/src/StationPage.tsx`: the detail page with its tiles, distribution, mini heatmap, category bars and states.
+- `frontend/src/StationPage.tsx`: the detail page with its tiles, distribution, mini heatmap, category bars, the `Lines` table and states. The `Sparkline` card is `ZeitverlaufPage.tsx`'s export (see [app-shell.md](app-shell.md)).
 - `frontend/src/StationSearch.tsx`: `StationSearch` (the combobox, variants "global" and "inline", ids from `useId`), `useOpenStation`, `GlobalSearch`, `useSearchShortcut`.
-- `frontend/src/ui.tsx`: pieces shared by the pages: metric switch, error banner, empty card, share button, "bald" tag, the low-data rule `show()`, and the class fills.
+- `frontend/src/ui.tsx`: pieces shared by the pages: metric switch, error banner, empty card, share button, "bald" tag, the low-data rule `show()`, the class fills, and `Badge`, `MiniBar` and `Cancelled` for the lines table and the category bars.
 - `frontend/src/metrics.ts`: also `share`, `binLabel`, `tenths`; `withParam` writes keys in canonical order.
 - `backend/main.py`: `/karte`, `/stationen/{eva}/statistik`, the shared filter chain `selection`, the cache `karte_for`.
 - `core/stats.py`: `delay_bins`. `core/stations.py`: `ibnr_expr` (EVA to IBNR).
@@ -91,7 +97,8 @@ The filter keys `g`, `von`, `bis` and `k` are the ones of the shell (see [app-sh
 - [x] Station coordinates: source, join and coverage. Re-check: `uv run pytest -q`, `tests/pipeline/test_coords.py` (`test_parse_bindings_dedups_and_keeps_missing_state`), `tests/pipeline/test_aggregate.py` (`test_join_coords_on_normalised_eva`, `test_unlocated_station_takes_coords_of_its_only_namesake`), `tests/pipeline/test_update.py` (`test_update_aborts_without_coords_before_fetching`), `tests/core/test_core.py` (`test_ibnr_strips_leading_zeros`); the coverage figures in the ADR come from the combine step of `pipeline.update`.
 - [x] Map and station statistics API. Re-check: `uv run pytest -q`, `tests/api/test_map_api.py` (`test_karte_lists_only_stations_with_coordinates`, `test_karte_is_cached_per_selection_and_follows_the_files`, `test_statistik_bins_and_cancelled_sum_to_n`, `test_statistik_unknown_or_unnamed_station_is_404`, `test_invalid_input_is_422`, `test_large_responses_are_gzipped`), `tests/api/test_heatmap_api.py` (`test_search_puts_prefix_matches_first_then_busiest`), `tests/core/test_core.py` (`test_delay_bins_edges_negatives_and_cancelled`).
 - [x] Map start page with panel. Re-check: `npm.cmd --prefix frontend run test:e2e`, `frontend/e2e/map.spec.ts` (redirect, stations drawn without footer, `?bhf=` panel, Escape, metric switch without refetch, keys in any order load the map once, focus returns to the map, empty and error states, 360 px panel, mobile bottom sheet and 44 px map controls).
-- [x] Station search and detail page. Re-check: `frontend/e2e/search.spec.ts` (keyboard pick keeps filters, duplicate hint, stale Enter, Ctrl+K, mobile field) and `frontend/e2e/station.spec.ts` (header, tiles, distribution with a separate cancelled bar, mini heatmap and metric, soon cards, unknown and invalid station, breadcrumb back to the map, mobile).
+- [x] Station search and detail page. Re-check: `frontend/e2e/search.spec.ts` (keyboard pick keeps filters, duplicate hint, stale Enter, Ctrl+K, mobile field) and `frontend/e2e/station.spec.ts` (header, tiles, distribution with a separate cancelled bar, mini heatmap and metric, unknown and invalid station, breadcrumb back to the map, mobile).
+- [x] Lines and the last 12 months on the station page. Re-check: `npm.cmd --prefix frontend run test:e2e`, `frontend/e2e/station.spec.ts` ("the lines table shows the first ten, worst first, and expands in place", "a line row links to the time series of that line, keeping the category", "a line with too little data is hatched and shows no value", "a station without lines says so", "the lines card shows its own error and the rest of the page stays", "the sparkline shows the last 12 months, the latest value and a link to the series", "a month with little data in the sparkline is dashed", "the sparkline headline is the latest month with enough data, with its n", "the sparkline headline is a dash when no month has enough data", "a line row keeps the P90 metric as the delay view and drops the cancellation one", "expanding the lines with the keyboard moves focus to the first new row", "the sparkline card has its own error and the rest of the page stays", mobile "the lines become row cards: the bar sits below the name"); `uv run pytest -q`, `test_station_lines_worst_first`, `test_zeitverlauf_api.py`.
 - [x] The gate passes: `uv run python scripts/gate.py`.
 
 ## 6 Platform checks
@@ -105,9 +112,9 @@ The filter keys `g`, `von`, `bis` and `k` are the ones of the shell (see [app-sh
 
 - Whether to self-host tiles instead of the public OpenFreeMap instance once the site is deployed.
 - A map position in the URL (`z`) and a map-position memory; skipped for now.
-- A list alternative to the map, with the rankings.
-- Whether Ctrl+K should grow into a palette (stations, lines, pages) once lines exist.
-- What the "bald" cards show first when multi-month data and lines arrive.
+- A full station list as an alternative to the map; the rankings cover only the top and bottom ten.
+- Whether Ctrl+K should grow into a palette (stations, lines, pages) now that lines exist.
+- Whether the table of lines should sort by column (punctuality, n, cancellations) instead of worst first only.
 - How to place the four stations that still have no coordinates on the 27 months: Berlin-Karlshorst `08089193`, Bochum-Langendreer `08000358`, Bürstadt (Ried) `08098360` and Trebitz (b Könnern). There are two options:
   - Add their IBNR to the matching Wikidata items, so the next `pipeline.coords` run picks them up. This is CC0 and benefits everyone. Recommended.
   - A small committed override file (EVA, lat, lon, source) taken from Wikidata or OpenStreetMap.
@@ -124,6 +131,7 @@ The filter keys `g`, `von`, `bis` and `k` are the ones of the shell (see [app-sh
 - The search sends one request per keystroke, cached per term; add a debounce if the API gets slow (`ponytail:` in `StationSearch.tsx`).
 - `/karte` is cached per process, with at most 16 selections; memory and the first computation grow with the number of months, then vectorise the statistics in Polars (`ponytail:` in `backend/main.py`).
 - Stations without coordinates are not on the map (4 of 5,419 named stations on 27 months; 99.9 % of stops are covered) but remain in search and detail. Secondary EVAs placed by the same-name fallback sit under their main station's dot. The federal state is missing for some stations that have coordinates.
+- The table of lines is not sortable by column. Lines with too little data (the hatched ones) come after all others, so the list shows them but never leads with them. The list is not cached (about 0.1 s for Köln Hbf, see [patterns.md](patterns.md)).
 - The duplicate-name hint only knows the eight results shown.
 - The mini heatmap is a colour grid with one accessible label; the full heatmap is the accessible table. The category bars are scaled to the larger category for all metrics except punctuality.
 - MapLibre's compact attribution starts expanded until the first map move; on mobile it covers a strip above the legend until then.

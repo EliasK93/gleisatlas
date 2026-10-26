@@ -25,8 +25,8 @@ Details in [map.md](map.md).
 ## M3 More data
 - [x] Multi-month pipeline: incremental download, schema validation, cleaning, timetable changes marked (re-check: `uv run pytest -q`, `test_second_run_fetches_nothing_and_still_combines`, `test_schema_abort_names_a_new_column`, `test_cleaning_drops_duplicates_and_implausible_delays`, `test_timetable_changes`; details in [pipeline.md](pipeline.md))
 - [x] Default period at full coverage and the Zeitraum picker (re-check: `uv run pytest -q`, `test_default_period_starts_at_full_coverage`; `npm.cmd --prefix frontend run test:e2e`, `frontend/e2e/period.spec.ts`)
-- [ ] Rankings
-- [ ] Time series
+- [x] Rankings of stations and lines, and the lines at a station (re-check: `uv run pytest -q`, `tests/api/test_rankings_api.py`, `tests/core/test_rankings.py`; `npm.cmd --prefix frontend run test:e2e`, `frontend/e2e/rankings.spec.ts` and the lines tests in `frontend/e2e/station.spec.ts`; details in [patterns.md](patterns.md), [app-shell.md](app-shell.md) and [map.md](map.md))
+- [x] Time series by month, with the station sparkline (re-check: `uv run pytest -q`, `tests/api/test_zeitverlauf_api.py`; `npm.cmd --prefix frontend run test:e2e`, `frontend/e2e/zeitverlauf.spec.ts` and the sparkline tests in `frontend/e2e/station.spec.ts`)
 
 ## M4 Dark mode and English UI
 - [ ] Dark theme on the existing tokens
