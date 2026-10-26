@@ -14,6 +14,7 @@ from pipeline.aggregate import (
     aggregate,
     coverage_report,
     dropped,
+    ends,
     lines,
     meta,
     month_networks,
@@ -22,7 +23,7 @@ from pipeline.aggregate import (
 )
 from pipeline.download import REPO, download
 
-MONTH_FILES = ("aggregate", "lines", "networks", "stations", "meta")
+MONTH_FILES = ("aggregate", "lines", "ends", "networks", "stations", "meta")
 AGGREGATE_ORDER = ("month", "eva", "weekday", "hour", "gruppe", "bucket")
 
 
@@ -31,7 +32,7 @@ def _complete(month_dir: Path) -> bool:
 
 
 def process(src: Path, month: str, out: Path) -> str:
-    """Write the month's five tables to `out` via a temporary sibling, renamed only when all are
+    """Write the month's six tables to `out` via a temporary sibling, renamed only when all are
     written, so a crash never leaves a half-complete month. Returns the cleaning summary."""
     lf = pl.scan_parquet(src)
     dups, bad = dropped(lf)
@@ -41,6 +42,7 @@ def process(src: Path, month: str, out: Path) -> str:
     tables = {
         "aggregate": aggregate(lf),
         "lines": lines(lf),
+        "ends": ends(lf),
         "networks": month_networks(lf),
         "stations": stations(lf),
         "meta": meta(lf, month),
@@ -85,7 +87,8 @@ def combine(data_dir: Path) -> None:
     )
     by_name = _read(dirs, "lines")
     stops = by_name.group_by("name", "eva", "train_type").agg(pl.col("n").sum())
-    line_table(nets, stops, st.select("eva", "name")).write_parquet(data_dir / "linien.parquet")
+    all_ends = _read(dirs, "ends").group_by("name", "eva", "dest").agg(pl.col("n").sum())
+    line_table(nets, stops, all_ends).write_parquet(data_dir / "linien.parquet")
     keys = ["linie", "eva", "gruppe", "month", "bucket"]
     (
         by_name.join(line_ids(nets).select("name", "eva", "linie"), on=["name", "eva"])

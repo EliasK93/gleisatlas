@@ -8,21 +8,21 @@ import pytest
 from pipeline.update import update
 from tests.conftest import complete
 
-# (eva, station name, train_type, line_number, train_number, ride id, planned arrival)
-Row = tuple[str, str, str, str | None, str, str, str]
+# (eva, station name, train_type, line_number, train_number, ride id, planned arrival, destination)
+Row = tuple[str, str, str, str | None, str, str, str, str | None]
 
 SEP: list[Row] = [
-    ("1", "Alpha", "ICE", None, "123", "i1", "2026-09-07 08:00"),
-    ("2", "Beta", "ICE", None, "123", "i1", "2026-09-07 09:00"),
+    ("1", "Alpha", "ICE", None, "123", "i1", "2026-09-07 08:00", "Beta"),
+    ("2", "Beta", "ICE", None, "123", "i1", "2026-09-07 09:00", "Beta"),
     # Two S1 networks without a shared station: 3-4 and 5-6.
-    ("3", "Gamma", "S", "S1", "31", "a", "2026-09-07 08:00"),
-    ("4", "Delta", "S", "S1", "31", "a", "2026-09-07 08:10"),
-    ("4", "Delta", "S", "S1", "33", "a", "2026-09-08 08:10"),
-    ("5", "Epsilon", "S", "S1", "35", "b", "2026-09-07 08:00"),
-    ("5", "Epsilon", "S", "S1", "37", "b", "2026-09-08 08:00"),
-    ("6", "Zeta", "S", "S1", "35", "b", "2026-09-07 08:10"),
+    ("3", "Gamma", "S", "S1", "31", "a", "2026-09-07 08:00", "Delta"),
+    ("4", "Delta", "S", "S1", "31", "a", "2026-09-07 08:10", "Delta"),
+    ("4", "Delta", "S", "S1", "33", "a", "2026-09-08 08:10", "Gamma"),
+    ("5", "Epsilon", "S", "S1", "35", "b", "2026-09-07 08:00", "Zeta"),
+    ("5", "Epsilon", "S", "S1", "37", "b", "2026-09-08 08:00", "Zeta"),
+    ("6", "Zeta", "S", "S1", "35", "b", "2026-09-07 08:10", "Zeta"),
 ]
-OCT: list[Row] = [("1", "Alpha Neu", "ICE", None, "123", "i1", "2026-10-05 08:00")]
+OCT: list[Row] = [("1", "Alpha Neu", "ICE", None, "123", "i1", "2026-10-05 08:00", "Beta")]
 
 
 def src(rows: list[Row]) -> pl.DataFrame:
@@ -34,8 +34,12 @@ def src(rows: list[Row]) -> pl.DataFrame:
         "line_number",
         "train_number",
         "train_line_ride_id",
+        "final_destination_station",
     ]
-    df = pl.DataFrame([r[:6] for r in rows], schema=cols, orient="row")
+    # Typed, so a month without any line number is a String column, as in the source.
+    df = pl.DataFrame(
+        [(*r[:6], r[7]) for r in rows], schema=dict.fromkeys(cols, pl.String), orient="row"
+    )
     return complete(
         df.with_columns(
             time=pl.Series(planned),
@@ -144,9 +148,9 @@ def test_combine_lines_networks_and_labels(data_dir, fetch):
     run(data_dir, fetch)
     linien = pl.read_parquet(data_dir / "linien.parquet")
     assert linien.rows() == [
-        ("ICE 123:1", "ICE 123", "ICE 123", "ICE"),
-        ("S1:3", "S1", "S1 · Delta", "S"),
-        ("S1:5", "S1", "S1 · Epsilon", "S"),
+        ("ICE 123:1", "ICE 123", "ICE 123 → Beta", "ICE"),
+        ("S1:3", "S1", "S1 Delta – Gamma", "S"),
+        ("S1:5", "S1", "S1 Zeta", "S"),
     ]
     lines = pl.read_parquet(data_dir / "lines.parquet")
     assert lines.columns == ["linie", "eva", "gruppe", "month", "bucket", "n"]
@@ -155,6 +159,57 @@ def test_combine_lines_networks_and_labels(data_dir, fetch):
         ("2026-09", 2),
         ("2026-10", 1),
     ]
+
+
+def test_bare_number_and_prefixed_name_become_one_line(data_dir, tmp_path):
+    # The source gave "57" until a timetable change and "RE57" after it.
+    sep: list[Row] = [
+        ("1", "Alpha", "RE", "57", "4701", "x1", "2026-09-07 08:00", "Beta"),
+        ("2", "Beta", "RE", "57", "4701", "x1", "2026-09-07 08:10", "Beta"),
+    ]
+    oct_: list[Row] = [
+        ("1", "Alpha", "RE", "RE57", "4703", "x2", "2026-10-05 08:00", "Beta"),
+        ("2", "Beta", "RE", "RE57", "4703", "x2", "2026-10-05 08:10", "Beta"),
+    ]
+    paths = {"2026-09": tmp_path / "sep.parquet", "2026-10": tmp_path / "oct.parquet"}
+    src(sep).write_parquet(paths["2026-09"])
+    src(oct_).write_parquet(paths["2026-10"])
+    update(data_dir, lambda: list(paths), lambda month: paths[month])
+    assert pl.read_parquet(data_dir / "linien.parquet").rows() == [
+        ("RE57:1", "RE57", "RE57 Beta", "RE")
+    ]
+    lines = pl.read_parquet(data_dir / "lines.parquet")
+    assert lines["linie"].unique().to_list() == ["RE57:1"]
+    assert lines["n"].sum() == 4
+
+
+def test_bare_numbers_of_different_train_types_stay_apart(data_dir, tmp_path):
+    rows: list[Row] = [
+        ("1", "Alpha", "S", "1", "31", "s1", "2026-09-07 08:00", "Beta"),
+        ("2", "Beta", "S", "1", "31", "s1", "2026-09-07 08:10", "Beta"),
+        ("1", "Alpha", "RE", "1", "4701", "r1", "2026-09-07 08:00", "Gamma"),
+        ("3", "Gamma", "RE", "1", "4701", "r1", "2026-09-07 08:20", "Gamma"),
+    ]
+    path = tmp_path / "sep.parquet"
+    src(rows).write_parquet(path)
+    update(data_dir, lambda: ["2026-09"], lambda _: path)
+    assert pl.read_parquet(data_dir / "linien.parquet").rows() == [
+        ("RE1:1", "RE1", "RE1 Gamma", "RE"),
+        ("S1:1", "S1", "S1 Beta", "S"),
+    ]
+
+
+def test_blank_destination_is_not_an_end(data_dir, tmp_path):
+    rows: list[Row] = [
+        ("1", "Alpha", "S", "S1", "31", "a", "2026-09-07 08:00", "  "),
+        ("1", "Alpha", "S", "S1", "33", "a", "2026-09-08 08:00", ""),
+        ("2", "Beta", "S", "S1", "31", "a", "2026-09-07 08:10", "Beta"),
+        ("2", "Beta", "S", "S1", "33", "a", "2026-09-08 08:10", None),
+    ]
+    path = tmp_path / "sep.parquet"
+    src(rows).write_parquet(path)
+    update(data_dir, lambda: ["2026-09"], lambda _: path)
+    assert pl.read_parquet(data_dir / "linien.parquet")["label"].to_list() == ["S1 Beta"]
 
 
 def test_lines_sum_back_to_the_aggregate(data_dir, fetch):

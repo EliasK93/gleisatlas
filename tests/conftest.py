@@ -21,16 +21,17 @@ def complete(df: pl.DataFrame) -> pl.DataFrame:
     return df.with_columns(pl.lit(None, pl.String).alias(c) for c in COLUMNS if c not in df.columns)
 
 
-# (train_type, planned, changed, cancelled, eva, event day for `time`, line, train no., ride id)
+# (train_type, planned, changed, cancelled, eva, event day for `time`, line, train no., ride id,
+# destination as the source spells it)
 ROWS = [
-    ("ICE", "08:00", "08:10", False, "1", DAY, None, "123", "r1"),  # long-distance, +10
-    ("RE", "08:05", "08:05", False, "1", DAY, "RE5", "4701", "r2"),  # regional, 0
-    ("RE", "08:10", None, True, "1", DAY, "RE5", "4703", "r3"),  # cancelled: NOT 0 min
-    ("Bus", "08:15", "08:15", False, "1", DAY, "B1", "9", "r4"),  # bus: excluded
-    ("RE", "08:20", "08:27", False, "1", DAY, "RE5", "4705", "r5"),  # +7
-    ("RE", None, None, False, "1", DAY, "RE5", "4707", "r6"),  # first stop, no arrival: excluded
-    ("RE", "08:30", None, False, "1", DAY, "RE5", "4709", "r7"),  # no change time -> 0
-    ("RE", "08:40", "08:50", False, "2", "2026-10-05", "RE5", "4705", "r5"),  # other station/month
+    ("ICE", "08:00", "08:10", False, "1", DAY, None, "123", "r1", "Kassel-Wilhelmshöhe"),  # +10
+    ("RE", "08:05", "08:05", False, "1", DAY, "RE5", "4701", "r2", "Dortmund Hbf"),  # regional, 0
+    ("RE", "08:10", None, True, "1", DAY, "RE5", "4703", "r3", "Dortmund Hbf"),  # cancelled
+    ("Bus", "08:15", "08:15", False, "1", DAY, "B1", "9", "r4", "Alpha"),  # bus: excluded
+    ("RE", "08:20", "08:27", False, "1", DAY, "RE5", "4705", "r5", "Warburg(Westf)"),  # +7
+    ("RE", None, None, False, "1", DAY, "RE5", "4707", "r6", "Dortmund Hbf"),  # no arrival: out
+    ("RE", "08:30", None, False, "1", DAY, "RE5", "4709", "r7", "Dortmund Hbf"),  # no change -> 0
+    ("RE", "08:40", "08:50", False, "2", "2026-10-05", "RE5", "4705", "r5", "Warburg(Westf)"),
 ]
 
 
@@ -49,6 +50,7 @@ def source() -> pl.DataFrame:
                 "line_number": [r[6] for r in ROWS],
                 "train_number": [r[7] for r in ROWS],
                 "train_line_ride_id": [r[8] for r in ROWS],
+                "final_destination_station": [r[9] for r in ROWS],
             }
         )
     )

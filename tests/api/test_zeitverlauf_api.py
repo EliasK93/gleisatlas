@@ -47,7 +47,7 @@ def test_station_names_the_station_and_keeps_months_without_stops(client: TestCl
 
 def test_line_names_the_line_label(client: TestClient):
     body = verlauf(client, linie="RE5:1")
-    assert body["titel"] == "RE5 · Alpha"
+    assert body["titel"] == "RE5 Dortmund Hbf – Warburg (Westf)"
     assert counts(body) == [("2026-09", 4), ("2026-10", 0)]
 
 

@@ -278,8 +278,8 @@ def test_pipeline_built_mini_lines(client: TestClient):
     """The client's lines come from the pipeline's combine step over the mini source."""
     lines = station_lines(client, "1")
     assert [(x["linie"], x["name"], x["typ"], x["n"]) for x in lines] == [
-        ("ICE 123:1", "ICE 123", "ICE", 1),  # +10: not punctual
-        ("RE5:1", "RE5 · Alpha", "RE", 4),  # 0, 0, +7 and a cancellation
+        ("ICE 123:1", "ICE 123 → Kassel-Wilhelmshöhe", "ICE", 1),  # +10: not punctual
+        ("RE5:1", "RE5 Dortmund Hbf – Warburg (Westf)", "RE", 4),  # 0, 0, +7 and a cancellation
     ]
     assert lines[0]["puenktlich"] == 0.0
     assert [x["linie"] for x in station_lines(client, "1", gattung="fern")] == ["ICE 123:1"]

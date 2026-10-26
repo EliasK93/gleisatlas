@@ -7,7 +7,7 @@ import polars as pl
 
 from core.categories import category_expr, is_excluded_expr
 from core.delay import arrival_delay_expr, plausible_expr
-from core.lines import line_name_expr, networks
+from core.lines import destination_expr, line_name_expr, networks
 from core.stations import ibnr_expr
 
 COLUMNS = frozenset(
@@ -119,6 +119,24 @@ def lines(lf: pl.LazyFrame) -> pl.DataFrame:
         .group_by(keys)
         .agg(n=pl.len())
         .sort(keys, nulls_last=True)
+        .collect()
+    )
+
+
+def ends(lf: pl.LazyFrame) -> pl.DataFrame:
+    """End stations per line name: (name, eva, dest, n); null or blank destinations are left out."""
+    keys = ["name", "eva", "dest"]
+    return (
+        _arrivals(lf)
+        .select(
+            name=line_name_expr(),
+            eva="eva",
+            dest=destination_expr(pl.col("final_destination_station")),
+        )
+        .filter(pl.col("dest") != "")  # also drops nulls
+        .group_by(keys)
+        .agg(n=pl.len())
+        .sort(keys)
         .collect()
     )
 

@@ -1,17 +1,39 @@
-"""Line keys: a line is its name split into networks, the stations joined by its trips."""
+"""Line keys: a line is its name split into networks, the stations joined by its trips; its label
+names the end stations."""
 
 # pyright: reportUnknownMemberType=false
 # (Polars' string and aggregation stubs are partially unknown under strict mode.)
 import polars as pl
 
-NUMBER_TYPES = ["S", "RB", "RE", "IRE", "MEX"]
-
 
 def line_name_expr() -> pl.Expr:
-    """`line_number`, or "{train_type} {train_number}" where it is missing (e.g. "ICE 679")."""
-    return pl.coalesce(
-        pl.col("line_number"),
-        pl.concat_str(pl.col("train_type"), pl.lit(" "), pl.col("train_number")),
+    """The line name: the train type goes in front of a bare number ("57" with RE -> "RE57", as the
+    source writes it from December 2025), letters and digits lose their space ("RE 3" -> "RE3"),
+    and a missing `line_number` becomes "{train_type} {train_number}" (e.g. "ICE 679")."""
+    number, kind = pl.col("line_number"), pl.col("train_type")
+    return (
+        pl.when(number.str.contains(r"^\d+$") & kind.is_not_null())
+        .then(pl.concat_str(kind, number))
+        .otherwise(
+            pl.coalesce(
+                number.str.replace(r"^([A-Za-z]+)\s+(\d+)$", "${1}${2}"),
+                pl.concat_str(kind, pl.lit(" "), pl.col("train_number")),
+            )
+        )
+    )
+
+
+def destination_expr(col: pl.Expr) -> pl.Expr:
+    """Spelling fix for an end station: "Schwerte(Ruhr)" -> "Schwerte (Ruhr)", "(Main)Hbf" ->
+    "(Main) Hbf", "Langenhagen - Kaltenweide" -> "Langenhagen-Kaltenweide", one space, stripped."""
+    # ponytail: a regex spelling fix; variants like "Bahnhof, Arnsberg" stay separate. Map the
+    # destinations to station EVAs if such variants show in the labels.
+    return (
+        col.str.replace_all(r"\s+", " ")
+        .str.replace_all(r"\s*-\s*", "-")
+        .str.replace_all(r"(\S)\(", "${1} (")
+        .str.replace_all(r"\)(\w)", ") ${1}")
+        .str.strip_chars()
     )
 
 
@@ -55,36 +77,40 @@ def _top(df: pl.DataFrame, col: str) -> pl.DataFrame:
     )
 
 
-def line_table(
-    nets: pl.DataFrame, stops: pl.DataFrame, station_names: pl.DataFrame
-) -> pl.DataFrame:
-    """One row per line: linie, name, label, typ. A name of only digits is shown with its train type
-    in front when that is S, RB, RE, IRE or MEX ("S36"); `linie` keeps the source name. The label
-    is the bare name when the name has one network, else "{name} · {busiest station}"; typ is the
-    train_type with the most stops. Networks without any stop (only first stops in the source)
-    are left out."""
+def line_table(nets: pl.DataFrame, stops: pl.DataFrame, ends: pl.DataFrame) -> pl.DataFrame:
+    """One row per line: linie, name, label, typ. `ends` is (name, eva, dest, n). The label names
+    the line's two most frequent end stations: "{name} {first} – {second}", "{name} {first}" with
+    one, the bare name with none; a train-number name ("ICE 679") reads "{name} → {top end}".
+    typ is the train_type with the most stops. Networks without any stop (only first stops in the
+    source) are left out."""
     lines = line_ids(nets)
     stops = stops.join(lines, on=["name", "eva"])
     lines = lines.join(stops.select("linie").unique(), on="linie", how="semi")
-    count = pl.col("net").n_unique().over("name")
-    # A bare number gets its regional train type in front ("S36"); operator codes stay out.
-    shown = (
-        pl.when(pl.col("name").str.contains(r"^\d+$") & pl.col("train_type").is_in(NUMBER_TYPES))
-        .then(pl.concat_str("train_type", "name"))
-        .otherwise(pl.col("name"))
+    top = (
+        ends.join(lines, on=["name", "eva"])
+        .group_by("linie", "dest")
+        .agg(pl.col("n").sum())
+        .sort(["linie", "n", "dest"], descending=[False, True, False])
+        .group_by("linie", maintain_order=True)
+        .agg(pl.col("dest").head(2))
     )
+    name, dests = pl.col("name"), pl.col("dest")
+    first, second = dests.list.get(0, null_on_oob=True), dests.list.get(1, null_on_oob=True)
     return (
-        lines.select("linie", "name", "net")
+        lines.select("linie", "name")
         .unique()
-        .join(_top(stops, "eva"), on="linie", how="left")
-        .join(station_names.rename({"name": "station"}), on="eva", how="left")
+        .join(top, on="linie", how="left")
         .join(_top(stops, "train_type"), on="linie", how="left")
         .select(
             "linie",
-            name=shown,
-            label=pl.when(count == 1)
-            .then(shown)
-            .otherwise(pl.concat_str(shown, pl.lit(" · "), pl.coalesce("station", "eva"))),
+            "name",
+            label=pl.when(first.is_null())
+            .then(name)
+            .when(name.str.contains(r"^\S+ \d+$"))
+            .then(pl.concat_str(name, pl.lit(" → "), first))
+            .when(second.is_null())
+            .then(pl.concat_str(name, pl.lit(" "), first))
+            .otherwise(pl.concat_str(name, pl.lit(" "), first, pl.lit(" – "), second)),
             typ="train_type",
         )
         .sort("linie")

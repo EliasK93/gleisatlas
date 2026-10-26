@@ -1,6 +1,6 @@
 import polars as pl
 
-from core.lines import line_ids, line_name_expr, line_table, networks
+from core.lines import destination_expr, line_ids, line_name_expr, line_table, networks
 
 
 def members(rows: list[tuple[str, str, str]]) -> pl.DataFrame:
@@ -11,11 +11,46 @@ def nets_of(df: pl.DataFrame) -> list[tuple[str, str, str]]:
     return [(n, e, net) for n, e, net in df.select("name", "eva", "net").iter_rows()]
 
 
-def test_line_name_falls_back_to_type_and_number():
+def test_line_name_puts_the_train_type_before_a_bare_number():
     df = pl.DataFrame(
-        {"line_number": ["S1", None], "train_type": ["S", "ICE"], "train_number": ["31", "679"]}
+        {
+            "line_number": ["57", "RE57", "RE 3", "35", "57", "S1", None],
+            "train_type": ["RE", "RE", "RE", "FLX", None, "S", "ICE"],
+            "train_number": ["1", "2", "3", "4", "5", "31", "679"],
+        }
     )
-    assert df.select(line_name_expr().alias("n"))["n"].to_list() == ["S1", "ICE 679"]
+    assert df.select(line_name_expr().alias("n"))["n"].to_list() == [
+        "RE57",
+        "RE57",
+        "RE3",
+        "FLX35",
+        "57",
+        "S1",
+        "ICE 679",
+    ]
+
+
+def test_destination_spelling_is_unified():
+    df = pl.DataFrame(
+        {
+            "d": [
+                "Schwerte(Ruhr)",
+                "Offenbach (Main)Hbf",
+                "Langenhagen - Kaltenweide",
+                "Dortmund   Hbf ",
+                "Kassel-Wilhelmshöhe",
+                None,
+            ]
+        }
+    )
+    assert df.select(destination_expr(pl.col("d")).alias("d"))["d"].to_list() == [
+        "Schwerte (Ruhr)",
+        "Offenbach (Main) Hbf",
+        "Langenhagen-Kaltenweide",
+        "Dortmund Hbf",
+        "Kassel-Wilhelmshöhe",
+        None,
+    ]
 
 
 def test_two_networks_without_shared_station_stay_apart():
@@ -79,60 +114,59 @@ def test_line_ids():
     assert line_ids(nets)["linie"].to_list() == ["S1:A"]
 
 
-def test_line_table_labels_and_typ():
+def stops_of(rows: list[tuple[str, str, str, int]]) -> pl.DataFrame:
+    return pl.DataFrame(rows, schema=["name", "eva", "train_type", "n"], orient="row")
+
+
+def ends_of(rows: list[tuple[str, str, str, int]]) -> pl.DataFrame:
+    return pl.DataFrame(rows, schema=["name", "eva", "dest", "n"], orient="row")
+
+
+def test_line_table_labels_name_the_two_most_frequent_ends():
     nets = pl.DataFrame(
         {
-            "name": ["S1", "S1", "S1", "S1", "RE5"],
-            "eva": ["A", "B", "X", "Y", "A"],
-            "net": ["A", "A", "X", "X", "A"],
+            "name": ["S1", "S1", "S1", "S1", "S2", "S2", "S3"],
+            "eva": ["A", "B", "X", "Y", "A", "B", "A"],
+            "net": ["A", "A", "X", "X", "A", "A", "A"],
         }
     )
-    stops = pl.DataFrame(
-        {
-            "name": ["S1", "S1", "S1", "S1", "S1", "RE5", "RE5"],
-            "eva": ["A", "B", "X", "Y", "Y", "A", "A"],
-            "train_type": ["S", "S", "S", "S", "RB", "RE", "RB"],
-            "n": [10, 30, 5, 5, 1, 4, 3],
-        }
+    stops = stops_of(
+        [
+            ("S1", "A", "S", 10),
+            ("S1", "B", "S", 30),
+            ("S1", "B", "RB", 1),
+            ("S1", "X", "S", 5),
+            ("S2", "A", "S", 4),
+            ("S3", "A", "S", 2),
+        ]
     )
-    names = pl.DataFrame(
-        {"eva": ["A", "B", "X", "Y"], "name": ["Aheim", "Bstadt", "Xdorf", "Yberg"]}
+    ends = ends_of(
+        [
+            ("S1", "A", "Aheim", 5),
+            ("S1", "B", "Aheim", 1),  # summed per line: Aheim 6
+            ("S1", "B", "Bstadt", 4),
+            ("S1", "B", "Cdorf", 2),  # third end: not shown
+            ("S1", "X", "Zeta", 3),  # the other S1 network has its own ends
+            ("S1", "Y", "Yberg", 3),  # tie at 3: the lower name goes first
+            ("S2", "A", "Aheim", 4),  # one end
+        ]
     )
-    out = line_table(nets, stops, names)
+    out = line_table(nets, stops, ends)
     assert out.columns == ["linie", "name", "label", "typ"]
     assert out.rows() == [
-        ("RE5:A", "RE5", "RE5", "RE"),
-        ("S1:A", "S1", "S1 · Bstadt", "S"),
-        # X and Y tie at 5 S stops; Y has 6 stops in total, so Y is the busiest station
-        ("S1:X", "S1", "S1 · Yberg", "S"),
+        ("S1:A", "S1", "S1 Aheim – Bstadt", "S"),
+        ("S1:X", "S1", "S1 Yberg – Zeta", "S"),
+        ("S2:A", "S2", "S2 Aheim", "S"),
+        ("S3:A", "S3", "S3", "S"),  # no end known
     ]
 
 
-def test_line_table_digit_names_get_the_train_type_in_front():
-    # "36" is only a number in the source; id stays, "S36" is shown. Operator codes and
-    # other types keep the bare number; names with letters are untouched.
-    nets = pl.DataFrame(
-        {
-            "name": ["36", "36", "7", "7", "RB60"],
-            "eva": ["A", "X", "A", "X", "A"],
-            "net": ["A", "X", "A", "A", "A"],
-        }
-    )
-    stops = pl.DataFrame(
-        {
-            "name": ["36", "36", "7", "RB60"],
-            "eva": ["A", "X", "A", "A"],
-            "train_type": ["S", "S", "SWE", "RB"],
-            "n": [3, 2, 4, 1],
-        }
-    )
-    names = pl.DataFrame({"eva": ["A", "X"], "name": ["Aheim", "Xdorf"]})
-    assert line_table(nets, stops, names).select("linie", "name", "label").rows() == [
-        ("36:A", "S36", "S36 · Aheim"),
-        ("36:X", "S36", "S36 · Xdorf"),
-        ("7:A", "7", "7"),
-        ("RB60:A", "RB60", "RB60"),
-    ]
+def test_line_table_train_number_names_show_an_arrow_to_the_top_end():
+    nets = pl.DataFrame({"name": ["ICE 679"] * 2, "eva": ["A", "B"], "net": ["A", "A"]})
+    stops = stops_of([("ICE 679", "A", "ICE", 2), ("ICE 679", "B", "ICE", 2)])
+    ends = ends_of([("ICE 679", "A", "Kassel", 1), ("ICE 679", "B", "Fulda", 3)])
+    assert line_table(nets, stops, ends)["label"].to_list() == ["ICE 679 → Fulda"]
+    assert line_table(nets, stops, ends.clear())["label"].to_list() == ["ICE 679"]
 
 
 def test_line_table_leaves_out_networks_without_stops():
@@ -144,15 +178,6 @@ def test_line_table_leaves_out_networks_without_stops():
             "net": ["A", "X", "X", "A"],
         }
     )
-    stops = pl.DataFrame({"name": ["S1"], "eva": ["A"], "train_type": ["S"], "n": [4]})
-    names = pl.DataFrame({"eva": ["A", "X", "Y"], "name": ["Aheim", "Xdorf", "Yberg"]})
-    assert line_table(nets, stops, names).rows() == [("S1:A", "S1", "S1", "S")]
-
-
-def test_line_table_busiest_station_tie_goes_to_lowest_eva():
-    nets = pl.DataFrame({"name": ["S1"] * 3, "eva": ["A", "X", "Y"], "net": ["A", "X", "X"]})
-    stops = pl.DataFrame(
-        {"name": ["S1"] * 3, "eva": ["A", "X", "Y"], "train_type": ["S"] * 3, "n": [1, 5, 5]}
-    )
-    names = pl.DataFrame({"eva": ["A", "X", "Y"], "name": ["Aheim", "Xdorf", "Yberg"]})
-    assert line_table(nets, stops, names)["label"].to_list() == ["S1 · Aheim", "S1 · Xdorf"]
+    stops = stops_of([("S1", "A", "S", 4)])
+    ends = ends_of([("S1", "A", "Aheim", 4)])
+    assert line_table(nets, stops, ends).rows() == [("S1:A", "S1", "S1 Aheim", "S")]
