@@ -34,6 +34,7 @@ Details in [map.md](map.md).
 ## M5 Azure deployment (v0.2)
 - [ ] Bicep infrastructure
 - [ ] Budget alert
+- [ ] Impressum and privacy policy (server logs, map tiles loaded from OpenFreeMap)
 - [ ] The product owner runs the deployment commands
 
 ## M6+ Planner (v1.0)
