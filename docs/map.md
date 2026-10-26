@@ -51,6 +51,7 @@ The filter keys `g`, `von`, `bis` and `k` are the ones of the shell (see [app-sh
 
 - **Station coordinates from Wikidata.** Reason: product owner's choice after weighing five sources; 99.5 % of all stops belong to stations with coordinates (see the ADR).
 - **MapLibre GL with the OpenFreeMap "positron" style.** Reason: product owner's choice; zoom, pan and draw order over about 5,000 points need WebGL, and OpenFreeMap needs no API key. The no-library alternative is an SVG outline map, which the product owner declined.
+- **Base map labels follow the UI language** (`name:de`, else the local `name`); the positron style prefers English names ("Cologne"). `localLabel` in `metrics.ts` rewrites every label that reads a name; road numbers stay. Reason: a German UI with English place names reads wrong, and the English UI later gets English labels from the same code.
 - **Coordinates live in the gitignored `data/` folder**, built by `pipeline.coords`, not committed. Reason: they are derived data like the raw files, and the result depends on the current state of Wikidata.
 - **The selected station lives in `bhf`.** Reason: the panel survives a reload and the heatmap link carries the station without a second key.
 - **The mockup wins over design.md** where they differ: the sheet is fixed at 62 %, there is no `z` map-position key, the footer is hidden on the map and the metric switch scrolls sideways on mobile. Reason: the mockup is the clickable reference.
