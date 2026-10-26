@@ -1,5 +1,7 @@
 # <img src="frontend/public/favicon.svg" width="32" height="32" alt=""> Gleisatlas
 
+[![CI](https://github.com/EliasK93/gleisatlas/actions/workflows/gate.yml/badge.svg)](https://github.com/EliasK93/gleisatlas/actions/workflows/gate.yml) [![Tests](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/EliasK93/3b48a1a6b1af4d54d8e76c88ed1e72d4/raw/tests.json)](https://github.com/EliasK93/gleisatlas/actions/workflows/gate.yml) [![License](https://img.shields.io/github/license/EliasK93/gleisatlas)](LICENSE) ![Platform](https://img.shields.io/badge/platform-Web-blue)
+
 Rail reliability for Germany: historical delay, cancellation and transfer statistics from public DB data, shown as patterns (weekday, hour, station, category) and later as a connection planner with arrival distributions. The UI is German.
 
 **Status:** early. The map start page, station detail, station search and the weekday × hour heatmap work on one month of data. Historical statistics, no forecast or guarantee.

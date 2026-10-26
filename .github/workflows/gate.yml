@@ -51,3 +51,21 @@ jobs:
 
       - name: Gate
         run: uv run python scripts/gate.py --ci
+        env: # runner.temp is not available in job-level env
+          PYTEST_ADDOPTS: --junitxml=${{ runner.temp }}/pytest.xml
+
+      # Pushes the test counts to the public gist behind the README's tests badge. Runs on push to
+      # main only, and also when tests failed, so the badge turns red. The gist is written with the
+      # product owner's token (secret GIST_TOKEN): GITHUB_TOKEN cannot write gists.
+      - name: Update tests badge
+        if: always() && github.event_name == 'push'
+        env:
+          GIST_ID: 3b48a1a6b1af4d54d8e76c88ed1e72d4
+          GIST_TOKEN: ${{ secrets.GIST_TOKEN }}
+          BADGE: ${{ runner.temp }}/tests.json
+        run: |
+          uv run python scripts/tests_badge.py "$BADGE" "$RUNNER_TEMP/pytest.xml" frontend/test-results/junit.xml
+          [ -f "$BADGE" ] || exit 0
+          jq -n --rawfile c "$BADGE" '{files: {"tests.json": {content: $c}}}' \
+            | curl -sSf -X PATCH -H "Authorization: Bearer $GIST_TOKEN" -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/gists/$GIST_ID" -d @- > /dev/null
