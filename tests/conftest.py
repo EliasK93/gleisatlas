@@ -1,4 +1,5 @@
 from datetime import datetime as dt
+from pathlib import Path
 
 import polars as pl
 import pytest
@@ -6,6 +7,7 @@ from fastapi.testclient import TestClient
 
 from backend import main
 from pipeline.aggregate import COLUMNS, aggregate, stations, with_coords
+from pipeline.update import update
 
 DAY = "2026-09-07"  # a Monday
 
@@ -75,8 +77,26 @@ def client(
     with_coords(stations(source.lazy()), coords).write_parquet(st)
     monkeypatch.setattr(main, "AGG_PATH", str(agg))
     monkeypatch.setattr(main, "STATIONS_PATH", str(st))
+    data = write_line_tables(source, coords, tmp_path / "pipeline")
+    monkeypatch.setattr(main, "LINES_PATH", str(data / "lines.parquet"))
+    monkeypatch.setattr(main, "LINIEN_PATH", str(data / "linien.parquet"))
     write_monate(tmp_path / "monate.parquet", monkeypatch, [("2026-09", 0, 2), ("2026-10", 3, 2)])
     return TestClient(main.app)
+
+
+def write_line_tables(source: pl.DataFrame, coords: pl.DataFrame, data: Path) -> Path:
+    """Run the pipeline's update over the mini source, one source file per month; returns `data`."""
+    data.mkdir()
+    coords.write_parquet(data / "coords.parquet")
+    month = pl.col("time").dt.strftime("%Y-%m")
+
+    def fetch(m: str) -> Path:
+        path = data / f"source-{m}.parquet"
+        source.filter(month == m).write_parquet(path)
+        return path
+
+    update(data, lambda: sorted(source.select(month.unique())["time"]), fetch)
+    return data
 
 
 def write_monate(path, monkeypatch, rows: list[tuple[str, int, int]]) -> None:

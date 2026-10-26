@@ -180,6 +180,125 @@
     }
    }
   },
+  "/rankings": {
+   "get": {
+    "summary": "Rankings",
+    "operationId": "getRankings",
+    "parameters": [
+     {
+      "name": "typ",
+      "in": "query",
+      "required": true,
+      "schema": {
+       "enum": [
+        "linien",
+        "bahnhoefe"
+       ],
+       "type": "string",
+       "title": "Typ"
+      }
+     },
+     {
+      "name": "metrik",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "enum": [
+        "puenktlich",
+        "median",
+        "p90",
+        "ausfallquote"
+       ],
+       "type": "string",
+       "default": "puenktlich",
+       "title": "Metrik"
+      }
+     },
+     {
+      "name": "min_n",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "integer",
+       "minimum": 15,
+       "default": 500,
+       "title": "Min N"
+      }
+     },
+     {
+      "name": "gattung",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "enum": [
+        "alle",
+        "regional",
+        "fern"
+       ],
+       "type": "string",
+       "default": "alle",
+       "title": "Gattung"
+      }
+     },
+     {
+      "name": "von",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string",
+         "pattern": "^\\d{4}-(0[1-9]|1[0-2])$"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Von"
+      }
+     },
+     {
+      "name": "bis",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string",
+         "pattern": "^\\d{4}-(0[1-9]|1[0-2])$"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Bis"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Rangliste"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/stationen": {
    "get": {
     "summary": "Stationen",
@@ -348,6 +467,177 @@
        "application/json": {
         "schema": {
          "$ref": "#/components/schemas/Statistik"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/stationen/{eva}/linien": {
+   "get": {
+    "summary": "Station Linien",
+    "operationId": "getStationLinien",
+    "parameters": [
+     {
+      "name": "eva",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "pattern": "^[0-9]+$",
+       "title": "Eva"
+      }
+     },
+     {
+      "name": "gattung",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "enum": [
+        "alle",
+        "regional",
+        "fern"
+       ],
+       "type": "string",
+       "default": "alle",
+       "title": "Gattung"
+      }
+     },
+     {
+      "name": "von",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string",
+         "pattern": "^\\d{4}-(0[1-9]|1[0-2])$"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Von"
+      }
+     },
+     {
+      "name": "bis",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string",
+         "pattern": "^\\d{4}-(0[1-9]|1[0-2])$"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Bis"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "type": "array",
+         "items": {
+          "$ref": "#/components/schemas/StationLinie"
+         },
+         "title": "Response Getstationlinien"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/zeitverlauf": {
+   "get": {
+    "summary": "Zeitverlauf",
+    "operationId": "getZeitverlauf",
+    "parameters": [
+     {
+      "name": "eva",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string",
+         "pattern": "^[0-9]+$"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Eva"
+      }
+     },
+     {
+      "name": "linie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Linie"
+      }
+     },
+     {
+      "name": "gattung",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "enum": [
+        "alle",
+        "regional",
+        "fern"
+       ],
+       "type": "string",
+       "default": "alle",
+       "title": "Gattung"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Zeitverlauf"
         }
        }
       }
@@ -772,6 +1062,212 @@
     ],
     "title": "KartenStation"
    },
+   "Monat": {
+    "properties": {
+     "monat": {
+      "type": "string",
+      "title": "Monat"
+     },
+     "n": {
+      "type": "integer",
+      "title": "N"
+     },
+     "ausfallquote": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Ausfallquote"
+     },
+     "median": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Median"
+     },
+     "p90": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "P90"
+     },
+     "puenktlich": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Puenktlich"
+     }
+    },
+    "type": "object",
+    "required": [
+     "monat",
+     "n",
+     "ausfallquote",
+     "median",
+     "p90",
+     "puenktlich"
+    ],
+    "title": "Monat"
+   },
+   "Rangliste": {
+    "properties": {
+     "typ": {
+      "type": "string",
+      "enum": [
+       "linien",
+       "bahnhoefe"
+      ],
+      "title": "Typ"
+     },
+     "metrik": {
+      "type": "string",
+      "enum": [
+       "puenktlich",
+       "median",
+       "p90",
+       "ausfallquote"
+      ],
+      "title": "Metrik"
+     },
+     "min_n": {
+      "type": "integer",
+      "title": "Min N"
+     },
+     "von": {
+      "type": "string",
+      "title": "Von"
+     },
+     "bis": {
+      "type": "string",
+      "title": "Bis"
+     },
+     "anzahl": {
+      "type": "integer",
+      "title": "Anzahl"
+     },
+     "schlechteste": {
+      "items": {
+       "$ref": "#/components/schemas/RanglistenEintrag"
+      },
+      "type": "array",
+      "title": "Schlechteste"
+     },
+     "beste": {
+      "items": {
+       "$ref": "#/components/schemas/RanglistenEintrag"
+      },
+      "type": "array",
+      "title": "Beste"
+     }
+    },
+    "type": "object",
+    "required": [
+     "typ",
+     "metrik",
+     "min_n",
+     "von",
+     "bis",
+     "anzahl",
+     "schlechteste",
+     "beste"
+    ],
+    "title": "Rangliste"
+   },
+   "RanglistenEintrag": {
+    "properties": {
+     "n": {
+      "type": "integer",
+      "title": "N"
+     },
+     "ausfallquote": {
+      "type": "number",
+      "title": "Ausfallquote"
+     },
+     "median": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Median"
+     },
+     "p90": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "P90"
+     },
+     "puenktlich": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Puenktlich"
+     },
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "name": {
+      "type": "string",
+      "title": "Name"
+     },
+     "typ": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Typ"
+     }
+    },
+    "type": "object",
+    "required": [
+     "n",
+     "ausfallquote",
+     "median",
+     "p90",
+     "puenktlich",
+     "id",
+     "name",
+     "typ"
+    ],
+    "title": "RanglistenEintrag"
+   },
    "Station": {
     "properties": {
      "eva": {
@@ -806,6 +1302,75 @@
      "n"
     ],
     "title": "Station"
+   },
+   "StationLinie": {
+    "properties": {
+     "n": {
+      "type": "integer",
+      "title": "N"
+     },
+     "ausfallquote": {
+      "type": "number",
+      "title": "Ausfallquote"
+     },
+     "median": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Median"
+     },
+     "p90": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "P90"
+     },
+     "puenktlich": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Puenktlich"
+     },
+     "linie": {
+      "type": "string",
+      "title": "Linie"
+     },
+     "name": {
+      "type": "string",
+      "title": "Name"
+     },
+     "typ": {
+      "type": "string",
+      "title": "Typ"
+     }
+    },
+    "type": "object",
+    "required": [
+     "n",
+     "ausfallquote",
+     "median",
+     "p90",
+     "puenktlich",
+     "linie",
+     "name",
+     "typ"
+    ],
+    "title": "StationLinie"
    },
    "Statistik": {
     "properties": {
@@ -960,6 +1525,34 @@
      "type"
     ],
     "title": "ValidationError"
+   },
+   "Zeitverlauf": {
+    "properties": {
+     "titel": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Titel"
+     },
+     "monate": {
+      "items": {
+       "$ref": "#/components/schemas/Monat"
+      },
+      "type": "array",
+      "title": "Monate"
+     }
+    },
+    "type": "object",
+    "required": [
+     "titel",
+     "monate"
+    ],
+    "title": "Zeitverlauf"
    }
   }
  }

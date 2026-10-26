@@ -2,6 +2,7 @@
 
 import calendar
 import os
+from dataclasses import dataclass
 from datetime import date
 from functools import lru_cache
 from typing import Annotated, Literal
@@ -14,11 +15,14 @@ from pydantic import BaseModel, Field
 
 from core.categories import FERN, REGIONAL
 from core.periods import full_coverage_start, timetable_changes
-from core.stats import cell_stats, delay_bins
+from core.rankings import Metric, counted, rank
+from core.stats import CellStats, cell_stats, delay_bins
 
 AGG_PATH = os.environ.get("AGGREGATE_PATH", "data/aggregate.parquet")
 STATIONS_PATH = os.environ.get("STATIONS_PATH", "data/stations.parquet")
 MONATE_PATH = os.environ.get("MONATE_PATH", "data/monate.parquet")
+LINES_PATH = os.environ.get("LINES_PATH", "data/lines.parquet")
+LINIEN_PATH = os.environ.get("LINIEN_PATH", "data/linien.parquet")
 
 app = FastAPI(title="Gleisatlas")
 app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:5173"], allow_methods=["GET"])
@@ -97,6 +101,43 @@ class Statistik(BaseModel):
     gruppen: list[Gruppe]  # only groups with stops
 
 
+class RanglistenEintrag(Stats):
+    id: str  # EVA of a station, `linie` key of a line
+    name: str  # station name or line label
+    typ: str | None  # train type of a line; None for stations
+
+
+class Rangliste(BaseModel):
+    typ: Literal["linien", "bahnhoefe"]
+    metrik: Literal["puenktlich", "median", "p90", "ausfallquote"]
+    min_n: int
+    von: str
+    bis: str
+    anzahl: int  # entries that meet min_n and have a value for the metric
+    schlechteste: list[RanglistenEintrag]  # worst first, at most 10
+    beste: list[RanglistenEintrag]  # best first, at most 10
+
+
+class StationLinie(Stats):
+    linie: str
+    name: str  # line label
+    typ: str
+
+
+class Monat(BaseModel):
+    monat: str  # 'YYYY-MM'
+    n: int  # 0 when the selection has no stops in the month: then all statistics are None
+    ausfallquote: float | None
+    median: float | None
+    p90: float | None
+    puenktlich: float | None
+
+
+class Zeitverlauf(BaseModel):
+    titel: str | None  # station name or line label; None nationwide
+    monate: list[Monat]  # every month of the data, ascending
+
+
 class Datenstand(BaseModel):
     monate: list[str]  # 'YYYY-MM'
     bahnhoefe: int  # named stations
@@ -105,9 +146,7 @@ class Datenstand(BaseModel):
     fahrplanwechsel: list[str]  # ISO dates of the timetable changes inside the data range
 
 
-def stats_of(group: pl.DataFrame) -> Stats:
-    # column lists: ~5x faster than iter_rows over the ~5k small groups of /karte
-    s = cell_stats(zip(group["bucket"].to_list(), group["n"].to_list(), strict=True))
+def to_stats(s: CellStats) -> Stats:
     return Stats(
         n=s.n,
         ausfallquote=s.cancellation_rate,
@@ -115,6 +154,15 @@ def stats_of(group: pl.DataFrame) -> Stats:
         p90=s.p90,
         puenktlich=s.punctual_share,
     )
+
+
+def cell_stats_of(group: pl.DataFrame) -> CellStats:
+    # column lists: ~5x faster than iter_rows over the ~5k small groups of /karte
+    return cell_stats(zip(group["bucket"].to_list(), group["n"].to_list(), strict=True))
+
+
+def stats_of(group: pl.DataFrame) -> Stats:
+    return to_stats(cell_stats_of(group))
 
 
 def named_stations() -> pl.DataFrame:
@@ -243,15 +291,12 @@ def karte_for(
     von: str | None,
     bis: str | None,
 ) -> Karte:
-    sel = selection(pl.scan_parquet(agg), gattung, None, von, bis)
-    found = span(sel)
+    found, per_station = station_stats_for(agg, mtimes[0], gattung, von, bis)
     if found is None:
         return Karte(von="", bis="", n=0, ohne_koordinaten=0, stationen=[])
-    per_station = sel.group_by("eva", "bucket").agg(n=pl.col("n").sum()).collect()
-    named = named_stations().filter(pl.col("eva").is_in(per_station["eva"].implode()))
-    located = named.drop_nulls("lat").sort("eva")
+    named = named_stations().filter(pl.col("eva").is_in(pl.Series(list(per_station)).implode()))
+    located = named.drop_nulls("lat")
     stations = {r["eva"]: r for r in located.iter_rows(named=True)}
-    listed = per_station.filter(pl.col("eva").is_in(located["eva"].implode()))
     return Karte(
         von=found[0],
         bis=found[1],
@@ -263,10 +308,110 @@ def karte_for(
                 name=stations[eva]["name"],
                 lat=stations[eva]["lat"],
                 lon=stations[eva]["lon"],
-                **stats_of(g).model_dump(),
+                **to_stats(s).model_dump(),
             )
-            for (eva,), g in sorted(listed.partition_by("eva", as_dict=True).items())  # pyright: ignore[reportArgumentType]
+            for eva, s in per_station.items()  # sorted by EVA
+            if eva in stations
         ],
+    )
+
+
+@lru_cache(maxsize=16)
+def station_stats_for(
+    agg: str, mtime: int, gattung: str, von: str | None, bis: str | None
+) -> tuple[tuple[str, str, int] | None, dict[str, CellStats]]:
+    """(span, statistics per EVA sorted by EVA), shared by /karte and the station rankings."""
+    sel = selection(pl.scan_parquet(agg), gattung, None, von, bis)
+    found = span(sel)
+    if found is None:
+        return None, {}
+    per_station = sel.group_by("eva", "bucket").agg(n=pl.col("n").sum()).collect()
+    parts = sorted(per_station.partition_by("eva", as_dict=True).items())  # pyright: ignore[reportArgumentType]
+    return found, {eva: cell_stats_of(g) for (eva,), g in parts}
+
+
+@dataclass(frozen=True)
+class Entry:
+    """A ranked station or line."""
+
+    id: str
+    name: str
+    typ: str | None
+    stats: CellStats
+
+
+def line_entries(sel: pl.LazyFrame, linien: str) -> list[Entry]:
+    """Statistics per line of a lines selection."""
+    per_line = (
+        sel.group_by("linie", "bucket")
+        .agg(n=pl.col("n").sum())
+        .join(pl.scan_parquet(linien), on="linie")
+        .collect()
+    )
+    return [
+        Entry(id=linie, name=g["label"][0], typ=g["typ"][0], stats=cell_stats_of(g))
+        for (linie,), g in per_line.partition_by("linie", as_dict=True).items()  # pyright: ignore[reportArgumentType]
+    ]
+
+
+@lru_cache(maxsize=16)
+def line_stats_for(
+    lines_path: str,
+    linien: str,
+    mtimes: tuple[int, int],
+    gattung: str,
+    von: str | None,
+    bis: str | None,
+) -> tuple[tuple[str, str, int] | None, list[Entry]]:
+    sel = selection(pl.scan_parquet(lines_path), gattung, None, von, bis)
+    found = span(sel)
+    return found, [] if found is None else line_entries(sel, linien)
+
+
+METRICS: dict[str, Metric] = {
+    "puenktlich": "punctual_share",
+    "median": "median",
+    "p90": "p90",
+    "ausfallquote": "cancellation_rate",
+}
+
+
+@app.get("/rankings", response_model=Rangliste, operation_id="getRankings")
+def rankings(
+    typ: Literal["linien", "bahnhoefe"],
+    metrik: Literal["puenktlich", "median", "p90", "ausfallquote"] = "puenktlich",
+    min_n: Annotated[int, Query(ge=15)] = 500,
+    gattung: Gattung = "alle",
+    von: Month = None,
+    bis: Month = None,
+) -> Rangliste:
+    von = period_start(von, bis)
+    if typ == "bahnhoefe":
+        found, per_station = station_stats_for(
+            AGG_PATH, os.stat(AGG_PATH).st_mtime_ns, gattung, von, bis
+        )
+        entries = [
+            Entry(id=eva, name=name, typ=None, stats=per_station[eva])
+            for eva, name in named_stations().select("eva", "name").iter_rows()
+            if eva in per_station
+        ]
+    else:
+        mtimes = (os.stat(LINES_PATH).st_mtime_ns, os.stat(LINIEN_PATH).st_mtime_ns)
+        found, entries = line_stats_for(LINES_PATH, LINIEN_PATH, mtimes, gattung, von, bis)
+    worst, best = rank(entries, METRICS[metrik], min_n, k=len(entries))
+
+    def show(e: Entry) -> RanglistenEintrag:
+        return RanglistenEintrag(id=e.id, name=e.name, typ=e.typ, **to_stats(e.stats).model_dump())
+
+    return Rangliste(
+        typ=typ,
+        metrik=metrik,
+        min_n=min_n,
+        von=found[0] if found else "",
+        bis=found[1] if found else "",
+        anzahl=len(worst),
+        schlechteste=[show(e) for e in worst[:10]],
+        beste=[show(e) for e in best[:10]],
     )
 
 
@@ -314,6 +459,72 @@ def statistik(
             Gruppe(gruppe=g, **stats_of(groups[(g,)]).model_dump())  # pyright: ignore[reportArgumentType]
             for g in GRUPPEN
             if (g,) in groups
+        ],
+    )
+
+
+LOW_N = 15  # as in the heatmap and the UI: below it a value is not shown
+
+
+def thin(s: CellStats) -> bool:
+    """True when the UI shows no value: fewer than LOW_N stops, or fewer arrived stops."""
+    return s.n < LOW_N or (s.punctual_share is not None and counted(s, "median") < LOW_N)
+
+
+@app.get(
+    "/stationen/{eva}/linien", response_model=list[StationLinie], operation_id="getStationLinien"
+)
+def station_linien(
+    eva: Eva, gattung: Gattung = "alle", von: Month = None, bis: Month = None
+) -> list[StationLinie]:
+    known_station(eva)
+    sel = selection(pl.scan_parquet(LINES_PATH), gattung, eva, period_start(von, bis), bis)
+    entries = sorted(
+        line_entries(sel, LINIEN_PATH),
+        key=lambda e: (
+            thin(e.stats),  # lines the UI shows as "–" after the others
+            e.stats.punctual_share is None,  # lines without a value last
+            e.stats.punctual_share or 0.0,
+            -e.stats.n,
+            e.name,
+        ),
+    )
+    return [
+        StationLinie(linie=e.id, name=e.name, typ=e.typ or "", **to_stats(e.stats).model_dump())
+        for e in entries
+    ]
+
+
+@app.get("/zeitverlauf", response_model=Zeitverlauf, operation_id="getZeitverlauf")
+def zeitverlauf(
+    eva: Annotated[str | None, Query(pattern=DIGITS)] = None,
+    linie: str | None = None,
+    gattung: Gattung = "alle",
+) -> Zeitverlauf:
+    if eva and linie:
+        raise HTTPException(status_code=422, detail="Give either eva or linie, not both")
+    titel = None
+    if linie:
+        labels = pl.read_parquet(LINIEN_PATH).filter(pl.col("linie") == linie)["label"]
+        if labels.is_empty():
+            raise HTTPException(status_code=404, detail="Unknown line")
+        titel = labels[0]
+        lf = pl.scan_parquet(LINES_PATH).filter(pl.col("linie") == linie)
+    else:
+        lf = pl.scan_parquet(AGG_PATH)
+        if eva:
+            titel = known_station(eva).name
+    grouped = (
+        selection(lf, gattung, eva).group_by("month", "bucket").agg(n=pl.col("n").sum()).collect()
+    )
+    groups = {m: g for (m,), g in grouped.partition_by("month", as_dict=True).items()}  # pyright: ignore[reportArgumentType]
+    return Zeitverlauf(
+        titel=titel,
+        monate=[
+            Monat(monat=m, **stats_of(groups[m]).model_dump())
+            if m in groups
+            else Monat(monat=m, n=0, ausfallquote=None, median=None, p90=None, puenktlich=None)
+            for m in monate()["month"]
         ],
     )
 

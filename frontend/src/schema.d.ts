@@ -38,6 +38,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/rankings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Rankings */
+        get: operations["getRankings"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/stationen": {
         parameters: {
             query?: never;
@@ -81,6 +98,40 @@ export interface paths {
         };
         /** Statistik */
         get: operations["getStatistik"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/stationen/{eva}/linien": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Station Linien */
+        get: operations["getStationLinien"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/zeitverlauf": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Zeitverlauf */
+        get: operations["getZeitverlauf"];
         put?: never;
         post?: never;
         delete?: never;
@@ -224,6 +275,65 @@ export interface components {
             /** Lon */
             lon: number;
         };
+        /** Monat */
+        Monat: {
+            /** Monat */
+            monat: string;
+            /** N */
+            n: number;
+            /** Ausfallquote */
+            ausfallquote: number | null;
+            /** Median */
+            median: number | null;
+            /** P90 */
+            p90: number | null;
+            /** Puenktlich */
+            puenktlich: number | null;
+        };
+        /** Rangliste */
+        Rangliste: {
+            /**
+             * Typ
+             * @enum {string}
+             */
+            typ: "linien" | "bahnhoefe";
+            /**
+             * Metrik
+             * @enum {string}
+             */
+            metrik: "puenktlich" | "median" | "p90" | "ausfallquote";
+            /** Min N */
+            min_n: number;
+            /** Von */
+            von: string;
+            /** Bis */
+            bis: string;
+            /** Anzahl */
+            anzahl: number;
+            /** Schlechteste */
+            schlechteste: components["schemas"]["RanglistenEintrag"][];
+            /** Beste */
+            beste: components["schemas"]["RanglistenEintrag"][];
+        };
+        /** RanglistenEintrag */
+        RanglistenEintrag: {
+            /** N */
+            n: number;
+            /** Ausfallquote */
+            ausfallquote: number;
+            /** Median */
+            median: number | null;
+            /** P90 */
+            p90: number | null;
+            /** Puenktlich */
+            puenktlich: number | null;
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
+            /** Typ */
+            typ: string | null;
+        };
         /** Station */
         Station: {
             /** Eva */
@@ -234,6 +344,25 @@ export interface components {
             land: string | null;
             /** N */
             n: number;
+        };
+        /** StationLinie */
+        StationLinie: {
+            /** N */
+            n: number;
+            /** Ausfallquote */
+            ausfallquote: number;
+            /** Median */
+            median: number | null;
+            /** P90 */
+            p90: number | null;
+            /** Puenktlich */
+            puenktlich: number | null;
+            /** Linie */
+            linie: string;
+            /** Name */
+            name: string;
+            /** Typ */
+            typ: string;
         };
         /** Statistik */
         Statistik: {
@@ -280,6 +409,13 @@ export interface components {
             input?: unknown;
             /** Context */
             ctx?: Record<string, never>;
+        };
+        /** Zeitverlauf */
+        Zeitverlauf: {
+            /** Titel */
+            titel: string | null;
+            /** Monate */
+            monate: components["schemas"]["Monat"][];
         };
     };
     responses: never;
@@ -344,6 +480,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Karte"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    getRankings: {
+        parameters: {
+            query: {
+                typ: "linien" | "bahnhoefe";
+                metrik?: "puenktlich" | "median" | "p90" | "ausfallquote";
+                min_n?: number;
+                gattung?: "alle" | "regional" | "fern";
+                von?: string | null;
+                bis?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Rangliste"];
                 };
             };
             /** @description Validation Error */
@@ -442,6 +614,74 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Statistik"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    getStationLinien: {
+        parameters: {
+            query?: {
+                gattung?: "alle" | "regional" | "fern";
+                von?: string | null;
+                bis?: string | null;
+            };
+            header?: never;
+            path: {
+                eva: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StationLinie"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    getZeitverlauf: {
+        parameters: {
+            query?: {
+                eva?: string | null;
+                linie?: string | null;
+                gattung?: "alle" | "regional" | "fern";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Zeitverlauf"];
                 };
             };
             /** @description Validation Error */
