@@ -1,4 +1,4 @@
-# SPEC.md – Rail Reliability Planner (working title "Verlässlich")
+# SPEC.md – Rail Reliability Planner ("Gleisatlas")
 
 > Product specification. Nothing under "Open points" may be assumed silently: resolve it first or decide it with a spike.
 > Design target: [docs/design.md](docs/design.md) and the clickable mockup [docs/design/mockup.html](docs/design/mockup.html). Delivery plan: [docs/roadmap.md](docs/roadmap.md).

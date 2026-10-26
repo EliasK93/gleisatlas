@@ -1,5 +1,5 @@
 export const de = {
-  "app.title": "Verlässlich",
+  "app.title": "Gleisatlas",
   "footer.disclaimer": "Historische Statistik, keine Prognose oder Garantie.",
   "footer.attribution": "Daten: Deutsche Bahn Ist-Daten via piebro/deutsche-bahn-data, CC BY 4.0",
 

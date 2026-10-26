@@ -81,7 +81,7 @@ Personal and machine-specific rules live in `CLAUDE.local.md` (gitignored).
 - At a natural break (a milestone or batch committed, nothing in flight), the orchestrator updates those files and says that this is a good time to clear the session.
 - A new session reads `CLAUDE.local.md`'s handover section and `docs/roadmap.md` first and checks `git log --oneline -5` and `git status --short` before acting.
 
-## Project: Verlässlich
+## Project: Gleisatlas
 
 Historical reliability of German rail traffic: pattern analysis, connection comparison within a time window, transfer recommendations. Requirements: [SPEC.md](SPEC.md). Roadmap: [docs/roadmap.md](docs/roadmap.md). Design target: [docs/design.md](docs/design.md) with the clickable reference [docs/design/mockup.html](docs/design/mockup.html). App shell and heatmap UI: [docs/app-shell.md](docs/app-shell.md). Map, station detail and search: [docs/map.md](docs/map.md).
 

@@ -1,4 +1,4 @@
-# Verlässlich
+# <img src="frontend/public/favicon.svg" width="32" height="32" alt=""> Gleisatlas
 
 Rail reliability for Germany: historical delay, cancellation and transfer statistics from public DB data, shown as patterns (weekday, hour, station, category) and later as a connection planner with arrival distributions. The UI is German.
 

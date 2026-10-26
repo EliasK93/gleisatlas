@@ -1,7 +1,7 @@
 {
  "openapi": "3.1.0",
  "info": {
-  "title": "Verl\u00e4sslich",
+  "title": "Gleisatlas",
   "version": "0.1.0"
  },
  "paths": {

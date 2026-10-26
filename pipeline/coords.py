@@ -10,7 +10,7 @@ from pathlib import Path
 import polars as pl
 
 ENDPOINT = "https://query.wikidata.org/sparql"
-USER_AGENT = "Verlaesslich/0.1 (https://github.com/EliasK93)"  # Wikimedia requires one
+USER_AGENT = "Gleisatlas/0.1 (https://github.com/EliasK93)"  # Wikimedia requires one
 QUERY = """
 SELECT ?ibnr ?coord ?stateLabel WHERE {
   ?item wdt:P954 ?ibnr ; wdt:P625 ?coord .

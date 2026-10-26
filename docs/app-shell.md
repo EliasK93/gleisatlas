@@ -76,6 +76,7 @@ Unknown or invalid values fall back to the default and are removed from the URL 
 - **The mockup's "Bald" group is included** (Live-Lage heute, Verspätungsketten, Gespeicherte Fahrten). Reason: the mockup wins over the earlier plan.
 - **Inter is bundled with Fontsource** (`@fontsource-variable/inter`), no CDN. Reason: no third-party request at runtime. The no-library alternative is copying the woff2 and writing `@font-face` by hand, but the package carries version and licence.
 - **No icon library.** The mockup's SVG paths live in one `Icon` component. Reason: about a dozen icons do not justify a dependency.
+- **The logo is one static file, `frontend/public/favicon.svg`**, used as the tab icon and as the logo image in the sidebar and top bar: a white Germany silhouette with a railway track on the gradient badge. Its colours are literal copies of `--r1` and `--accent`. Reason: a favicon cannot read CSS tokens, and one file keeps tab icon and logo identical.
 - **The page logo is an `<h2>` in the `<header>`.** Reason: one banner landmark on desktop and mobile; the page's `<h1>` follows in the main area.
 - **Unbuilt pages are `<span>`s, not links.** Reason: a dead link is worse than an honest "bald".
 

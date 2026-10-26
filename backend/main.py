@@ -16,7 +16,7 @@ from core.stats import cell_stats, delay_bins
 AGG_PATH = os.environ.get("AGGREGATE_PATH", "data/aggregate.parquet")
 STATIONS_PATH = os.environ.get("STATIONS_PATH", "data/stations.parquet")
 
-app = FastAPI(title="Verlässlich")
+app = FastAPI(title="Gleisatlas")
 app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:5173"], allow_methods=["GET"])
 app.add_middleware(GZipMiddleware)  # the all-stations map response is large and repetitive
 

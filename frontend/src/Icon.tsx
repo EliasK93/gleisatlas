@@ -1,6 +1,5 @@
 // SVG paths from docs/design/mockup.html (24 × 24, stroked).
 const PATHS = {
-  check: '<path d="M5 12.5 10 17l9-10"/>',
   map: '<path d="M9 4 3 6v14l6-2 6 2 6-2V4l-6 2-6-2zM9 4v14M15 6v14"/>',
   grid: '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>',
   list: '<path d="M4 6h10M4 12h16M4 18h7"/>',

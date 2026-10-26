@@ -15,9 +15,8 @@ test.beforeEach(async ({ page }) => {
 
 test("the shell shows title, disclaimer and attribution", async ({ page }) => {
   await page.goto("/muster/heatmap");
-  await expect(
-    page.getByRole("banner").getByRole("heading", { name: "Verlässlich" }),
-  ).toBeVisible();
+  await expect(page.getByRole("banner").getByRole("heading", { name: "Gleisatlas" })).toBeVisible();
+  await expect(page).toHaveTitle("Gleisatlas");
   const footer = page.getByRole("contentinfo");
   await expect(footer).toContainText("Historische Statistik, keine Prognose oder Garantie");
   await expect(footer).toContainText("CC BY 4.0");
@@ -35,10 +34,18 @@ test("/ redirects to the map, unknown paths too", async ({ page }) => {
 test("/ and the logo link keep the query string", async ({ page }) => {
   await page.goto("/?g=fern");
   await expect(page).toHaveURL(/\/karte\?g=fern$/);
-  await expect(page.getByRole("banner").getByRole("link", { name: "Verlässlich" })).toHaveAttribute(
+  await expect(page.getByRole("banner").getByRole("link", { name: "Gleisatlas" })).toHaveAttribute(
     "href",
     "/?g=fern",
   );
+});
+
+test("the tab icon and the logo come from the same SVG", async ({ page, request }) => {
+  await page.goto("/muster/heatmap");
+  await expect(page.locator('link[rel="icon"]')).toHaveAttribute("href", "/favicon.svg");
+  await expect(page.getByRole("banner").locator('img[src="/favicon.svg"]')).toBeVisible();
+  const res = await request.get("/favicon.svg");
+  expect(res.headers()["content-type"]).toContain("image/svg+xml");
 });
 
 test("a filter change after another key keeps the heatmap page mounted", async ({ page }) => {

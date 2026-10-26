@@ -63,9 +63,7 @@ function Shell() {
               to={{ pathname: "/", search }}
               className="hit flex items-center gap-2.5 text-base font-[650] tracking-[-0.01em] md:px-2 md:pt-1 md:pb-3.5 md:text-[17px]"
             >
-              <span className="grid size-7 place-items-center rounded-lg bg-linear-135 from-r1 to-accent text-on-accent">
-                <Icon name="check" className="size-4" strokeWidth={2.4} />
-              </span>
+              <img src="/favicon.svg" alt="" className="size-7" />
               {/* On mobile the top bar shows the mark only; the name stays for screen readers. */}
               <span className="max-md:sr-only">{t("app.title")}</span>
             </Link>

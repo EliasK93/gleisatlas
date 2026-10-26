@@ -1,4 +1,4 @@
-# Verlässlich – Design Concept
+# Gleisatlas – Design Concept
 
 > **Note:** Light mode is the default and is implemented first. Dark tokens exist in the mockup and are added later. The mockup mixes light and dark areas in places; the light token set in section 3.1 is authoritative. UI strings are German and quoted as they appear in the app. Clickable mockup with fake data: [design/mockup.html](design/mockup.html).
 
@@ -34,7 +34,7 @@ All views are addressable through hash/path routes with query parameters → **s
 ### 1.2 Sidebar (desktop ≥ 1024 px, 248 px wide, collapsible to a 64 px icon rail)
 
 ```
-[Logo "Verlässlich"]
+[Logo "Gleisatlas"]
 [🔍 Bahnhof suchen …   ⌘K]       ← global search, opens the command palette
 ENTDECKEN
   ◉ Karte                         ← start page
