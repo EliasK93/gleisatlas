@@ -26,7 +26,7 @@ The filter keys `g`, `von`, `bis` and `k` are the ones of the shell (see [app-sh
 
 **Map page**
 
-- Full-bleed map (MapLibre GL, OpenFreeMap "positron" style), no footer. Labels of the base map appear from zoom 7, so the dots dominate the overview.
+- Full-bleed map (MapLibre GL, OpenFreeMap "positron" style in the light theme and "dark" in the dark one, see [theme-and-language.md](theme-and-language.md)), no footer. Labels of the base map appear from zoom 7, so the dots dominate the overview.
 - Floating card top left: h1, lead text, metric switch, filter chips. Legend bottom left (collapsed on mobile) with the five classes, the "little data" and size keys and the meta line "period · category · Bahnhöfe auf der Karte: x", followed by " · ohne Koordinaten: y" when stations with data have no coordinates. Zoom buttons and attribution bottom right.
 - One circle per station: radius from the square root of its stops, fill from the class of the displayed value. A station below the low-data limit is hollow with a ring in the scale colour; a station whose stops were all cancelled uses the cancellation colour. Worse classes draw on top. The selected station gets an accent ring.
 - Hover (on devices that hover) shows "name · value"; a click selects the station. A pick through the chip or a link eases the camera to the station, clear of the panel; a click on the map does not move the camera.
@@ -53,8 +53,8 @@ The filter keys `g`, `von`, `bis` and `k` are the ones of the shell (see [app-sh
 ## 3 Decisions
 
 - **Station coordinates from Wikidata.** Reason: product owner's choice after weighing five sources; 99.9 % of all stops belong to stations with coordinates (see the ADR).
-- **MapLibre GL with the OpenFreeMap "positron" style.** Reason: product owner's choice; zoom, pan and draw order over about 5,000 points need WebGL, and OpenFreeMap needs no API key. The no-library alternative is an SVG outline map, which the product owner declined.
-- **Base map labels follow the UI language** (`name:de`, else the local `name`); the positron style prefers English names ("Cologne"). `localLabel` in `metrics.ts` rewrites every label that reads a name; road numbers stay. Reason: a German UI with English place names reads wrong, and the English UI later gets English labels from the same code.
+- **MapLibre GL with the OpenFreeMap "positron" style (light) and "dark" (dark theme, [theme-and-language.md](theme-and-language.md)).** Reason: product owner's choice; zoom, pan and draw order over about 5,000 points need WebGL, and OpenFreeMap needs no API key. The no-library alternative is an SVG outline map, which the product owner declined.
+- **Base map labels follow the UI language** (`name:de`, else the local `name`); the OpenFreeMap styles prefer English names ("Cologne"). `localLabel` in `metrics.ts` rewrites every label that reads a name; road numbers stay. Reason: a German UI with English place names reads wrong, and the English UI gets English labels from the same code.
 - **Coordinates live in the gitignored `data/` folder**, built by `pipeline.coords`, not committed. Reason: they are derived data like the raw files, and the result depends on the current state of Wikidata.
 - **The selected station lives in `bhf`.** Reason: the panel survives a reload and the heatmap link carries the station without a second key.
 - **The mockup wins over design.md** where they differ: the sheet is fixed at 62 %, there is no `z` map-position key, the footer is hidden on the map and the metric switch scrolls sideways on mobile. Reason: the mockup is the clickable reference.

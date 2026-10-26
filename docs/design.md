@@ -1,6 +1,6 @@
 # Gleisatlas – Design Concept
 
-> **Note:** Light mode is the default and is implemented first. Dark tokens exist in the mockup and are added later. The mockup mixes light and dark areas in places; the light token set in section 3.1 is authoritative. UI strings are German and quoted as they appear in the app. Clickable mockup with fake data: [design/mockup.html](design/mockup.html).
+> **Note:** Light and dark mode are both implemented; the dark values in section 3.1 are the mockup's, except `--text-3`, which is lightened for contrast (see [theme-and-language.md](theme-and-language.md)). The mockup mixes light and dark areas in places; the light token set in section 3.1 is authoritative. UI strings are quoted in German as they appear in the app; the app also has an English catalog. Clickable mockup with fake data: [design/mockup.html](design/mockup.html).
 
 ## 0. Guiding idea
 
@@ -47,7 +47,7 @@ PLANEN
 BALD                              ← greyed out, "bald" badge, not clickable
   Live-Lage heute · Wetter · Verspätungsketten · Gespeicherte Fahrten
 ────────────
-  ⓘ So lesen Sie die Zahlen
+  ⓘ So liest man die Zahlen
   Datenstand: Sep 2026 · CC BY 4.0
   [☀/☾ Hell/Dunkel/System]
 ```
@@ -134,7 +134,7 @@ Result:
 | `--border` | `#E1E4E9` | `#2A3039` | Dividers |
 | `--text` | `#141820` | `#E8EBF0` | Primary text |
 | `--text-2` | `#4A5363` | `#A6AFBD` | Secondary text |
-| `--text-3` | `#697182` | `#6F7888` | Meta (n, period); the light value gives at least 4.5:1 on `--bg` |
+| `--text-3` | `#656D7E` | `#838B99` | Meta (n, period); both values give at least 4.5:1 on `--bg`, `--surface` and `--surface-2` (the mockup's `#7A8394` and `#6F7888` stay below 4.5:1) |
 | `--accent` | `#4B47D6` | `#8B88FF` | Active navigation, buttons, focus |
 | `--accent-soft` | `#ECEBFD` | `#25244A` | Active chips |
 
@@ -254,8 +254,8 @@ One horizontal track per connection on a **time axis shared by all results** (e.
 
 ## 8. Light and dark mode
 
-- Light is the default and is implemented first. Dark is added later with the same token names.
-- Three levels once dark exists: *System* · *Hell* · *Dunkel*; switch in the sidebar footer or "Mehr".
+- Light and dark share the same token names; System is the default and follows the device. Details and decisions: [theme-and-language.md](theme-and-language.md).
+- Three levels: *System* · *Hell* · *Dunkel*; switch in the sidebar footer or "Mehr".
 - Implementation via `data-theme` on `<html>` + identical token names. Dark is **not inverted**: surfaces dark grey (not black), scale colours lightened so they are perceived the same on a dark ground; the base map switches to the dark variant.
 - Charts read their colours from the tokens and re-render on change.
 

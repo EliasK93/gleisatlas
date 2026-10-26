@@ -49,6 +49,7 @@ The UI on top of this is described in [app-shell.md](app-shell.md) and [map.md](
 - **A line is its name split into networks** (id `"{name}:{lowest EVA}"`). Reason: "S1" exists in many federal states. See [pipeline.md](pipeline.md) §3.
 - **Weekday totals are computed in the API from the merged histogram**, not as a mean of cell values. Reason: percentiles and medians cannot be averaged.
 - **Input is validated at the API.** Reason: a malformed `von` or a negative `limit` silently returned wrong data. `eva` accepts ASCII digits only, so a station name is never a key.
+- **At most 4 Polars queries run at once per process** (`MAX_QUERIES` and `collect` in `backend/main.py`; every query goes through that one function). Reason: every route runs in FastAPI's thread pool (about 40 threads), and dozens of concurrent queries can exhaust Polars' blocking thread pool (`POLARS_MAX_BLOCKING_THREAD_COUNT reached`); requests beyond the cap wait.
 
 ## 4 Architecture and data keys
 
@@ -87,6 +88,7 @@ None. The line key is decided in [pipeline.md](pipeline.md) §3, and the timetab
 
 ## 8 Known shortcuts
 
+- The query cap is one semaphore per process. Revisit with async routes or several replicas. Concurrent requests for the same uncached selection each run their own query; there is no single-flight.
 - Parquet is re-read on every request; to be reconsidered now that the aggregate covers 27 months.
 - The lines at a station are not cached: the biggest station takes about 0.1 s. Add an `lru_cache` like the rankings have if the page calls it often.
 - The time series follows one selection (nationwide, one station or one line). Comparing up to three series in one chart is not built.

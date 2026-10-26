@@ -2,9 +2,9 @@
 
 [![CI](https://github.com/EliasK93/gleisatlas/actions/workflows/gate.yml/badge.svg)](https://github.com/EliasK93/gleisatlas/actions/workflows/gate.yml) [![Tests](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/EliasK93/3b48a1a6b1af4d54d8e76c88ed1e72d4/raw/tests.json)](https://github.com/EliasK93/gleisatlas/actions/workflows/gate.yml) [![License](https://img.shields.io/github/license/EliasK93/gleisatlas)](LICENSE) ![Platform](https://img.shields.io/badge/platform-Web-blue)
 
-Rail reliability for Germany: historical delay, cancellation and transfer statistics from public DB data, shown as patterns (weekday, hour, station, category) and later as a connection planner with arrival distributions. The UI is German.
+Rail reliability for Germany: historical delay, cancellation and transfer statistics from public DB data, shown as patterns (weekday, hour, station, category) and later as a connection planner with arrival distributions. The UI is German or English and has a light and a dark theme.
 
-**Status:** early. The map start page, station detail, station search and the weekday × hour heatmap work on one month of data. Historical statistics, no forecast or guarantee.
+**Status:** early. The map start page, station detail, station search, the weekday × hour heatmap, rankings of stations and lines, and the time series by month work on 27 months of data (2024-07 to 2026-09). Historical statistics, no forecast or guarantee.
 
 ## Quick start (PowerShell)
 
@@ -38,6 +38,7 @@ uv run python scripts/format.py   # fixes formatting
 - [docs/patterns.md](docs/patterns.md) – pattern analysis
 - [docs/app-shell.md](docs/app-shell.md) – app shell and heatmap UI
 - [docs/map.md](docs/map.md) – map, station detail and search
+- [docs/theme-and-language.md](docs/theme-and-language.md) – dark theme and English UI
 - [docs/adr/](docs/adr/) – architecture decisions, e.g. the station-coordinate source
 
 ## Data

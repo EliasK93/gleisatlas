@@ -84,7 +84,7 @@ Personal and machine-specific rules live in `CLAUDE.local.md` (gitignored).
 
 ## Project: Gleisatlas
 
-Historical reliability of German rail traffic: pattern analysis, connection comparison within a time window, transfer recommendations. Requirements: [SPEC.md](SPEC.md). Roadmap: [docs/roadmap.md](docs/roadmap.md). Design target: [docs/design.md](docs/design.md) with the clickable reference [docs/design/mockup.html](docs/design/mockup.html). App shell and heatmap UI: [docs/app-shell.md](docs/app-shell.md). Map, station detail and search: [docs/map.md](docs/map.md).
+Historical reliability of German rail traffic: pattern analysis, connection comparison within a time window, transfer recommendations. Requirements: [SPEC.md](SPEC.md). Roadmap: [docs/roadmap.md](docs/roadmap.md). Design target: [docs/design.md](docs/design.md) with the clickable reference [docs/design/mockup.html](docs/design/mockup.html). App shell and heatmap UI: [docs/app-shell.md](docs/app-shell.md). Map, station detail and search: [docs/map.md](docs/map.md). Dark theme and language: [docs/theme-and-language.md](docs/theme-and-language.md).
 
 ### Stack
 - Python 3.12+ with `uv`; Polars for data processing; FastAPI + Pydantic for the API.
@@ -100,7 +100,7 @@ Historical reliability of German rail traffic: pattern analysis, connection comp
 - `scripts/`: gate, formatter, hook installer, helper scripts.
 
 ### Project rules
-- UI text only via the message catalog (German default, English to follow). Colours only via theme tokens (light first, dark to follow).
+- UI text only via the message catalogs (German and English; their keys must match); German UI text avoids direct address. Colours only via theme tokens, which have a light and a dark set.
 - Stations are identified by EVA number, never by name.
 - Cancelled stops are never counted as 0 minutes delay.
 - Attribution CC BY 4.0 (Deutsche Bahn, via piebro/deutsche-bahn-data) in UI and README.

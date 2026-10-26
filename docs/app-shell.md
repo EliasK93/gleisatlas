@@ -16,7 +16,7 @@ The frame around every page: sidebar, filter bar, mobile top bar and tab bar, fo
 | `/muster/rankings` | Rankings of stations or lines |
 | `/muster/zeitverlauf` | Time series by month |
 | `/muster` | Redirect to `/muster/heatmap`, query string kept |
-| `/mehr` | Mobile list of the remaining items, data status and licence |
+| `/mehr` | Mobile list of the remaining items, the Darstellung and Sprache switches, data status and licence |
 | `/` and any unknown path | Redirect to `/karte`, query string kept |
 
 **URL keys** (all filter state lives in the URL, so a link restores the view)
@@ -33,7 +33,7 @@ The frame around every page: sidebar, filter bar, mobile top bar and tab bar, fo
 
 Unknown or invalid values fall back to the default and are removed from the URL once. Keys are always written in one fixed order: `g`, `bhf`, `von`, `bis`, `linie`, `k`, then `typ` and `min`. Sidebar and tab-bar links carry the current query string, so filters persist across pages. A page drops the keys it has no meaning for: `bhf` on the rankings and on the time series when a `linie` is set, `linie` on every page but the time series. What `bhf` means on the map and on the station page is described in [map.md](map.md).
 
-**Sidebar** (from 768 px): logo, the station search field (see [map.md](map.md)), then the groups "Entdecken" (Karte, Wochentag × Uhrzeit, Rankings, Zeitverlauf), "Planen" (Verbindung planen, Umstieg prüfen) and "Bald" (Live-Lage heute, Verspätungsketten, Gespeicherte Fahrten), then "So lesen Sie die Zahlen". Karte, Wochentag × Uhrzeit, Rankings and Zeitverlauf are links. Every other item is dimmed with a "bald" tag and is not a link; it becomes a link when its page ships. The footer shows "Datenstand: {month} · {n} Bahnhöfe" and the CC BY 4.0 link. The page footer with the disclaimer is hidden on the map, which fills the viewport.
+**Sidebar** (from 768 px): logo, the station search field (see [map.md](map.md)), then the groups "Entdecken" (Karte, Wochentag × Uhrzeit, Rankings, Zeitverlauf), "Planen" (Verbindung planen, Umstieg prüfen) and "Bald" (Live-Lage heute, Verspätungsketten, Gespeicherte Fahrten), then "So liest man die Zahlen". Karte, Wochentag × Uhrzeit, Rankings and Zeitverlauf are links. Every other item is dimmed with a "bald" tag and is not a link; it becomes a link when its page ships. Above the footer sit the Darstellung (theme) and Sprache (language) switches, described in [theme-and-language.md](theme-and-language.md). The footer shows "Datenstand: {month} · {n} Bahnhöfe" and the CC BY 4.0 link. The page footer with the disclaimer is hidden on the map, which fills the viewport.
 
 **Filter bar**
 
@@ -103,7 +103,7 @@ Unknown or invalid values fall back to the default and are removed from the URL 
 - **Cancellations are shown with one decimal** ("2,5 %"), although design.md asks for whole percentages. Reason: the class limit 3.5 % needs it.
 - **"Halte" instead of "Ankünfte"** in the meta line. Reason: n includes cancelled stops.
 - **Mobile hit areas are at least 44 px without changing the visual size.** A `hit` utility adds an invisible 44 px area behind chips, buttons and the metric switch. Reason: design.md §5; the mockup's 32 px chips would be too small to tap. For the same reason the metric switch is one sideways-scrolling row on mobile: two wrapped rows leave no room for 44 px areas without overlap.
-- **Dates and weekdays come from ICU** (`Intl`, de-DE): "Sept. 2026", "Mo." and "Montag". Reason: English follows without extra code; the mockup's "Sep 2026" is not what ICU produces.
+- **Dates and weekdays come from ICU** (`Intl`, de-DE or en-GB by language): "Sept. 2026", "Mo." and "Montag". Reason: English follows without extra code; the mockup's "Sep 2026" is not what ICU produces.
 - **The mockup's "Bald" group is included** (Live-Lage heute, Verspätungsketten, Gespeicherte Fahrten). Reason: the mockup wins over the earlier plan.
 - **Inter is bundled with Fontsource** (`@fontsource-variable/inter`), no CDN. Reason: no third-party request at runtime. The no-library alternative is copying the woff2 and writing `@font-face` by hand, but the package carries version and licence.
 - **No icon library.** The mockup's SVG paths live in one `Icon` component. Reason: about a dozen icons do not justify a dependency.
@@ -133,7 +133,7 @@ Unknown or invalid values fall back to the default and are removed from the URL 
 - `frontend/src/ui.tsx`: also `Segmented`, `MusterSwitch`, the shared tooltip (`useTip`, `tipAt`, `TipBox`), `Badge`, `MiniBar` and `Cancelled`.
 - `frontend/src/metrics.ts`: pure functions, no React: metric definitions with class limits, `classOf`, number and date formats (`formatMonth`), `readFilters` and `writeFilters` for the URL keys, `readRank` and `writeRank` for `typ` and `min`.
 - `frontend/src/Icon.tsx`: the icon set. `frontend/src/api.ts`: typed client over `schema.d.ts`; `must()` turns any non-2xx response into a query error.
-- UI text only via `frontend/src/i18n/de.ts` (`t()`, and `tx()` for placeholders filled with React nodes). Colours only via the tokens in `frontend/src/theme.css`; component classes in `index.css` use tokens only. Both rules are stated in [CLAUDE.md](../CLAUDE.md).
+- UI text only via the catalogs `frontend/src/i18n/de.ts` and `en.ts` (`t()`, and `tx()` for placeholders filled with React nodes). Colours only via the tokens in `frontend/src/theme.css`; component classes in `index.css` use tokens only. Both rules are stated in [CLAUDE.md](../CLAUDE.md). `frontend/src/prefs.ts` holds the theme and language preferences; see [theme-and-language.md](theme-and-language.md).
 - `frontend/src/schema.d.ts` is generated from `backend/openapi.json`: `uv run python scripts/export_openapi.py`, then `npm.cmd --prefix frontend run gen`. The gate fails when it is stale (`gen:check`).
 - Tests: `frontend/e2e/*.spec.ts` run in Playwright against fixtures served through `page.route` (`frontend/e2e/fixtures.ts`), never a backend. Two projects: desktop Chromium and a Pixel 7 profile (also Chromium).
 
@@ -150,7 +150,6 @@ Unknown or invalid values fall back to the default and are removed from the URL 
 ## 6 Platform checks
 
 - [ ] Static Web Apps serves `index.html` for path routes such as `/muster/heatmap` on reload (SPA fallback), with a direct visit and a shared link. Verify on Azure.
-- [ ] The wordmark text stays dark in Firefox and Safari when the operating system is in dark mode (the page sets `color-scheme: light`; checked in Chromium).
 - [ ] The station popover sits below its chip in Firefox and Safari. Without anchor positioning it falls back to a centred popover; tick when the product owner has seen both browsers.
 
 ## 7 Open decisions
@@ -167,6 +166,5 @@ Unknown or invalid values fall back to the default and are removed from the URL 
 - Teilen gives no feedback when the browser denies the clipboard.
 - An unknown station in `bhf` on the heatmap shows the generic empty state, not "Diesen Bahnhof kennen wir nicht" with a search (design.md §7); the station page has that state (see [map.md](map.md)).
 - The sidebar has no collapse to a rail.
-- Light mode only; the tokens are ready for dark.
 - A valid month outside the data range in `von` or `bis` leaves its select blank; the API returns what it has.
 - The station popover is positioned with CSS anchor positioning, with the centred default as fallback (see Platform checks).

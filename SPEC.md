@@ -29,8 +29,8 @@ Timetable apps (bahn.de, DB Navigator) optimise for the connection that is *sche
 | Modes of transport | DB regional traffic (RE/RB/IRE/S-Bahn, including private operators in the dataset) and long-distance (ICE/IC/EC). **Train category selection is a filter** (e.g. "without ICE" for the Deutschlandticket). No subway/tram/bus. |
 | When used | Before the trip (the evening before, in the morning, days ahead when planning an appointment) and occasionally to browse patterns. Not during the trip (live situation is v2). |
 | Devices | Desktop browser first, **smartphone browser must be usable** (responsive). No native app. |
-| UI language | German by default, switchable to English. Internationalisation is built in from the start (all UI strings in a message catalog); the English catalog is added later. |
-| Theme | Light first; dark mode switchable later. Theme tokens (CSS custom properties) are used from the start so that dark mode needs no restyling. |
+| UI language | German by default, switchable to English. Internationalisation is built in from the start (all UI strings in a message catalog); the English catalog exists ([docs/theme-and-language.md](docs/theme-and-language.md)). |
+| Theme | Light and dark, switchable (System, Light, Dark). Theme tokens (CSS custom properties) are used from the start so that dark mode needs no restyling. |
 | Development environment | Windows 11, Python as main language. |
 
 ---
@@ -56,7 +56,7 @@ Timetable apps (bahn.de, DB Navigator) optimise for the connection that is *sche
 - **Transfer recommendation**: empirically sufficient transfer time at a station or for a concrete train pair (must).
 - **Cancellations reported separately from delays** (must).
 - Responsive web UI, deployed on Azure.
-- UI language German by default, switchable to English; light theme first, dark theme switchable later.
+- UI language German by default, switchable to English; light and dark theme, switchable.
 
 ### 3.3 Non-goals (deliberately not in v1)
 
@@ -145,11 +145,11 @@ Decision criteria: stability, legal/terms of service, effort, regional + long-di
 
 ### F5 – Web UI
 - F5.1 Two main areas: "Verbindung planen" (plan a connection) and "Muster entdecken" (discover patterns).
-- F5.2 Responsive (usable on a smartphone). Light theme first; dark/light switch later (theme tokens from the start).
+- F5.2 Responsive (usable on a smartphone). Light and dark theme with a switch (theme tokens from the start).
 - F5.3 Shareable URLs (search parameters in the URL).
 - F5.4 Loading feedback, sensible empty and error states.
 - F5.5 Attribution CC BY 4.0 + note "historical statistics, no guarantee".
-- F5.6 UI language German by default, switchable to English. All user-visible strings come from a message catalog (i18n from the start); the English catalog follows later.
+- F5.6 UI language German by default, switchable to English. All user-visible strings come from a message catalog (i18n from the start); the German and English catalogs exist.
 
 ### F6 – Optional features (v1.x)
 Delay propagation along a line · weather correlation · map heatmap by station · comparison with official DB statistics.
@@ -165,7 +165,7 @@ Delay propagation along a line · weather correlation · map heatmap by station 
 | Frontend | **React + TypeScript + Vite**, **Tailwind**, **shadcn/ui**, charts with Recharts or ECharts, data fetching with TanStack Query | shadcn is React-native, large ecosystem. |
 | API contract | **OpenAPI-first**; the TS client is generated from the schema | Clean interface between backend and frontend. |
 | Design | Target in [docs/design.md](docs/design.md) and [docs/design/mockup.html](docs/design/mockup.html); theme tokens as CSS custom properties | One source for colours and spacing; dark mode without restyling. |
-| i18n | Message catalog from the start, German catalog first, English later | UI language is switchable. |
+| i18n | Message catalog from the start, German and English catalogs | UI language is switchable. |
 | Hosting (assumption, to verify in the roadmap) | Frontend: Azure Static Web Apps (Free) · Backend: Azure Container Apps (Consumption, scale-to-zero) · Aggregates: Azure Blob Storage · infrastructure as code (Bicep) | Budget. |
 | Budget | Target ≤ …/month, cap …/month; **Azure budget alert** at … and … | Requirement. |
 | Aggregate size | Target < 2 GB deployed; otherwise fall back to a watchlist (configurable station list) | Cost, cold-start time. |
