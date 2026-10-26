@@ -35,7 +35,7 @@ Details in [theme-and-language.md](theme-and-language.md).
 - [x] Polars query cap: at most four queries run at once, so fast clicking cannot exhaust the blocking threads (re-check: `uv run pytest -q`, `tests/api/test_concurrency.py`; details in [patterns.md](patterns.md))
 
 ## Line names
-- [ ] One line per train type and network, named by its end stations. The source switched from bare numbers ("57") to prefixed names ("RE57") in December 2025, which splits one line in two and merges S, RE and IRE lines with the same number.
+- [x] One line per train type and network, named by its end stations. The source switched from bare numbers ("57") to prefixed names ("RE57") in December 2025, which split one line in two and merged S, RE and IRE lines with the same number (re-check: `uv run pytest -q`, `test_bare_number_and_prefixed_name_become_one_line`, `test_bare_numbers_of_different_train_types_stay_apart`, `test_line_table_labels_name_the_two_most_frequent_ends`; details in [pipeline.md](pipeline.md))
 
 ## M5 Azure deployment (v0.2)
 - [ ] Bicep infrastructure

@@ -17,12 +17,13 @@ After a change to the per-month logic (cleaning, line names, coverage rule) the 
 
 **Source schema.** The source must carry exactly the 23 known columns (`COLUMNS` in `pipeline/aggregate.py`). A missing or a new column aborts the run with a message that names it (AC-2).
 
-**Month folder** `data/months/YYYY-MM/`, written to a temporary sibling and renamed only when all five files exist, so a crash never leaves a half-complete month:
+**Month folder** `data/months/YYYY-MM/`, written to a temporary sibling and renamed only when all six files exist, so a crash never leaves a half-complete month:
 
 | File | Keys |
 |---|---|
 | `aggregate.parquet` | `weekday`, `hour`, `gruppe`, `eva`, `month`, `bucket`, `n` |
 | `lines.parquet` | `name`, `train_type`, `eva`, `gruppe`, `month`, `bucket`, `n` |
+| `ends.parquet` | `name`, `eva`, `dest`, `n` (arrival stops per line name, station and end station) |
 | `networks.parquet` | `name`, `eva`, `net` (the line networks within the month) |
 | `stations.parquet` | `eva`, `name`, `n` |
 | `meta.parquet` | `month`, `missing_hours`, `stations` |
@@ -53,10 +54,12 @@ After a change to the per-month logic (cleaning, line names, coverage rule) the 
   - The run prints how many rows each rule dropped per month (3–1,118 duplicates and 158–1,241 implausible rows over the 27 months).
 - **No clamp.** The bucket is the exact minute. Reason: clamping hid the long tail from P90 and from the share of delays over an hour; the histogram stays small anyway.
 - **A line is its name split into networks.** The name is `line_number`, or `"{train_type} {train_number}"` where that is missing (long-distance trains and a few regional ones, e.g. "ICE 679"). Reason: "S1" alone exists in 15 federal states and splits into 14 networks. Details:
+  - **The train type goes in front of a bare number, for every train type** ("57" with RE becomes "RE57", "35" with FLX becomes "FLX35"), and letters and digits lose a space between them ("RE 3" becomes "RE3"). Reason: until the December 2025 timetable change the source gives regional lines as bare numbers and from then on prefixed. Without the rule one line splits in two (`57` and `RE57`), and S1, RE1 and IRE1 sharing a station merge into one line with mixed statistics.
   - Within one name, stations that share a `train_line_ride_id` belong to one network, transitively. A ride id is a trip pattern that repeats daily; 817 ride ids carry more than one name, so (name, ride id) is the unit, not the ride id alone. The networks are connected components, found by min-label propagation in `core/lines.py`.
   - Each month gets its own networks; the combine step joins them across months, with (month, network) standing in for a trip.
-  - **Id** `"{name}:{lowest EVA of the network}"`. It stays the same as months are added, unless a network gains a station with a lower EVA or merges with another one; a saved link to a line can then point at nothing.
-  - **Label** is the bare name where the name has one network, otherwise "{name} · {busiest station of the network}", e.g. "S1 · Essen-Steele". A name that is only a number gets its train type in front when that is S, RB, RE, IRE or MEX ("S36", "RE7"), in `name` and `label`; the id keeps the source name. **Typ** is the most frequent `train_type` of the line and serves as the badge.
+  - **Id** `"{name}:{lowest EVA of the network}"`, with the name as built above. It stays the same as months are added, unless a network gains a station with a lower EVA or merges with another one; a saved link to a line can then point at nothing.
+  - **Label** names the line's two most frequent end stations by stops, e.g. "RE57 Dortmund Hbf – Warburg (Westf)"; ties go to the lower name. A train-number line ("ICE 679", one direction) reads "ICE 679 → Kassel-Wilhelmshöhe". With one end station the label is the name and that end, with none the name alone. Reason: the name alone does not say where a line runs, and the same name in two networks (S1) must be told apart. **Typ** is the most frequent `train_type` of the line and serves as the badge.
+  - **End stations** come from `final_destination_station`; `destination_expr` fixes the spelling ("Schwerte(Ruhr)" becomes "Schwerte (Ruhr)", "Langenhagen - Kaltenweide" becomes "Langenhagen-Kaltenweide"). Null or blank destinations are left out. Reason: the column has 4,647 spellings, and the fix leaves only 32 duplicate groups.
   - A network that only has stops without an arrival (no delay data) is not a line: `linien.parquet` lists only networks with stops, so no row has an empty label or typ. Most lines are single long-distance train numbers. Rankings filter by minimum sample.
 - **Missing hours are recorded per month, not repaired.** The usual level of an hour of the day is the lowest, over the seven weekdays, of the median row count of that (weekday, hour) in the month. An hour counts as a gap when it has fewer than `GAP_SHARE` (half) of that level in `pipeline/aggregate.py`; an hour with no rows at all counts too. Reason: the source is quiet at night and on Sunday mornings, so a fixed threshold, or the median over all days, would flag normal hours, while a relative rule also catches a half-empty hour. The hours are counted against the real local month, so the skipped hour of the March clock change is not a gap and the doubled October hour is not one either. The months after the station jump (2025-11) stay flagged for the days before 2025-11-02. Over the 27 months this flags 50 h in 2025-11, 4–12 h in 2024-11 and in six months between 2026-02 and 2026-08 (2026-07: 8 h), 1 h in 2025-06 and 2025-07, and none elsewhere. SPEC §4.1 names 102 h for July 2026; the way it counts is not known, so the figures can differ.
 - **Timetable changes are marked, not split.** `core.periods.timetable_changes` returns the Sunday after the second Saturday of December (2024-12-15, 2025-12-14, 2026-12-13). The API lists those inside the data range and trains keep one key across years. Reason: product owner's choice (SPEC O6); splitting statistics per timetable period comes with the planner, where train numbers matter.
@@ -65,9 +68,9 @@ After a change to the per-month logic (cleaning, line names, coverage rule) the 
 
 ## 4 Architecture and data keys
 
-- `pipeline/aggregate.py`: per-month tables from one source file, read lazily with Polars. `check_schema` validates, `clean` applies the cleaning, and `aggregate`, `lines`, `month_networks`, `stations` and `meta` build the five month tables. `with_coords` and `coverage_report` serve the combine step.
+- `pipeline/aggregate.py`: per-month tables from one source file, read lazily with Polars. `check_schema` validates, `clean` applies the cleaning, and `aggregate`, `lines`, `ends`, `month_networks`, `stations` and `meta` build the six month tables. `with_coords` and `coverage_report` serve the combine step.
 - `pipeline/update.py`: `update` walks the remote months and calls `process` for each incomplete one, then `combine`. The downloader and the list of remote months are passed in, so tests run it with a fake that counts its calls. `combine` writes the five combined files.
-- `core/lines.py`, `core/periods.py`, `core/delay.py`: the pure parts (line names and networks, timetable changes and coverage start, the delay and plausibility rules).
+- `core/lines.py`, `core/periods.py`, `core/delay.py`: the pure parts (line names, end-station spelling and networks, timetable changes and coverage start, the delay and plausibility rules).
 - `data/coords.parquet`: `ibnr`, `lat`, `lon`, `land`, one row per IBNR for the whole of Wikidata (not only Germany). The join strips the leading zero of our EVA (`08000207` to `8000207`) with `core.stations.ibnr_expr`. An EVA without a match takes the coordinates of the one located station with exactly the same name (secondary EVAs such as S-Bahn platforms). Details and the source decision: [adr/0001-station-coordinates.md](adr/0001-station-coordinates.md).
 - `data/stations.parquet`: `n` is all stops of the EVA in the source, arrival stops with cancelled ones included; it ranks search results and sizes map dots. `lat`, `lon` and `land` are NULL where Wikidata has no match or no state.
 - Coverage report, printed by the combine step: named stations with coordinates (number and share), the share of stops that belong to them, and the unmatched named stations with the most stops. Over 27 months: 5,415 of 5,419 named stations (99.9 %). Unmatched: Berlin-Karlshorst, Bochum-Langendreer, Bürstadt (Ried) and Trebitz (b Könnern).
@@ -82,9 +85,13 @@ After a change to the per-month logic (cleaning, line names, coverage rule) the 
   - AC-2: `tests/pipeline/test_aggregate.py` (`test_schema_abort`, `test_schema_abort_names_a_new_column`)
   - cleaning and missing hours: `tests/pipeline/test_aggregate.py` (`test_cleaning_drops_duplicates_and_implausible_delays`, `test_a_plausible_copy_survives_an_implausible_first_one`, `test_stops_without_arrival_are_never_duplicates`, `test_meta_counts_thin_hours_as_missing`, `test_meta_compares_an_hour_with_its_usual_level_on_that_weekday`, `test_meta_doubled_october_hour_is_not_missing`, `test_meta_counts_missing_hours_against_the_real_month`), `tests/pipeline/test_update.py` (`test_cleaning_counts_are_printed`, `test_monate`) and `tests/core/test_core.py` (`test_arrival_delay_rules`, `test_plausible_bounds_are_inclusive_and_missing_change_is_plausible`)
   - combine: `tests/pipeline/test_update.py` (`test_combine_stations_newest_name_and_summed_n`, `test_combine_station_keeps_the_newest_name_that_is_not_null`, `test_combine_lines_networks_and_labels`, `test_lines_sum_back_to_the_aggregate`)
-  - line networks: `tests/core/test_lines.py` (`test_two_networks_without_shared_station_stay_apart`, `test_cross_month_join_via_month_and_net`, `test_line_ids`, `test_line_table_labels_and_typ`, `test_line_table_leaves_out_networks_without_stops`)
+  - line networks: `tests/core/test_lines.py` (`test_two_networks_without_shared_station_stay_apart`, `test_cross_month_join_via_month_and_net`, `test_line_ids`, `test_line_table_leaves_out_networks_without_stops`)
   - timetable changes and coverage: `tests/core/test_periods.py` (`test_timetable_changes`, `test_full_coverage_start`)
   - the real run: `uv run python -m pipeline.update` over all 27 months, then again; the second run skips every month and downloads nothing.
+- [x] Line names – one line per train type and network, labelled by its end stations. Re-check: `uv run pytest -q`, in particular
+  - `tests/core/test_lines.py` (`test_line_name_puts_the_train_type_before_a_bare_number`, `test_destination_spelling_is_unified`, `test_line_table_labels_name_the_two_most_frequent_ends`, `test_line_table_train_number_names_show_an_arrow_to_the_top_end`)
+  - `tests/pipeline/test_update.py` (`test_bare_number_and_prefixed_name_become_one_line` for "57" in one month and "RE57" in the next, `test_bare_numbers_of_different_train_types_stay_apart` for S1 and RE1 at a shared station, `test_blank_destination_is_not_an_end`, `test_combine_lines_networks_and_labels`)
+  - the real run over all 27 months, before and after: stations showing a line name more than once 4,118 of 5,430 and 0; regional stops on bare-number names 27.7 % and 0; Winterberg (Westf) lists RE57 twice and once; lines 19,379 and 18,971.
 
 ## 6 Platform checks
 
@@ -104,3 +111,6 @@ None.
 - `combine` fails when no month folder is complete; it only happens if the remote list is empty.
 - The spot check script runs on demand, not in the gate.
 - `pipeline.coords` is not run by tests or the gate (it needs the network); only its parser is tested, on canned JSON.
+- The end-station spelling fix is a regex. Variants such as "Bahnhof, Arnsberg" stay separate; map destinations to station EVAs if they show in labels.
+- The train type comes from `train_type` before December 2025 and from `line_number` after. A line the source typed differently before the change (RB68 then, RE68 now; IRE1 then, ARV1 now) stays a separate line that ends in 2025-11. Over 27 months that is 77 lines and 0.045 % of stops; revisit if one shows up in the rankings.
+- A line is shown as a train-number line (label with "→") when its name matches `^\S+ \d+$`. A source line number with a space before the digits would match too; 2 such labels exist in the real data.
