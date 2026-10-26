@@ -1,10 +1,11 @@
 from datetime import datetime as dt
+from datetime import timedelta
 
 import polars as pl
 import pytest
 
 from core.categories import category_expr
-from core.delay import arrival_delay_expr
+from core.delay import arrival_delay_expr, plausible_expr
 from core.stations import ibnr_expr
 from core.stats import cell_stats, delay_bins, quantile
 
@@ -35,10 +36,22 @@ def test_arrival_delay_rules():
             (p, None, False),  # missing change time -> 0
             (p, None, True),  # cancelled -> NULL, not 0
             (p, dt(2026, 9, 7, 8, 5), None),  # unknown cancel flag -> not cancelled
-            (p, dt(2026, 9, 7, 7, 0), False),  # clamped to -10
-            (p, dt(2026, 9, 7, 12, 0), False),  # clamped to 120
+            (p, dt(2026, 9, 7, 7, 20), False),  # early: exact, no clamp
+            (p, dt(2026, 9, 7, 13, 0), False),  # late: exact, no clamp
         ]
-    ) == [7, 0, None, 5, -10, 120]
+    ) == [7, 0, None, 5, -40, 300]
+
+
+def test_plausible_bounds_are_inclusive_and_missing_change_is_plausible():
+    p = dt(2026, 9, 7, 8, 0)
+    m = timedelta(minutes=1)
+    df = pl.DataFrame(
+        [(p, p - 30 * m), (p, p - 31 * m), (p, p + 1440 * m), (p, p + 1441 * m), (p, None)],
+        schema={"p": pl.Datetime, "c": pl.Datetime},
+        orient="row",
+    )
+    out = df.select(plausible_expr(pl.col("p"), pl.col("c")).alias("ok"))["ok"].to_list()
+    assert out == [True, False, True, False, True]
 
 
 def test_quantile_picks_first_bucket_reaching_share():

@@ -4,18 +4,25 @@
 # (Polars' when/then/otherwise stubs are partially unknown under strict mode.)
 import polars as pl
 
-# ponytail: delay is clamped; outlier cleaning arrives with the multi-month pipeline.
-CLAMP_MIN, CLAMP_MAX = -10, 120
+# Delays outside this range (minutes) are data errors, not train behaviour.
+PLAUSIBLE_MIN, PLAUSIBLE_MAX = -30, 1440
 
 
-def arrival_delay_expr(
-    planned: pl.Expr, changed: pl.Expr, cancelled: pl.Expr, lo: int = CLAMP_MIN, hi: int = CLAMP_MAX
-) -> pl.Expr:
-    """Delay in whole minutes as Int32; NULL for cancelled stops."""
-    delay = (changed - planned).dt.total_minutes()
+def _minutes(planned: pl.Expr, changed: pl.Expr) -> pl.Expr:
+    return (changed - planned).dt.total_minutes()
+
+
+def arrival_delay_expr(planned: pl.Expr, changed: pl.Expr, cancelled: pl.Expr) -> pl.Expr:
+    """Exact delay in whole minutes as Int32; NULL for cancelled stops."""
     return (
         pl.when(cancelled.fill_null(False))
         .then(None)
-        .otherwise(delay.fill_null(0).clip(lo, hi))
+        .otherwise(_minutes(planned, changed).fill_null(0))
         .cast(pl.Int32)
     )
+
+
+def plausible_expr(planned: pl.Expr, changed: pl.Expr) -> pl.Expr:
+    """True when the delay lies within [PLAUSIBLE_MIN, PLAUSIBLE_MAX] or the change time is
+    missing. It ignores the cancel flag: callers keep cancelled stops regardless."""
+    return _minutes(planned, changed).is_between(PLAUSIBLE_MIN, PLAUSIBLE_MAX).fill_null(True)
