@@ -80,7 +80,7 @@ The UI on top of this is described in [app-shell.md](app-shell.md) and [map.md](
   | `/stationen/08000207/linien` (Köln Hbf, 1,242 lines; not cached) | 0.08 s | 0.08 s |
   | `/zeitverlauf` nationwide | 0.34 s | 0.29 s |
 
-  The cold station ranking includes the statistics `/karte` shares, so after a map request it is faster. To be repeated on the Azure container size chosen later.
+  The cold station ranking includes the statistics `/karte` shares, so after a map request it is faster. To be repeated on the Azure container size, 0.5 vCPU / 1 GiB ([deployment.md](deployment.md) §6).
 
 ## 7 Open decisions
 

@@ -38,7 +38,7 @@ Personal and machine-specific rules live in `CLAUDE.local.md` (gitignored).
 - One command runs everything: `uv run python scripts/gate.py`. It stages (`git add -A`), checks formatting and lint, type-checks, runs all tests, scans the staged content for secrets and fails if anything is unstaged or untracked afterwards.
 - `uv run python scripts/format.py` fixes formatting; the gate only checks it.
 - The git pre-commit hook runs the same checks (`scripts/gate.py --hook`, without staging or the clean-tree check). They run on the working tree, so a commit of selected paths is checked together with everything else on disk. Never skip the hook (`--no-verify`). Hooks are not part of a clone: run `uv run python scripts/install_hooks.py` once after cloning.
-- CI (`.github/workflows/gate.yml`) runs the same gate on every push and pull request with `scripts/gate.py --ci`: no staging, the secret scan covers the whole history, and the clean-tree check stays. Actions are pinned to commit SHAs and gitleaks to a checksum; updating a pin is a `Repo:` commit.
+- CI (`.github/workflows/gate.yml`) runs the same gate on every push and pull request with `scripts/gate.py --ci`: no staging, the secret scan covers the whole history, and the clean-tree check stays. Actions are pinned to commit SHAs, gitleaks and Bicep to a checksum; updating a pin is a `Repo:` commit.
 - Every check is a gate line. A check people must remember to run doesn't exist.
 
 ### Commits and history
@@ -84,12 +84,12 @@ Personal and machine-specific rules live in `CLAUDE.local.md` (gitignored).
 
 ## Project: Gleisatlas
 
-Historical reliability of German rail traffic: pattern analysis, connection comparison within a time window, transfer recommendations. Requirements: [SPEC.md](SPEC.md). Roadmap: [docs/roadmap.md](docs/roadmap.md). Design target: [docs/design.md](docs/design.md) with the clickable reference [docs/design/mockup.html](docs/design/mockup.html). App shell and heatmap UI: [docs/app-shell.md](docs/app-shell.md). Map, station detail and search: [docs/map.md](docs/map.md). Dark theme and language: [docs/theme-and-language.md](docs/theme-and-language.md).
+Historical reliability of German rail traffic: pattern analysis, connection comparison within a time window, transfer recommendations. Requirements: [SPEC.md](SPEC.md). Roadmap: [docs/roadmap.md](docs/roadmap.md). Design target: [docs/design.md](docs/design.md) with the clickable reference [docs/design/mockup.html](docs/design/mockup.html). App shell and heatmap UI: [docs/app-shell.md](docs/app-shell.md). Map, station detail and search: [docs/map.md](docs/map.md). Dark theme and language: [docs/theme-and-language.md](docs/theme-and-language.md). Azure deployment: [docs/deployment.md](docs/deployment.md).
 
 ### Stack
 - Python 3.12+ with `uv`; Polars for data processing; FastAPI + Pydantic for the API.
 - React + TypeScript (strict) + Vite + Tailwind; TanStack Query; TS client generated from `backend/openapi.json`; Playwright for smoke tests.
-- Later: Azure Static Web Apps (frontend), Azure Container Apps (API), Blob Storage (aggregates), Bicep.
+- Azure: Static Web Apps (frontend), Container Apps (API), Blob Storage (aggregates), Bicep in `infra/`.
 
 ### Layout
 - `core/`: pure logic (delay rules, train-category mapping, statistics). No framework or I/O imports, enforced by ruff's banned-api list; the builtin `open()` and Polars `.write_*` methods cannot be banned that way and are kept out by review.
@@ -97,6 +97,7 @@ Historical reliability of German rail traffic: pattern analysis, connection comp
 - `backend/`: FastAPI routes over the aggregates.
 - `frontend/`: the web app.
 - `docs/`: feature docs, design, roadmap, ADRs in `docs/adr/`.
+- `infra/`: the Azure resources as Bicep.
 - `scripts/`: gate, formatter, hook installer, helper scripts.
 
 ### Project rules
@@ -106,8 +107,9 @@ Historical reliability of German rail traffic: pattern analysis, connection comp
 - Attribution CC BY 4.0 (Deutsche Bahn, via piebro/deutsche-bahn-data) in UI and README.
 
 ### Commands
-- Install: `uv sync` and `npm.cmd --prefix frontend install`, then `uv run python scripts/install_hooks.py`.
+- Install: `uv sync` and `npm.cmd --prefix frontend install`, then `uv run python scripts/install_hooks.py`. The gate also needs gitleaks (`winget install Gitleaks.Gitleaks`) and the Azure CLI with Bicep: `winget install Microsoft.AzureCLI`, then `az bicep install --version v0.48.1`.
 - Gate: `uv run python scripts/gate.py`. Format: `uv run python scripts/format.py`.
 - Data and aggregates: see [docs/pipeline.md](docs/pipeline.md).
-- API: `uv run uvicorn backend.main:app --port 8000`. Web: `npm.cmd --prefix frontend run dev`.
+- API: `uv run uvicorn backend.main:app --port 8000`; with a log file (PowerShell): `$env:LOG_FILE = "logs/api.log"; uv run uvicorn backend.main:app --port 8000`. Web: `npm.cmd --prefix frontend run dev`.
+- Deploy to Azure (product owner only): the runbook in [docs/deployment.md](docs/deployment.md) §4.
 - After an API change: `uv run python scripts/export_openapi.py`, then `npm.cmd --prefix frontend run gen` (the gate fails on a stale `backend/openapi.json` or `schema.d.ts`).

@@ -68,7 +68,7 @@ The viewer chooses the look (System, Hell, Dunkel) and the UI language (Deutsch,
 
 - [ ] The wordmark (`logo.svg`) shows dark text on light and light text on dark in Firefox and Safari, also under a forced theme that differs from the operating system (Hell on a dark system, Dunkel on a light one). Chromium follows the page's `color-scheme`.
 - [ ] No light flash on the deployed site when a viewer with a dark system opens a page. Verify on Azure.
-- [ ] A strict Content-Security-Policy would block the inline script in `index.html`; it then needs the script's hash (M5).
+- [ ] The strict Content-Security-Policy allows the inline script in `index.html` on the deployed site. The hash is in place in `frontend/public/staticwebapp.config.json` and checked locally against the production build by `frontend/e2e/csp.spec.ts`; the tick waits for the deployed site ([deployment.md](deployment.md) §6, no CSP violation).
 
 ## 7 Open decisions
 

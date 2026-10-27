@@ -38,10 +38,14 @@ Details in [theme-and-language.md](theme-and-language.md).
 - [x] One line per train type and network, named by its end stations. The source switched from bare numbers ("57") to prefixed names ("RE57") in December 2025, which split one line in two and merged S, RE and IRE lines with the same number (re-check: `uv run pytest -q`, `test_bare_number_and_prefixed_name_become_one_line`, `test_bare_numbers_of_different_train_types_stay_apart`, `test_line_table_labels_name_the_two_most_frequent_ends`; details in [pipeline.md](pipeline.md))
 
 ## M5 Azure deployment (v0.2)
-- [ ] Bicep infrastructure
-- [ ] Budget alert
-- [ ] Impressum and privacy policy (server logs, map tiles loaded from OpenFreeMap)
-- [ ] The product owner runs the deployment commands
+Details and the runbook in [deployment.md](deployment.md).
+- [x] API ready for Container Apps: CORS from the environment, request log, data download at start, image (re-check: `uv run pytest -q`, `tests/api/test_deploy_api.py`)
+- [x] Bicep infrastructure (re-check: `az bicep build --file infra/main.bicep --stdout`, the gate line `bicep`)
+- [x] Budget alert, … per month at 50 %, 90 % and forecast 100 % (re-check: the `budget` resource in `infra/main.bicep`; the alert e-mail is a platform check in [deployment.md](deployment.md) §6)
+- [x] Impressum and privacy policy (server logs, map tiles loaded from OpenFreeMap) (re-check: `npm.cmd --prefix frontend run test:e2e`, `frontend/e2e/legal.spec.ts`)
+- [x] Content-Security-Policy and the other headers of the deployed site (re-check: `npm.cmd --prefix frontend run test:e2e`, `frontend/e2e/csp.spec.ts`)
+- [ ] The product owner runs the deployment commands (re-check: the platform checks in [deployment.md](deployment.md) §6)
+- [x] Local request log: with `LOG_FILE` set, the API also writes its request lines, timestamped, to a plain-text file, so they outlive the terminal window (re-check: `uv run pytest -q`, `test_the_log_file_gets_timestamped_lines_and_is_detached_again`)
 
 ## M6+ Planner (v1.0)
 - [ ] Connection-source spike (ADR)
