@@ -22,8 +22,8 @@ az bicep install --version v0.48.1
 uv run python -m pipeline.coords
 uv run python -m pipeline.update
 
-# API (port 8000) and web UI (separate terminals)
-uv run uvicorn backend.main:app --port 8000
+# API (port 8317) and web UI on http://localhost:5317 (separate terminals)
+uv run uvicorn backend.main:app --port 8317
 npm.cmd --prefix frontend run dev
 ```
 

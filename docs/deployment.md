@@ -31,7 +31,7 @@ Gleisatlas v0.2 runs on Azure: the web app on Static Web Apps, the API on Contai
 
 - **A public-read blob container (blob level, no listing).** Reason: the aggregates are public CC BY data, so the download needs no SDK and no secret. Fallback if a policy forbids public access: a managed-identity token fetched with stdlib `urllib`.
 - **A user-assigned identity with AcrPull on the registry pulls the image; the registry has no admin user.** Reason: no registry password exists anywhere, and the role covers one registry only.
-- **CORS from the environment** (`CORS_ORIGINS`, default `http://localhost:5173`), set by Bicep to the web app's hostname. Reason: one code path for local and Azure.
+- **CORS from the environment** (`CORS_ORIGINS`, default `http://localhost:5317`), set by Bicep to the web app's hostname. Reason: one code path for local and Azure.
 - **Our own request log without IPs**, with uvicorn's access log off and the ingress HTTP logs not enabled. Reason: the app needs paths, status and duration, not client addresses (the ingress HTTP log would store `X-Forwarded-For`).
 - **Log Analytics with 30 days retention and a daily cap of 0.1 GB.** Reason: 31 days are included in the price, and the cap keeps ingestion inside the free 5 GB per month.
 - **One process: max 1 replica, 1 uvicorn worker.** Reason: the query cap and the `lru_cache`s in `backend/main.py` are per process ([patterns.md](patterns.md) §8).
@@ -68,12 +68,12 @@ Parameters: `budgetEmail` and `budgetStartDate` (both required), `image` (defaul
 | Variable | Where | Value |
 |---|---|---|
 | `DATA_URL` | API, set by Bicep | `https://<storage>.blob.core.windows.net/data/`; unset locally, then `backend.fetch` does nothing |
-| `CORS_ORIGINS` | API, set by Bicep | `https://<web hostname>`; comma-separated; default `http://localhost:5173` |
+| `CORS_ORIGINS` | API, set by Bicep | `https://<web hostname>`; comma-separated; default `http://localhost:5317` |
 | `POLARS_MAX_THREADS` | API, set by Bicep | `1` |
 | `LOG_FILE` | API, local only | a path for a timestamped copy of the request lines; unset on Azure |
 | `AGGREGATE_PATH`, `STATIONS_PATH`, `MONATE_PATH`, `LINES_PATH`, `LINIEN_PATH` | API | default `data/<name>.parquet`; `backend.fetch` downloads to the same paths |
 | `VITE_API_URL` | frontend build | the `apiUrl` output |
-| `VITE_IMPRESSUM_NAME`, `…_STREET`, `…_CITY`, `…_EMAIL` | frontend build | the provider's details; `vite build` fails while one is empty |
+| `VITE_IMPRESSUM_NAME`, `…_STREET`, `…_CITY`, `…_EMAIL` | frontend build | the provider's details; while one is empty, `/impressum` reads "Angaben folgen." |
 
 **Data flow**
 
@@ -137,13 +137,13 @@ $apiUrl = $out.apiUrl.value
 curl.exe -s "$apiUrl/datenstand"
 ```
 
-The frontend build reads `frontend/.env.production.local` (gitignored). `VITE_API_URL` is the API URL; the four Impressum keys are the provider's full name, street and house number, postcode and city, and a contact e-mail address, exactly as they should appear on `/impressum`. `WriteAllLines` writes UTF-8 without a BOM, which Vite needs; Notepad works too.
+The frontend build reads `frontend/.env.production.local` (gitignored). `VITE_API_URL` is the API URL; the four Impressum keys are the provider's full name, street and house number, postcode and city, and a contact e-mail address, exactly as they should appear on `/impressum`. Leave out the Impressum keys (write only the `VITE_API_URL` line) and the page reads "Angaben folgen." instead. `WriteAllLines` writes UTF-8 without a BOM, which Vite needs; Notepad works too.
 
 ```powershell
 # Write the build settings (replace the four Impressum placeholders).
 [IO.File]::WriteAllLines("$PWD\frontend\.env.production.local", [string[]]@("VITE_API_URL=$apiUrl", 'VITE_IMPRESSUM_NAME=<full name>', 'VITE_IMPRESSUM_STREET=<street and house number>', 'VITE_IMPRESSUM_CITY=<postcode and city>', 'VITE_IMPRESSUM_EMAIL=<contact e-mail>'))
 
-# Build the production bundle into frontend/dist (fails while a key is empty).
+# Build the production bundle into frontend/dist (fails without VITE_API_URL).
 npm.cmd --prefix frontend run build
 
 # Fetch the Static Web App's deployment token.
@@ -299,7 +299,7 @@ Not in this log: page views of the web app (Static Web Apps Free has no access l
 - [ ] AC-16: the budget alert e-mail arrives, tested with a temporary … budget that is deleted afterwards; the first full month stays at or under ….
 - [ ] The first day in Cost Management shows no "Environment Management Hour" charge.
 - [ ] No CSP violation in the browser console on the deployed site ([theme-and-language.md](theme-and-language.md) §6 refers here).
-- [ ] The Impressum and Datenschutz pages show the real values.
+- [ ] The Impressum and Datenschutz pages show the real values, or "Angaben folgen." while the Impressum keys are not set.
 - [ ] After a few days the unfinished-requests query in §4 returns nothing (the Polars warning watch, [patterns.md](patterns.md) §8).
 - Ticked on Azure as well, listed in their own docs: [app-shell.md](app-shell.md) §6 (SPA fallback, popover), [map.md](map.md) §6 (tiles and attribution, WebGL, cold `/karte`), [theme-and-language.md](theme-and-language.md) §6 (wordmark, no light flash), [patterns.md](patterns.md) §6 and [pipeline.md](pipeline.md) §6 (AC-5, heatmap warm under 3 s).
 
@@ -320,5 +320,7 @@ Not in this log: page views of the web app (Static Web Apps Free has no access l
 - **The daily log cap of 0.1 GB drops lines.** Under a request flood, ingestion stops for the rest of the day, which is when the unfinished-requests query matters most. Raise the cap (`dailyQuotaGb`) if that happens.
 - **The stdout lines carry no timestamp** (Log Analytics adds `TimeGenerated`); the 8-hex id pairs a start with its end line but is not unique forever.
 - **The image installs `huggingface-hub`**, a main dependency for the pipeline that the API never imports (§7).
+- **The web app ships no third-party licence notices.** The minified bundle drops the libraries' licence comments (only the MapLibre worker keeps one).
+- **The Impressum may be empty.** Without the four `VITE_IMPRESSUM_*` keys the page reads "Angaben folgen."
 - **The gate's Bicep line passes on warnings**; only errors fail it. A new BCP081 warning after a Bicep update shows up in `az bicep build` output only.
 - **A deployment without `image` leaves an existing Container App untouched** (incremental mode) and outputs an empty `apiUrl`; every deployment after phase 1 passes the current image (`$image` in the runbook).

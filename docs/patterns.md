@@ -57,7 +57,7 @@ The UI on top of this is described in [app-shell.md](app-shell.md) and [map.md](
 - Aggregate keys: `weekday`, `hour`, `gruppe`, `eva`, `month`, `bucket`, `n` (see [pipeline.md](pipeline.md)). Line keys: `lines.parquet` has `linie`, `eva`, `gruppe`, `month`, `bucket`, `n` (no weekday or hour), `linien.parquet` has `linie`, `name`, `label`, `typ`. The line statistics are therefore per month and category, not per cell, and the selection chain (`gattung`, `eva`, `von`, `bis`) is the one of the heatmap.
 - `station_stats_for` (statistics per EVA for a selection) feeds `/karte` and `/rankings?typ=bahnhoefe`; `line_stats_for` feeds `/rankings?typ=linien`; `line_entries` also feeds `/stationen/{eva}/linien`. `/zeitverlauf` groups once by month and bucket and runs the statistics per month.
 - OpenAPI schema is exported to `backend/openapi.json` (`uv run python scripts/export_openapi.py`); the TypeScript client is generated from it, and the gate fails when either is stale.
-- CORS allows the local dev origin `http://localhost:5173`, GET only.
+- CORS allows the local dev origin `http://localhost:5317`, GET only.
 
 ## 5 Milestones
 
@@ -69,7 +69,7 @@ The UI on top of this is described in [app-shell.md](app-shell.md) and [map.md](
 
 ## 6 Platform checks
 
-- API and UI start locally on Windows 11 (`uv run uvicorn backend.main:app --port 8000`, `npm.cmd --prefix frontend run dev`).
+- API and UI start locally on Windows 11 (`uv run uvicorn backend.main:app --port 8317`, `npm.cmd --prefix frontend run dev`).
 - [ ] Heatmap for nationwide, all categories, 3 months loads in under 3 s warm (AC-5). To be measured.
 - Measured on the 27 months of real data (in-process test client; cold is the first call, warm the second):
 

@@ -117,11 +117,6 @@ The filter keys `g`, `von`, `bis` and `k` are the ones of the shell (see [app-sh
 - A full station list as an alternative to the map; the rankings cover only the top and bottom ten.
 - Whether Ctrl+K should grow into a palette (stations, lines, pages) now that lines exist.
 - Whether the table of lines should sort by column (punctuality, n, cancellations) instead of worst first only.
-- How to place the four stations that still have no coordinates on the 27 months: Berlin-Karlshorst `08089193`, Bochum-Langendreer `08000358`, Bürstadt (Ried) `08098360` and Trebitz (b Könnern). There are two options:
-  - Add their IBNR to the matching Wikidata items, so the next `pipeline.coords` run picks them up. This is CC0 and benefits everyone. Recommended.
-  - A small committed override file (EVA, lat, lon, source) taken from Wikidata or OpenStreetMap.
-
-  Google Maps is ruled out: its terms do not allow copying data.
 - Whether a secondary EVA should be merged with its main station on the map (one dot with combined stops) instead of two dots on the same spot.
 
 ## 8 Known shortcuts
@@ -132,9 +127,9 @@ The filter keys `g`, `von`, `bis` and `k` are the ones of the shell (see [app-sh
 - The term explanations on the detail page are native `title` tooltips, which are hover-only; use a popover for touch (`ponytail:` in `StationPage.tsx`).
 - The search sends one request per keystroke, cached per term; add a debounce if the API gets slow (`ponytail:` in `StationSearch.tsx`).
 - `/karte` is cached per process, with at most 16 selections; memory and the first computation grow with the number of months, then vectorise the statistics in Polars (`ponytail:` in `backend/main.py`).
-- Stations without coordinates are not on the map (4 of 5,419 named stations on 27 months; 99.9 % of stops are covered) but remain in search and detail. Secondary EVAs placed by the same-name fallback sit under their main station's dot. The federal state is missing for some stations that have coordinates.
+- Stations without coordinates are not on the map but remain in search and detail. On 27 months that is only Trebitz (b Könnern), with one stop and no Wikidata item; a missing station gets its IBNR added to its Wikidata item, so the next `pipeline.coords` run places it. Secondary EVAs placed by the same-name fallback sit under their main station's dot. The federal state is missing for some stations that have coordinates.
 - The table of lines is not sortable by column. Lines with too little data (the hatched ones) come after all others, so the list shows them but never leads with them. The list is not cached (about 0.1 s for Köln Hbf, see [patterns.md](patterns.md)).
 - The duplicate-name hint only knows the eight results shown.
 - The mini heatmap is a colour grid with one accessible label; the full heatmap is the accessible table. The category bars are scaled to the larger category for all metrics except punctuality.
 - MapLibre's compact attribution starts expanded until the first map move; on mobile it covers a strip above the legend until then.
-- The API allows the dev origin `http://localhost:5173` only, so another dev port fails.
+- The API allows the dev origin `http://localhost:5317` only; Vite starts there strictly and fails if the port is taken, instead of moving to a port CORS would block.

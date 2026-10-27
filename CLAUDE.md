@@ -110,6 +110,6 @@ Historical reliability of German rail traffic: pattern analysis, connection comp
 - Install: `uv sync` and `npm.cmd --prefix frontend install`, then `uv run python scripts/install_hooks.py`. The gate also needs gitleaks (`winget install Gitleaks.Gitleaks`) and the Azure CLI with Bicep: `winget install Microsoft.AzureCLI`, then `az bicep install --version v0.48.1`.
 - Gate: `uv run python scripts/gate.py`. Format: `uv run python scripts/format.py`.
 - Data and aggregates: see [docs/pipeline.md](docs/pipeline.md).
-- API: `uv run uvicorn backend.main:app --port 8000`; with a log file (PowerShell): `$env:LOG_FILE = "logs/api.log"; uv run uvicorn backend.main:app --port 8000`. Web: `npm.cmd --prefix frontend run dev`.
+- API: `uv run uvicorn backend.main:app --port 8317`; with a log file (PowerShell): `$env:LOG_FILE = "logs/api.log"; uv run uvicorn backend.main:app --port 8317`. Web: `npm.cmd --prefix frontend run dev` (http://localhost:5317). The e2e suite starts its own servers on 5318 and 4317.
 - Deploy to Azure (product owner only): the runbook in [docs/deployment.md](docs/deployment.md) §4.
 - After an API change: `uv run python scripts/export_openapi.py`, then `npm.cmd --prefix frontend run gen` (the gate fails on a stale `backend/openapi.json` or `schema.d.ts`).
