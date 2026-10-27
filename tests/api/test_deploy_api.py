@@ -30,7 +30,8 @@ def allowed(client: TestClient, origin: str) -> str | None:
 
 
 def test_cors_defaults_to_the_local_dev_server(client: TestClient):
-    assert allowed(client, "http://localhost:5173") == "http://localhost:5173"
+    assert allowed(client, "http://localhost:5317") == "http://localhost:5317"
+    assert allowed(client, "http://localhost:5173") is None
     assert allowed(client, "https://example.org") is None
 
 
@@ -39,7 +40,7 @@ def test_cors_origins_come_from_the_environment(monkeypatch, reloaded):
     other = reloaded()
     assert allowed(other, "https://a.example.org") == "https://a.example.org"
     assert allowed(other, "https://b.example.org") == "https://b.example.org"
-    assert allowed(other, "http://localhost:5173") is None
+    assert allowed(other, "http://localhost:5317") is None
 
 
 def test_a_request_logs_one_start_and_one_end_line_with_the_same_id(
