@@ -318,3 +318,12 @@ test.describe("mobile", () => {
     expect(scroll).toEqual({ x: true, y: true });
   });
 });
+
+test("the attribution sits below the zoom buttons", async ({ page }) => {
+  await mockApi(page);
+  await page.goto("/karte");
+  await expect(map(page)).toHaveAttribute("data-ready", "true");
+  const zoom = (await page.getByRole("button", { name: "Verkleinern" }).boundingBox())!;
+  const attribution = (await page.locator(".maplibregl-ctrl-attrib").boundingBox())!;
+  expect(attribution.y).toBeGreaterThanOrEqual(zoom.y + zoom.height);
+});

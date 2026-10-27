@@ -229,6 +229,7 @@ export const de = {
   "legal.impressum.email": "E-Mail",
   "legal.impressum.pending": "Angaben folgen.",
   "legal.privacy": "Datenschutz",
+  "legal.source": "Quellcode",
   "legal.privacy.note": "Maßgeblich ist diese deutsche Fassung.",
   "legal.p.controller.title": "Verantwortlicher",
   "legal.p.controller.text":

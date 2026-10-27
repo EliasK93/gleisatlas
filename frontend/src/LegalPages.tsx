@@ -4,6 +4,8 @@ import { t, tx } from "./i18n";
 
 export const IMPRESSUM = "/impressum";
 export const DATENSCHUTZ = "/datenschutz";
+/** The repository, whose README and LICENSE name the licences of the app, data and map. */
+const SOURCE = "https://github.com/EliasK93/gleisatlas";
 
 const SECTIONS = ["controller", "hosting", "logs", "map", "storage", "rights"] as const;
 
@@ -12,13 +14,16 @@ export function LegalLinks({ className }: { className?: string }) {
   const { search } = useLocation();
   return (
     <div className={className}>
-      <div className="flex gap-x-4">
+      <div className="flex flex-wrap gap-x-4">
         <Link to={{ pathname: IMPRESSUM, search }} className="hit underline">
           {t("legal.impressum")}
         </Link>
         <Link to={{ pathname: DATENSCHUTZ, search }} className="hit underline">
           {t("legal.privacy")}
         </Link>
+        <a href={SOURCE} target="_blank" rel="noopener" className="hit underline">
+          {t("legal.source")}
+        </a>
       </div>
     </div>
   );

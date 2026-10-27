@@ -20,6 +20,14 @@ export default defineConfig(({ command, mode }) => {
   // allows only this origin.
   return {
     plugins: [react(), tailwindcss()],
+    // The licences of every bundled package, served next to the app and named at the top of each
+    // script, since the minified bundle drops their own comments.
+    build: {
+      license: { fileName: "licenses.txt" },
+      rolldownOptions: {
+        output: { postBanner: "/*! Licences of the bundled packages: /licenses.txt */" },
+      },
+    },
     server: { port: 5317, strictPort: true },
     preview: { port: 4317, strictPort: true, headers: swa.globalHeaders },
   };

@@ -44,6 +44,20 @@ for (const scheme of ["light", "dark"] as const) {
   });
 }
 
+// The licence file only exists in a production build; the bundle names it, the UI does not link it.
+test("the bundle points to the licence notices of the bundled packages", async ({ page }) => {
+  await mockApi(page);
+  await page.goto("/muster/heatmap");
+  const script = await page.locator("script[type=module]").getAttribute("src");
+  const bundle = await (await page.request.get(script!)).text();
+  expect(bundle.startsWith("/*! Licences of the bundled packages: /licenses.txt */")).toBe(true);
+  const response = await page.request.get("/licenses.txt");
+  expect(response.ok()).toBe(true);
+  const text = await response.text();
+  for (const pkg of ["react", "maplibre-gl", "@tanstack/react-query", "@fontsource-variable/inter"])
+    expect(text).toContain(pkg);
+});
+
 // The e2e build has no provider details, like the deployed site until they are filled in.
 test("without provider details the Impressum says they follow", async ({ page }) => {
   await mockApi(page);

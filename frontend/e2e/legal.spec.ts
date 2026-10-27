@@ -33,6 +33,13 @@ test("a page with a footer links to both in the footer", async ({ page }) => {
   await expect(page).toHaveURL(/\/datenschutz$/);
 });
 
+test("the footer links to the source code, which carries the licences", async ({ page }) => {
+  await page.goto("/muster/heatmap");
+  await expect(
+    page.getByRole("contentinfo").getByRole("link", { name: "Quellcode" }),
+  ).toHaveAttribute("href", "https://github.com/EliasK93/gleisatlas");
+});
+
 test("the legal links keep the filters in the query string", async ({ page }) => {
   await page.goto("/muster/heatmap?g=fern");
   const footer = page.getByRole("contentinfo");

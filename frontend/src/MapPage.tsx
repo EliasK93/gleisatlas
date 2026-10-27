@@ -265,11 +265,13 @@ function StationMap({
         "AttributionControl.ToggleAttribution": t("map.attributionToggle"),
       },
     });
-    m.addControl(new NavigationControl({ showCompass: false }), "bottom-right");
+    // A bottom corner stacks each new control above the previous one, so the attribution comes
+    // first to sit below the zoom buttons.
     m.addControl(
       new AttributionControl({ compact: true, customAttribution: t("map.attribution") }),
       "bottom-right",
     );
+    m.addControl(new NavigationControl({ showCompass: false }), "bottom-right");
     // Runs for every base style, so a theme switch (which drops our source and layers) gets them back.
     m.on("style.load", () => {
       for (const l of m.getStyle().layers)
