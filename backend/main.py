@@ -1,15 +1,19 @@
 """FastAPI routes over the aggregate. Route and parameter names are the public (German) contract."""
 
 import calendar
+import logging
 import os
+import sys
 import threading
+import time
+import uuid
 from dataclasses import dataclass
 from datetime import date
 from functools import lru_cache
 from typing import Annotated, Literal
 
 import polars as pl
-from fastapi import FastAPI, HTTPException, Path, Query
+from fastapi import FastAPI, HTTPException, Path, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from pydantic import BaseModel, Field
@@ -24,10 +28,50 @@ STATIONS_PATH = os.environ.get("STATIONS_PATH", "data/stations.parquet")
 MONATE_PATH = os.environ.get("MONATE_PATH", "data/monate.parquet")
 LINES_PATH = os.environ.get("LINES_PATH", "data/lines.parquet")
 LINIEN_PATH = os.environ.get("LINIEN_PATH", "data/linien.parquet")
+DATA_FILES = (AGG_PATH, STATIONS_PATH, MONATE_PATH, LINES_PATH, LINIEN_PATH)  # see backend/fetch.py
+
+# Our own lines go to stdout: uvicorn configures only its own loggers, and its access log is off.
+log = logging.getLogger("gleisatlas")
+log.setLevel(logging.INFO)
+# LOG_FILE (local runs) adds a timestamped copy; Azure leaves it unset and stamps stdout itself.
+for old in log.handlers[:]:  # a reload (tests) must not double the lines
+    log.removeHandler(old)
+    old.close()
+log.addHandler(logging.StreamHandler(sys.stdout))
+if log_file := os.environ.get("LOG_FILE"):
+    os.makedirs(os.path.dirname(os.path.abspath(log_file)), exist_ok=True)
+    to_file = logging.FileHandler(log_file, encoding="utf-8")
+    to_file.setFormatter(logging.Formatter("%(asctime)s %(message)s"))
+    log.addHandler(to_file)
 
 app = FastAPI(title="Gleisatlas")
-app.add_middleware(CORSMiddleware, allow_origins=["http://localhost:5173"], allow_methods=["GET"])
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        o.strip()
+        for o in os.environ.get("CORS_ORIGINS", "http://localhost:5173").split(",")
+        if o.strip()
+    ],
+    allow_methods=["GET"],
+)
 app.add_middleware(GZipMiddleware)  # the all-stations map response is large and repetitive
+
+
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    """One line at the start and one at the end, with the same id and no client data. A start
+    line without an end line is a request that never finished."""
+    rid = uuid.uuid4().hex[:8]
+    query = f"?{request.url.query}" if request.url.query else ""
+    log.info("start %s %s %s%s", rid, request.method, request.url.path, query)
+    began = time.perf_counter()
+    status = 500  # what the client sees when the handler raises
+    try:
+        response = await call_next(request)
+        status = response.status_code
+        return response
+    finally:
+        log.info("end %s %d %dms", rid, status, (time.perf_counter() - began) * 1000)
 
 
 DIGITS = r"^[0-9]+$"  # ASCII only: \d would also accept other scripts' digits
