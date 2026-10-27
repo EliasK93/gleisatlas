@@ -1,0 +1,18 @@
+{
+  "navigationFallback": {
+    "rewrite": "/index.html",
+    "exclude": ["/assets/*", "/*.svg"]
+  },
+  "routes": [
+    {
+      "route": "/assets/*",
+      "headers": { "cache-control": "public, max-age=31536000, immutable" }
+    }
+  ],
+  "globalHeaders": {
+    "Content-Security-Policy": "default-src 'self'; script-src 'self' 'sha256-8wSKADclokpqP2ggELMJhgsQOqt2nTFHb6lSw4Z1Xlg='; style-src 'self'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' https://*.westeurope.azurecontainerapps.io https://tiles.openfreemap.org; worker-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'",
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "strict-origin-when-cross-origin",
+    "Strict-Transport-Security": "max-age=31536000"
+  }
+}

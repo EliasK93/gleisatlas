@@ -222,4 +222,28 @@ export const de = {
   "state.error": "Daten konnten nicht geladen werden.",
   "state.errorHint": "Der Server antwortet gerade nicht. Die Filter bleiben erhalten.",
   "state.retry": "Erneut versuchen",
+
+  "legal.impressum": "Impressum",
+  "legal.impressum.lead": "Angaben nach § 5 DDG",
+  "legal.impressum.email": "E-Mail",
+  "legal.privacy": "Datenschutz",
+  "legal.privacy.note": "Maßgeblich ist diese deutsche Fassung.",
+  "legal.p.controller.title": "Verantwortlicher",
+  "legal.p.controller.text":
+    "Verantwortlich für diese Website ist der im {impressum} genannte Anbieter.",
+  "legal.p.hosting.title": "Hosting",
+  "legal.p.hosting.text":
+    "Die Schnittstelle (API) und die Daten laufen bei Microsoft Azure in der Region West Europe. Die Dateien der Website (Azure Static Web Apps) liefert Microsoft nach eigener Angabe von weltweit verteilten Standorten aus, also nicht nur aus dieser Region. Microsoft verarbeitet Daten im Auftrag (Auftragsverarbeitung nach Art. 28 DSGVO).",
+  "legal.p.logs.title": "Server-Protokolle",
+  "legal.p.logs.text":
+    "Für die Auslieferung der Website und der API verarbeitet Azure die IP-Adresse der Besuchenden. Die Anwendung selbst protokolliert je Anfrage Methode, Pfad mit Abfrageparametern (dazu kann ein eingegebener Suchbegriff gehören), Status, Dauer und eine zufällige Anfragenummer, ohne IP-Adresse, und bewahrt dies 30 Tage für Betrieb und Fehleranalyse auf. Rechtsgrundlage ist Art. 6 Abs. 1 lit. f DSGVO (berechtigtes Interesse an einem sicheren und stabilen Betrieb).",
+  "legal.p.map.title": "Karte",
+  "legal.p.map.text":
+    "Der Browser lädt Kartenkacheln, Kartenstil, Schriften und Symbole der Karte direkt von {openfreemap} (tiles.openfreemap.org). Dabei erhält OpenFreeMap die IP-Adresse. Rechtsgrundlage ist Art. 6 Abs. 1 lit. f DSGVO (berechtigtes Interesse an der Kartendarstellung).",
+  "legal.p.storage.title": "Lokaler Speicher",
+  "legal.p.storage.text":
+    "Die gewählte Darstellung und die Sprache liegen im localStorage des Browsers und verlassen das Gerät nicht. Es gibt keine Cookies, kein Tracking und keine Reichweitenmessung. Die Schrift der Oberfläche ist eingebunden, ein externer Schriftendienst wird dafür nicht genutzt.",
+  "legal.p.rights.title": "Rechte betroffener Personen",
+  "legal.p.rights.text":
+    "Es bestehen die Rechte auf Auskunft, Berichtigung, Löschung, Einschränkung der Verarbeitung, Widerspruch und Datenübertragbarkeit (Art. 15 bis 21 DSGVO) sowie das Recht auf Beschwerde bei einer Datenschutz-Aufsichtsbehörde (Art. 77 DSGVO).",
 };

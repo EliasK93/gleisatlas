@@ -12,6 +12,14 @@ type StationLinie = components["schemas"]["StationLinie"];
 type Zeitverlauf = components["schemas"]["Zeitverlauf"];
 type Monat = components["schemas"]["Monat"];
 
+/** The dummies of frontend/.env.development, which both the dev server and the e2e build read. */
+export const IMPRESSUM = {
+  name: "Erika Musterfrau",
+  street: "Musterstraße 1",
+  city: "12345 Musterstadt",
+  email: "impressum@example.org",
+};
+
 // Routed by path, so a set VITE_API_URL can never send a test to a real server.
 const API_PATH =
   /^\/(heatmap|datenstand|stationen|karte|rankings|zeitverlauf)(?:\/([^/]+)(\/statistik|\/linien)?)?$/;

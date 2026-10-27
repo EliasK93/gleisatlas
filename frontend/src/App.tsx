@@ -15,6 +15,7 @@ import HeatmapPage from "./HeatmapPage";
 import MapPage from "./MapPage";
 import { LANG, t, type Lang, type MessageKey } from "./i18n";
 import { Icon, type IconName } from "./Icon";
+import { DATENSCHUTZ, IMPRESSUM, ImpressumPage, LegalLinks, PrivacyPage } from "./LegalPages";
 import { formatPeriod, int } from "./metrics";
 import { setLang, useTheme, type ThemePref } from "./prefs";
 import RankingsPage from "./RankingsPage";
@@ -37,6 +38,8 @@ export default function App() {
         <Route path={RANKINGS} element={<RankingsPage />} />
         <Route path={ZEITVERLAUF} element={<ZeitverlaufPage />} />
         <Route path="/mehr" element={<MorePage />} />
+        <Route path={IMPRESSUM} element={<ImpressumPage />} />
+        <Route path={DATENSCHUTZ} element={<PrivacyPage />} />
         <Route path="*" element={<Redirect to={MAP} />} />
       </Route>
     </Routes>
@@ -97,6 +100,7 @@ function Shell() {
         <ThemeSwitch className="hidden px-2.5 pt-2 md:block" />
         <LangSwitch className="hidden px-2.5 pt-2 md:block" />
         <DataNote className="hidden px-2.5 pt-2 text-xs text-text-3 md:block" />
+        <LegalLinks className="hidden px-2.5 pt-2 text-xs text-text-3 md:block" />
       </div>
 
       <div className={`flex min-w-0 flex-col ${full ? "min-h-0 flex-1" : "pb-20 md:pb-0"}`}>
@@ -107,6 +111,7 @@ function Shell() {
           <footer className="mx-auto mt-8 flex w-full max-w-[1200px] flex-wrap gap-x-6 gap-y-2 border-t border-border px-4 pt-4 pb-7 text-xs text-text-3 md:px-8">
             <b className="font-semibold text-text-2">{t("footer.disclaimer")}</b>
             <span>{t("footer.attribution")}</span>
+            <LegalLinks />
           </footer>
         )}
       </div>
