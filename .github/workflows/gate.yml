@@ -1,5 +1,6 @@
 # Runs the same gate as the pre-commit hook, in CI mode (see scripts/gate.py).
-# Third-party actions, gitleaks and Bicep are pinned to a commit SHA or checksum.
+# Third-party actions, gitleaks and Bicep are pinned to a commit SHA or checksum; the runner image
+# and Node are pinned to an exact version.
 name: gate
 
 on:
@@ -16,7 +17,7 @@ concurrency:
 
 jobs:
   gate:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -30,7 +31,7 @@ jobs:
 
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 22
+          node-version: 22.13.0
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 

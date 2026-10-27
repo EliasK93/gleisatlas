@@ -6,7 +6,6 @@ dependencies = [
     "polars",
     "fastapi",
     "uvicorn",
-    "huggingface-hub",
 ]
 
 [dependency-groups]
@@ -16,6 +15,10 @@ dev = [
     "httpx",
     "pyright>=1.1.414",
 ]
+pipeline = ["huggingface-hub"]  # the data download only; the API image skips it
+
+[tool.uv]
+default-groups = ["dev", "pipeline"]
 
 [tool.ruff]
 line-length = 100

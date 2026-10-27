@@ -101,7 +101,6 @@ version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
     { name = "fastapi" },
-    { name = "huggingface-hub" },
     { name = "polars" },
     { name = "uvicorn" },
 ]
@@ -113,11 +112,13 @@ dev = [
     { name = "pytest" },
     { name = "ruff" },
 ]
+pipeline = [
+    { name = "huggingface-hub" },
+]
 
 [package.metadata]
 requires-dist = [
     { name = "fastapi" },
-    { name = "huggingface-hub" },
     { name = "polars" },
     { name = "uvicorn" },
 ]
@@ -129,6 +130,7 @@ dev = [
     { name = "pytest" },
     { name = "ruff" },
 ]
+pipeline = [{ name = "huggingface-hub" }]
 
 [[package]]
 name = "h11"

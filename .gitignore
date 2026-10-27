@@ -13,3 +13,4 @@ playwright-report/
 CLAUDE.local.md
 *.local
 logs/
+scripts/commit.ps1
