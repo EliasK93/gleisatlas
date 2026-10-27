@@ -152,8 +152,9 @@ _queries = threading.BoundedSemaphore(MAX_QUERIES)
 
 
 def collect(lf: pl.LazyFrame) -> pl.DataFrame:
-    """Run a query with at most MAX_QUERIES in flight: dozens of routes in FastAPI's thread pool
-    would otherwise exhaust Polars' blocking thread pool. The only place a query is executed."""
+    """Run a query with at most MAX_QUERIES in flight, so dozens of routes in FastAPI's thread pool
+    cannot run their queries at once and compete for CPU and memory. The only place a query is
+    executed."""
     # ponytail: one cap per process; revisit with async routes or several replicas
     with _queries:
         return lf.collect()
