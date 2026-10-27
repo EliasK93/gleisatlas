@@ -22,7 +22,14 @@ const onNarrowChange = (cb: () => void) => {
 /** True below 768 px; follows window resizes. */
 export const useNarrow = () => useSyncExternalStore(onNarrowChange, () => narrow.matches);
 
-export type Shown = { text: string; fill: string; label: string; value?: number; low?: boolean };
+export type Shown = {
+  text: string;
+  fill: string;
+  label: string;
+  value?: number;
+  low?: boolean;
+  approx?: boolean;
+};
 
 /**
  * What one value shows: the value with "~" when approximate, nothing below LOW_N.
@@ -36,11 +43,13 @@ export function show(metric: Metric, s: Stats | undefined, slot: string): Shown 
   if (v === null) return { text: "✕", fill: "bg-cancel", label: label("hm.onlyCancelled") };
   const counted = metric === "ausfall" ? n : Math.round(n * (1 - s.ausfallquote));
   if (counted < LOW_N) return { text: "–", fill: "hatch", label: label("hm.low"), low: true };
-  const text = (counted < APPROX_N ? "~" : "") + DEFS[metric].format(v);
+  const approx = counted < APPROX_N;
+  const text = (approx ? "~" : "") + DEFS[metric].format(v);
   const value = t(`metric.${metric}.cell`, { v: text });
   return {
     text,
     value: v,
+    approx,
     fill: FILL[DEFS[metric].scale][classOf(metric, v) - 1],
     label: t("hm.cell", { slot, value, n: int(n) }),
   };

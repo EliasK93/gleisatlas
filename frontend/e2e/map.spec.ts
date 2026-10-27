@@ -212,11 +212,24 @@ test.describe("desktop", () => {
       "<60 %",
       "zuverlässig",
       "unzuverlässig",
-      "wenig Daten (n < 15)",
+      "sehr wenig Daten (n < 15)",
+      "wenig Daten (n < 50)",
       "Größe = Anzahl Halte",
       "Sept. 2026 · Alle Gattungen · Bahnhöfe auf der Karte: 4 · ohne Koordinaten: 10",
     ])
       await expect(l).toContainText(text);
+  });
+
+  test.describe("English", () => {
+    test.use({ locale: "en-US" });
+
+    test("legend names the two little-data keys", async ({ page }) => {
+      await mockApi(page);
+      await page.goto("/karte");
+      const l = page.getByRole("region", { name: "Legend" });
+      await expect(l).toContainText("very little data (n < 15)");
+      await expect(l).toContainText("little data (n < 50)");
+    });
   });
 
   test("clicking the selected station again adds no history entry", async ({ page }) => {

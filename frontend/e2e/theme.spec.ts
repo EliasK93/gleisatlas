@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { mockApi } from "./fixtures";
+import { karteFixture, mockApi } from "./fixtures";
 
 const BG = { light: "#f5f6f8", dark: "#0f1216" };
 const STYLES = "https://tiles.openfreemap.org/styles/";
@@ -141,8 +141,14 @@ test.describe("native select lists", () => {
 test.describe("map", () => {
   test.use({ colorScheme: "dark" });
 
-  /** Colour of the rendered pixel at a station, read from a screenshot with the overlays hidden. */
-  async function stationColour(page: Page, lon: number, lat: number, isMobile: boolean) {
+  /** The rendered pixels (r, g, b) in a square of `reach` around a station, read from a screenshot with the overlays hidden. */
+  async function stationPixels(
+    page: Page,
+    lon: number,
+    lat: number,
+    isMobile: boolean,
+    reach: number,
+  ) {
     await page.addStyleTag({ content: "main > div > :not(:first-child) { visibility: hidden }" });
     const mercator = (lo: number, la: number) => ({
       x: (lo + 180) / 360,
@@ -163,17 +169,26 @@ test.describe("map", () => {
     const y = Math.round(box.y + top + h / 2 + (p.y - (sw.y + ne.y) / 2) * scale);
     const png = (await page.screenshot({ scale: "css" })).toString("base64");
     return page.evaluate(
-      async ([data, px, py]) => {
+      async ([data, px, py, d]) => {
         const bitmap = await createImageBitmap(
           await (await fetch(`data:image/png;base64,${data}`)).blob(),
         );
         const ctx = new OffscreenCanvas(bitmap.width, bitmap.height).getContext("2d")!;
         ctx.drawImage(bitmap, 0, 0);
-        const [r, g, b] = ctx.getImageData(Number(px), Number(py), 1, 1).data;
-        return `rgb(${r}, ${g}, ${b})`;
+        const side = 2 * Number(d) + 1;
+        const rgba = ctx.getImageData(Number(px) - Number(d), Number(py) - Number(d), side, side);
+        return Array.from({ length: side * side }, (_, i) =>
+          Array.from(rgba.data.slice(4 * i, 4 * i + 3)),
+        );
       },
-      [png, x, y] as const,
+      [png, x, y, reach] as const,
     );
+  }
+
+  /** Colour of the rendered pixel at a station. */
+  async function stationColour(page: Page, lon: number, lat: number, isMobile: boolean) {
+    const [[r, g, b]] = await stationPixels(page, lon, lat, isMobile, 0);
+    return `rgb(${r}, ${g}, ${b})`;
   }
 
   const token = (page: Page, name: string) =>
@@ -210,6 +225,31 @@ test.describe("map", () => {
     await expect
       .poll(async () => (await stationColour(page, ...frankfurt, isMobile)) === lightFill)
       .toBe(true);
+  });
+
+  test("stations with little data are drawn paler, in both themes", async ({ page, isMobile }) => {
+    // Three stations of the same class (93 %): plenty of stops, 30 stops ("~"), 9 stops (no value).
+    const karte = karteFixture();
+    const [, normal, few, some] = karte.stationen;
+    Object.assign(some, { n: 30, puenktlich: 0.93, ausfallquote: 0 });
+    Object.assign(few, { puenktlich: 0.93 });
+    await mockApi(page, undefined, () => karte);
+    await page.goto("/karte");
+    const map = page.getByTestId("map");
+    await expect(map).toHaveAttribute("data-ready", "true");
+    // The strongest pixel's distance from the base map, which the patch's corner shows.
+    const contrast = async (s: { lon: number; lat: number }) => {
+      const px = await stationPixels(page, s.lon, s.lat, isMobile, 10);
+      return Math.max(...px.map((p) => p.reduce((sum, v, i) => sum + Math.abs(v - px[0][i]), 0)));
+    };
+    const measure = async () => {
+      const [a, b, c] = [await contrast(normal), await contrast(some), await contrast(few)];
+      return a > 100 && b <= 0.7 * a && c < b && c > 10;
+    };
+    await expect.poll(measure).toBe(true);
+    await page.emulateMedia({ colorScheme: "light" });
+    await expect(map).toHaveAttribute("data-ready", "true");
+    await expect.poll(measure).toBe(true);
   });
 
   test("a station picked while the new base style loads does not crash the page", async ({

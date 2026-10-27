@@ -22,6 +22,7 @@ import {
   int,
   legend,
   localLabel,
+  APPROX_N,
   LOW_N,
   readFilters,
   tenths,
@@ -62,6 +63,9 @@ const GERMANY: [[number, number], [number, number]] = [
 /** Base map labels appear from this zoom on, so the stations dominate the overview. */
 const LABEL_ZOOM = 7;
 const FOCUS_ZOOM = 9;
+/** Opacity of the dots with "~" values and of the hollow rings; both stay visible on either base map. */
+const PALE = 0.5;
+const VERY_PALE = 0.3;
 const NO_STATIONS = { type: "FeatureCollection" as const, features: [] };
 
 const token = (name: string) =>
@@ -91,6 +95,9 @@ function toFeatures(data: Karte, metric: Metric, theme: Theme) {
       let value = shown.text;
       if (shown.low) value = t("map.lowShort");
       else if (v === null) value = t("hm.onlyCancelledLegend");
+      // The "~" tier of `show` is pale, the tier without a value very pale.
+      const faint = shown.low || shown.approx;
+      const alpha = shown.low ? VERY_PALE : faint ? PALE : 1;
       return {
         type: "Feature" as const,
         geometry: { type: "Point" as const, coordinates: [s.lon, s.lat] },
@@ -102,8 +109,10 @@ function toFeatures(data: Karte, metric: Metric, theme: Theme) {
           // Little data: a hollow circle with a ring in the scale colour.
           stroke: shown.low ? fill : surface,
           hollow: shown.low ? 1 : 0,
-          // Worse classes draw on top, so problem spots are never hidden.
-          sort: cls ?? 5,
+          alpha,
+          // Dots with enough data draw above the faint ones; within a group worse classes are on
+          // top, so problem spots are never hidden.
+          sort: (faint ? 0 : 10) + (cls ?? 5),
         },
       };
     }),
@@ -279,7 +288,8 @@ function StationMap({
         paint: {
           "circle-radius": ["get", "r"],
           "circle-color": ["get", "fill"],
-          "circle-opacity": ["-", 1, ["get", "hollow"]],
+          "circle-opacity": ["*", ["get", "alpha"], ["-", 1, ["get", "hollow"]]],
+          "circle-stroke-opacity": ["get", "alpha"],
           "circle-stroke-color": ["get", "stroke"],
           "circle-stroke-width": ["+", 1, ["*", 0.5, ["get", "hollow"]]],
         },
@@ -418,8 +428,15 @@ function Legend({ metric, meta }: { metric: Metric; meta: string }) {
         </div>
         <div className="mt-2.5 flex flex-wrap gap-x-3.5 gap-y-1 text-[11.5px] text-text-2">
           <span className="inline-flex items-center gap-1.5">
-            <i className="size-2.5 rounded-full border-[1.5px] border-text-3" />
+            <i
+              className="size-2.5 rounded-full border-[1.5px] border-text-3"
+              style={{ opacity: VERY_PALE }}
+            />
             {t("map.lowKey", { n: LOW_N })}
+          </span>
+          <span className="inline-flex items-center gap-1.5">
+            <i className="size-2.5 rounded-full bg-text-3" style={{ opacity: PALE }} />
+            {t("map.paleKey", { n: APPROX_N })}
           </span>
           <span className="inline-flex items-center gap-1.5">
             <i className="size-[5px] rounded-full bg-text-3" />
