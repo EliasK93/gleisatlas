@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { mockApi, NOT_FOUND, queryOf, zeitverlaufFixture } from "./fixtures";
+import { fontsReady, mockApi, NOT_FOUND, queryOf, zeitverlaufFixture } from "./fixtures";
 
 // Scale tokens from theme.css as the browser reports them.
 const CANCEL = "rgb(93, 102, 117)";
@@ -120,6 +120,7 @@ test.describe("desktop", () => {
     await expect(tip(page)).toHaveText("Mai 26 · n = 20 · zu wenig Daten");
     // The cancellation rate counts all stops, so it still has its value.
     const bars = chart(page, "Ausfallquote pro Monat");
+    await fontsReady(page);
     await bars.scrollIntoViewIfNeeded();
     await page.getByTestId("zc-2026-05").hover();
     await expect(tip(page)).toContainText("50");
@@ -248,6 +249,7 @@ test.describe("desktop", () => {
     await expect(bars.getByTestId("bar")).toHaveCount(26);
     await expect(bars.getByTestId("bar").first()).toHaveCSS("fill", CANCEL);
     // A scroll clears the tooltip, so bring the chart into view first.
+    await fontsReady(page);
     await bars.scrollIntoViewIfNeeded();
     await page.getByTestId("zc-2026-03").hover();
     await expect(tip(page)).toContainText("Mär 26 · ");
@@ -345,6 +347,8 @@ test.describe("mobile", () => {
     await page.goto("/muster/zeitverlauf");
     await expect(chart(page)).toBeVisible();
     await expect(chart(page, "Ausfallquote pro Monat")).toBeVisible();
+    // The labels are measured one by one; a swap to Inter in between moves the chart down.
+    await fontsReady(page);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
       true,
     );

@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { mockApi } from "./fixtures";
+import { fontsReady, mockApi } from "./fixtures";
 
 // The global field is named "Bahnhofssuche"; the filter chip's field keeps "Bahnhof suchen".
 const search = (page: Page) => page.getByRole("combobox", { name: "Bahnhofssuche" });
@@ -188,6 +188,8 @@ for (const [locale, placeholder] of [
     test("the placeholder fits the field and the magnifier is drawn", async ({ page }) => {
       await page.goto("/muster/heatmap");
       await expect(field(page)).toHaveAttribute("placeholder", placeholder);
+      // The mobile top bar shifts the icon when Inter swaps in, between the clip and the shot.
+      await fontsReady(page);
       const [text, room] = await field(page).evaluate((input) => {
         const style = getComputedStyle(input);
         const ctx = document.createElement("canvas").getContext("2d")!;

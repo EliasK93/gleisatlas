@@ -12,7 +12,7 @@ type StationLinie = components["schemas"]["StationLinie"];
 type Zeitverlauf = components["schemas"]["Zeitverlauf"];
 type Monat = components["schemas"]["Monat"];
 
-/** The dummies of frontend/.env.development, which both the dev server and the e2e build read. */
+/** The dummies of frontend/.env.development, which only the dev server reads; the e2e build has none. */
 export const IMPRESSUM = {
   name: "Erika Musterfrau",
   street: "Musterstraße 1",
@@ -223,6 +223,16 @@ export function heatmapFixture(): Heatmap {
 }
 
 export const EMPTY_HEATMAP: Heatmap = { von: "", bis: "", n: 0, cells: [], tage: [] };
+
+/**
+ * Waits until Inter has replaced the fallback font. Text is laid out in the fallback first and
+ * moves when Inter swaps in, so a test that measures text in more than one step waits for it. On
+ * a scrolled page the swap also scrolls (scroll anchoring), which clears an open tooltip.
+ */
+export const fontsReady = (page: Page) =>
+  page.evaluate(async () => {
+    await document.fonts.ready;
+  });
 
 /** The query string of a request as a plain object. */
 export function queryOf(url?: URL): Record<string, string> {

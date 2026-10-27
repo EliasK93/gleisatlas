@@ -1,6 +1,7 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import {
   emptyStatistik,
+  fontsReady,
   linienFixture,
   mockApi,
   queryOf,
@@ -198,6 +199,7 @@ test("the sparkline shows the last 12 months, the latest value and a link to the
   expect(queryOf(request)).toEqual({ eva: "8000207", gattung: "fern" });
   // A scroll clears the tooltip, so the month is brought into view first.
   const month = card.getByTestId("sp-2026-03");
+  await fontsReady(page);
   await month.scrollIntoViewIfNeeded();
   await month.hover();
   await expect(page.getByRole("tooltip")).toHaveText("Mär 26 · 78 % pünktlich · n = 1.240");
