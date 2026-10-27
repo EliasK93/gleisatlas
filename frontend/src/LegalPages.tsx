@@ -35,25 +35,34 @@ function Page({ title, children }: { title: string; children: ReactNode }) {
   );
 }
 
+/** The provider's details from the build environment; until all four are set, a placeholder line. */
 export function ImpressumPage() {
   const { VITE_IMPRESSUM_NAME, VITE_IMPRESSUM_STREET, VITE_IMPRESSUM_CITY, VITE_IMPRESSUM_EMAIL } =
     import.meta.env;
+  const complete =
+    VITE_IMPRESSUM_NAME && VITE_IMPRESSUM_STREET && VITE_IMPRESSUM_CITY && VITE_IMPRESSUM_EMAIL;
   return (
     <Page title={t("legal.impressum")}>
       <p>{t("legal.impressum.lead")}</p>
-      <address className="not-italic">
-        {VITE_IMPRESSUM_NAME}
-        <br />
-        {VITE_IMPRESSUM_STREET}
-        <br />
-        {VITE_IMPRESSUM_CITY}
-      </address>
-      <p>
-        {t("legal.impressum.email")}:{" "}
-        <a href={`mailto:${VITE_IMPRESSUM_EMAIL}`} className="underline">
-          {VITE_IMPRESSUM_EMAIL}
-        </a>
-      </p>
+      {complete ? (
+        <>
+          <address className="not-italic">
+            {VITE_IMPRESSUM_NAME}
+            <br />
+            {VITE_IMPRESSUM_STREET}
+            <br />
+            {VITE_IMPRESSUM_CITY}
+          </address>
+          <p>
+            {t("legal.impressum.email")}:{" "}
+            <a href={`mailto:${VITE_IMPRESSUM_EMAIL}`} className="underline">
+              {VITE_IMPRESSUM_EMAIL}
+            </a>
+          </p>
+        </>
+      ) : (
+        <p>{t("legal.impressum.pending")}</p>
+      )}
     </Page>
   );
 }

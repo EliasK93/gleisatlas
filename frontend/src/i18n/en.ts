@@ -226,6 +226,7 @@ export const en: Record<keyof typeof de, string> = {
   "legal.impressum": "Legal notice",
   "legal.impressum.lead": "Provider information under § 5 DDG",
   "legal.impressum.email": "E-mail",
+  "legal.impressum.pending": "Details to follow.",
   "legal.privacy": "Privacy",
   "legal.privacy.note": "The German version is binding; this is a translation.",
   "legal.p.controller.title": "Controller",

@@ -1,13 +1,16 @@
 import { defineConfig, devices } from "@playwright/test";
 
-const PREVIEW = "http://localhost:4173";
+const PREVIEW = "http://localhost:4317";
+// Not the dev port 5317: a dev server left running there (for example one under the debugger)
+// would serve the tests and slow them down, so the suite always starts its own.
+const DEV = "http://localhost:5318";
 
 export default defineConfig({
   testDir: "e2e",
   // The JUnit file feeds the README's tests badge in CI (scripts/tests_badge.py).
   reporter: [["list"], ["junit", { outputFile: "test-results/junit.xml" }]],
   // Playwright defaults to en-US; the German UI is the default for the existing specs.
-  use: { baseURL: "http://localhost:5173", locale: "de-DE" },
+  use: { baseURL: DEV, locale: "de-DE" },
   projects: [
     { name: "chromium", use: { ...devices["Desktop Chrome"] }, testIgnore: "csp.spec.ts" },
     { name: "mobile", use: { ...devices["Pixel 7"] }, testIgnore: "csp.spec.ts" },
@@ -20,17 +23,17 @@ export default defineConfig({
   ],
   webServer: [
     {
-      command: "npm run dev -- --port 5173 --strictPort",
-      url: "http://localhost:5173",
-      reuseExistingServer: true,
+      command: "npm run dev -- --port 5318",
+      url: DEV,
+      reuseExistingServer: false,
     },
     {
       command:
-        "npm run build -- --mode development --outDir dist-e2e && npx vite preview --outDir dist-e2e --port 4173 --strictPort",
+        "npm run build -- --mode e2e --outDir dist-e2e && npx vite preview --outDir dist-e2e",
       url: PREVIEW,
       timeout: 180_000,
-      // A production build with the dummy provider details of .env.development;
-      // a reused server could serve a stale build.
+      // A production build without provider details (no .env file for this mode), like the
+      // deployed site before the Impressum is filled in; a reused server could serve a stale build.
       reuseExistingServer: false,
       env: { VITE_API_URL: "https://api.e2e.westeurope.azurecontainerapps.io" },
     },

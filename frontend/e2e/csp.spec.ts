@@ -43,3 +43,12 @@ for (const scheme of ["light", "dark"] as const) {
     }
   });
 }
+
+// The e2e build has no provider details, like the deployed site until they are filled in.
+test("without provider details the Impressum says they follow", async ({ page }) => {
+  await mockApi(page);
+  await page.goto("/impressum");
+  const main = page.getByRole("main");
+  await expect(main).toContainText("Angaben folgen.");
+  await expect(main.getByRole("link")).toHaveCount(0);
+});
