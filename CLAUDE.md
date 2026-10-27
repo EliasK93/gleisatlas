@@ -35,7 +35,7 @@ Personal and machine-specific rules live in `CLAUDE.local.md` (gitignored).
 - Refactors prove themselves: when behaviour must not change, existing tests stay unchanged and the gate passing is the proof. If a test has to change, stop and report.
 
 ### The gate
-- One command runs everything: `uv run python scripts/gate.py`. It stages (`git add -A`), checks formatting and lint, type-checks, runs all tests, scans the staged content for secrets and fails if anything is unstaged or untracked afterwards.
+- One command runs everything: `uv run python scripts/gate.py`. It stages (`git add -A`), checks formatting and lint, type-checks, runs all tests, compares `THIRD_PARTY_LICENSES.md` with the build's licence file, scans the staged content for secrets and fails if anything is unstaged or untracked afterwards.
 - `uv run python scripts/format.py` fixes formatting; the gate only checks it.
 - The git pre-commit hook runs the same checks (`scripts/gate.py --hook`, without staging or the clean-tree check). They run on the working tree, so a commit of selected paths is checked together with everything else on disk. Never skip the hook (`--no-verify`). Hooks are not part of a clone: run `uv run python scripts/install_hooks.py` once after cloning.
 - CI (`.github/workflows/gate.yml`) runs the same gate on every push and pull request with `scripts/gate.py --ci`: no staging, the secret scan covers the whole history, and the clean-tree check stays. Actions are pinned to commit SHAs, gitleaks and Bicep to a checksum; updating a pin is a `Repo:` commit.

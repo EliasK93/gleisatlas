@@ -299,7 +299,7 @@ Not in this log: page views of the web app (Static Web Apps Free has no access l
 - [ ] AC-16: the budget alert e-mail arrives, tested with a temporary … budget that is deleted afterwards; the first full month stays at or under ….
 - [ ] The first day in Cost Management shows no "Environment Management Hour" charge.
 - [ ] No CSP violation in the browser console on the deployed site ([theme-and-language.md](theme-and-language.md) §6 refers here).
-- [ ] The Impressum and Datenschutz pages show the real values, or "Angaben folgen." while the Impressum keys are not set.
+- [ ] The Impressum and Datenschutz pages show the real values, or "Angaben folgen." while the Impressum keys are not set; `/licenses.txt` opens as text, not as a download.
 - [ ] After a few days the unfinished-requests query in §4 returns nothing (the Polars warning watch, [patterns.md](patterns.md) §8).
 - Ticked on Azure as well, listed in their own docs: [app-shell.md](app-shell.md) §6 (SPA fallback, popover), [map.md](map.md) §6 (tiles and attribution, WebGL, cold `/karte`), [theme-and-language.md](theme-and-language.md) §6 (wordmark, no light flash), [patterns.md](patterns.md) §6 and [pipeline.md](pipeline.md) §6 (AC-5, heatmap warm under 3 s).
 
@@ -320,7 +320,7 @@ Not in this log: page views of the web app (Static Web Apps Free has no access l
 - **The daily log cap of 0.1 GB drops lines.** Under a request flood, ingestion stops for the rest of the day, which is when the unfinished-requests query matters most. Raise the cap (`dailyQuotaGb`) if that happens.
 - **The stdout lines carry no timestamp** (Log Analytics adds `TimeGenerated`); the 8-hex id pairs a start with its end line but is not unique forever.
 - **The image installs `huggingface-hub`**, a main dependency for the pipeline that the API never imports (§7).
-- **The web app ships no third-party licence notices.** The minified bundle drops the libraries' licence comments (only the MapLibre worker keeps one).
+- **The licence file lists the bundled JavaScript packages and the font, not Tailwind.** Vite's `build.license` (in `frontend/vite.config.ts`) only sees modules, while Tailwind's base styles (MIT) arrive through the CSS pipeline, and the minified CSS drops their notice. Add Tailwind's licence by hand to the file if the legal check asks for it.
 - **The Impressum may be empty.** Without the four `VITE_IMPRESSUM_*` keys the page reads "Angaben folgen."
 - **The gate's Bicep line passes on warnings**; only errors fail it. A new BCP081 warning after a Bicep update shows up in `az bicep build` output only.
 - **A deployment without `image` leaves an existing Container App untouched** (incremental mode) and outputs an empty `apiUrl`; every deployment after phase 1 passes the current image (`$image` in the runbook).

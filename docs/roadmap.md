@@ -44,7 +44,7 @@ Details and the runbook in [deployment.md](deployment.md).
 - [x] Budget alert, … per month at 50 %, 90 % and forecast 100 % (re-check: the `budget` resource in `infra/main.bicep`; the alert e-mail is a platform check in [deployment.md](deployment.md) §6)
 - [x] Impressum and privacy policy (server logs, map tiles loaded from OpenFreeMap) (re-check: `npm.cmd --prefix frontend run test:e2e`, `frontend/e2e/legal.spec.ts`)
 - [x] Content-Security-Policy and the other headers of the deployed site (re-check: `npm.cmd --prefix frontend run test:e2e`, `frontend/e2e/csp.spec.ts`)
-- [ ] The product owner runs the deployment commands (re-check: the platform checks in [deployment.md](deployment.md) §6)
+- [ ] The product owner runs the deployment commands (re-check: the platform checks in [deployment.md](deployment.md) §6).
 - [x] Local request log: with `LOG_FILE` set, the API also writes its request lines, timestamped, to a plain-text file, so they outlive the terminal window (re-check: `uv run pytest -q`, `test_the_log_file_gets_timestamped_lines_and_is_detached_again`)
 
 ## M6+ Planner (v1.0)

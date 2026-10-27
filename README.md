@@ -6,6 +6,8 @@ Rail reliability for Germany: historical delay, cancellation and transfer statis
 
 **Status:** early. The map start page, station detail, station search, the weekday × hour heatmap, rankings of stations and lines, and the time series by month work on 27 months of data (2024-07 to 2026-09). Historical statistics, no forecast or guarantee.
 
+**Licences:** the code is MIT. The data, the map and the bundled libraries keep their own licences: see [Licences](#licences) and [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md).
+
 ## Quick start (PowerShell)
 
 ```powershell
@@ -29,7 +31,7 @@ npm.cmd --prefix frontend run dev
 
 In VS Code, "Gleisatlas (API + Web)" in Run and Debug starts both and opens the browser; Stop ends both. The API there writes its request log to `logs/api.log`.
 
-Gate (tests, lint, types, frontend checks, Bicep build, secret scan):
+Gate (tests, lint, types, frontend checks, licence file, Bicep build, secret scan):
 
 ```powershell
 uv run python scripts/gate.py
@@ -53,10 +55,17 @@ The site is set up for Azure (Static Web Apps, Container Apps, Blob Storage), de
 - [docs/deployment.md](docs/deployment.md) – Azure resources, costs and the deployment runbook
 - [docs/adr/](docs/adr/) – architecture decisions, e.g. the station-coordinate source
 
-## Data
+## Licences
 
-Data: Deutsche Bahn (DB Timetables API) via piebro/deutsche-bahn-data, CC BY 4.0. Historical statistics, no forecast or guarantee.
+| Part | Source | Licence |
+|---|---|---|
+| Code of this repository | Gleisatlas | MIT, see [LICENSE](LICENSE) |
+| Train data | Deutsche Bahn (DB Timetables API) via [piebro/deutsche-bahn-data](https://huggingface.co/datasets/piebro/deutsche-bahn-data); aggregated by Gleisatlas | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) |
+| Station coordinates and federal states | [Wikidata](https://www.wikidata.org) | CC0 |
+| Map tiles and style | © [OpenStreetMap](https://www.openstreetmap.org/copyright) contributors, [OpenMapTiles](https://openmaptiles.org), [OpenFreeMap](https://openfreemap.org) | OpenStreetMap data under ODbL; the attribution is on the map |
+| Libraries in the web app | React, React DOM, React Router, TanStack Query, openapi-fetch, MapLibre GL JS, the Inter font | MIT, BSD-3-Clause, SIL OFL 1.1; the full texts are in [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md) and on the site at `/licenses.txt` |
+| Libraries of the API (server only, not shipped to the browser) | Polars, FastAPI, uvicorn, huggingface-hub (direct dependencies in [pyproject.toml](pyproject.toml)) | MIT, MIT, BSD-3-Clause, Apache-2.0 |
 
-Station coordinates and federal states: Wikidata, CC0.
+`THIRD_PARTY_LICENSES.md` is the licence file Vite writes for the production build (`build.license` in `frontend/vite.config.ts`). The gate fails when it differs from the build's file, for example after a dependency update; then copy it over: `Copy-Item frontend/dist-e2e/licenses.txt THIRD_PARTY_LICENSES.md`.
 
-Map: © OpenStreetMap contributors, OpenMapTiles, tiles and style by OpenFreeMap.
+Historical statistics, no forecast or guarantee.
