@@ -10,6 +10,7 @@ from pipeline.aggregate import COLUMNS, aggregate, stations, with_coords
 from pipeline.update import update
 
 DAY = "2026-09-07"  # a Monday
+BETA = "08000002"  # the real source zero-pads EVAs; station "1" (Alpha) is the unpadded one
 
 
 def at(hhmm: str | None, day: str = DAY) -> dt | None:
@@ -31,7 +32,7 @@ ROWS = [
     ("RE", "08:20", "08:27", False, "1", DAY, "RE5", "4705", "r5", "Warburg(Westf)"),  # +7
     ("RE", None, None, False, "1", DAY, "RE5", "4707", "r6", "Dortmund Hbf"),  # no arrival: out
     ("RE", "08:30", None, False, "1", DAY, "RE5", "4709", "r7", "Dortmund Hbf"),  # no change -> 0
-    ("RE", "08:40", "08:50", False, "2", "2026-10-05", "RE5", "4705", "r5", "Warburg(Westf)"),
+    ("RE", "08:40", "08:50", False, BETA, "2026-10-05", "RE5", "4705", "r5", "Warburg(Westf)"),
 ]
 
 

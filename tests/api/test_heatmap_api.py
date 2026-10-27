@@ -35,7 +35,8 @@ def test_period_filter_changes_n(client: TestClient):
 
 
 def test_station_filter_by_eva_not_name(client: TestClient):
-    assert heatmap(client, eva="2")["n"] == 1
+    assert heatmap(client, eva="08000002")["n"] == 1
+    assert heatmap(client, eva="2")["n"] == 0  # a zero-padded EVA is not the unpadded one
     assert heatmap(client, eva="999")["n"] == 0
     # the name is not a key
     assert client.get("/heatmap", params={"eva": "Beta"}).status_code == 422
@@ -76,6 +77,7 @@ def test_cells_are_sorted_by_weekday_and_hour():
         ("/stationen", {"limit": 101}),
         ("/heatmap", {"von": "2026-9"}),
         ("/heatmap", {"bis": "26-09"}),
+        ("/heatmap", {"von": "٢٠٢٦-01"}),  # Arabic-Indic digits
         ("/heatmap", {"eva": "abc"}),
         ("/stationen/abc", {}),
     ],
@@ -101,7 +103,12 @@ def test_station_by_eva(client: TestClient):
 
 def test_station_carries_land_and_stop_count(client: TestClient):
     assert client.get("/stationen/1").json() == ALPHA
-    assert client.get("/stationen/2").json() == {"eva": "2", "name": "Beta", "land": None, "n": 1}
+    assert client.get("/stationen/08000002").json() == {
+        "eva": "08000002",
+        "name": "Beta",
+        "land": None,
+        "n": 1,
+    }
 
 
 def test_search_puts_prefix_matches_first_then_busiest(client: TestClient, tmp_path, monkeypatch):

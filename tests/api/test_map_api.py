@@ -84,8 +84,8 @@ def test_statistik_distribution_cancelled_and_groups(client: TestClient):
         ("1", {}),
         ("1", {"gattung": "regional"}),
         ("1", {"gattung": "fern"}),
-        ("2", {}),
-        ("2", {"von": "2026-10"}),
+        ("08000002", {}),
+        ("08000002", {"von": "2026-10"}),
     ],
 )
 def test_statistik_bins_and_cancelled_sum_to_n(client: TestClient, eva: str, params: dict):
@@ -98,12 +98,12 @@ def test_statistik_bins_and_cancelled_sum_to_n(client: TestClient, eva: str, par
 def test_statistik_filters_change_n(client: TestClient):
     assert statistik(client, "1", gattung="fern")["n"] == 1
     assert [g["gruppe"] for g in statistik(client, "1", gattung="fern")["gruppen"]] == ["fern"]
-    assert statistik(client, "2", von="2026-10")["n"] == 1
+    assert statistik(client, "08000002", von="2026-10")["n"] == 1
 
 
 def test_statistik_without_stops_in_selection(client: TestClient):
-    s = statistik(client, "2", bis="2026-09")
-    assert s["station"]["eva"] == "2"
+    s = statistik(client, "08000002", bis="2026-09")
+    assert s["station"]["eva"] == "08000002"
     assert (s["n"], s["gesamt"], s["verteilung"], s["ausgefallen"], s["gruppen"]) == (
         0,
         None,

@@ -283,4 +283,4 @@ def test_pipeline_built_mini_lines(client: TestClient):
     ]
     assert lines[0]["puenktlich"] == 0.0
     assert [x["linie"] for x in station_lines(client, "1", gattung="fern")] == ["ICE 123:1"]
-    assert [x["linie"] for x in station_lines(client, "2")] == ["RE5:2"]
+    assert [x["linie"] for x in station_lines(client, "08000002")] == ["RE5:08000002"]

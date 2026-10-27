@@ -23,7 +23,7 @@ def test_month_from_time_not_planned(mini: pl.DataFrame):
 
 def test_stations(source: pl.DataFrame):
     s = stations(source.lazy())
-    assert dict(s.select("eva", "name").iter_rows()) == {"1": "Alpha", "2": "Beta"}
+    assert dict(s.select("eva", "name").iter_rows()) == {"1": "Alpha", "08000002": "Beta"}
 
 
 def test_station_name_tie_is_deterministic(source: pl.DataFrame):
@@ -45,7 +45,7 @@ def test_schema_abort_names_a_new_column(source: pl.DataFrame):
 
 def test_station_stop_counts(source: pl.DataFrame):
     # all categories and months, cancelled included; bus and no-arrival rows excluded
-    assert dict(stations(source.lazy()).select("eva", "n").iter_rows()) == {"1": 5, "2": 1}
+    assert dict(stations(source.lazy()).select("eva", "n").iter_rows()) == {"1": 5, "08000002": 1}
 
 
 def test_join_coords_on_normalised_eva(source: pl.DataFrame, coords: pl.DataFrame):
@@ -84,7 +84,7 @@ def test_unlocated_station_takes_coords_of_its_only_namesake():
 
 
 def test_cleaning_drops_duplicates_and_implausible_delays(source: pl.DataFrame):
-    base = source.filter(pl.col("eva") == "2")  # one regional stop, +10
+    base = source.filter(pl.col("eva") == "08000002")  # one regional stop, +10
     planned = pl.col("arrival_planned_time")
 
     def other(number: str, minutes: int, cancelled: bool = False) -> pl.DataFrame:
@@ -104,7 +104,7 @@ def test_cleaning_drops_duplicates_and_implausible_delays(source: pl.DataFrame):
 
 
 def test_a_plausible_copy_survives_an_implausible_first_one(source: pl.DataFrame):
-    base = source.filter(pl.col("eva") == "2")  # +10
+    base = source.filter(pl.col("eva") == "08000002")  # +10
     planned = pl.col("arrival_planned_time")
     late = base.with_columns(arrival_change_time=planned + timedelta(minutes=2000))
     ok = base.with_columns(arrival_change_time=planned + timedelta(minutes=5))

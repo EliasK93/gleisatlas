@@ -29,6 +29,11 @@ def allowed(client: TestClient, origin: str) -> str | None:
     )
 
 
+@pytest.mark.parametrize("path", ["/docs", "/redoc"])
+def test_the_api_browsers_are_off(client: TestClient, path: str):
+    assert client.get(path).status_code == 404
+
+
 def test_cors_defaults_to_the_local_dev_server(client: TestClient):
     assert allowed(client, "http://localhost:5317") == "http://localhost:5317"
     assert allowed(client, "http://localhost:5173") is None

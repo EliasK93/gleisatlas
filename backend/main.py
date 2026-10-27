@@ -44,7 +44,7 @@ if log_file := os.environ.get("LOG_FILE"):
     to_file.setFormatter(logging.Formatter("%(asctime)s %(message)s"))
     log.addHandler(to_file)
 
-app = FastAPI(title="Gleisatlas")
+app = FastAPI(title="Gleisatlas", docs_url=None, redoc_url=None)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -76,7 +76,7 @@ async def log_requests(request: Request, call_next):
 
 DIGITS = r"^[0-9]+$"  # ASCII only: \d would also accept other scripts' digits
 Eva = Annotated[str, Path(pattern=DIGITS)]
-Month = Annotated[str | None, Query(pattern=r"^\d{4}-(0[1-9]|1[0-2])$")]
+Month = Annotated[str | None, Query(pattern=r"^[0-9]{4}-(0[1-9]|1[0-2])$")]
 Gattung = Literal["alle", "regional", "fern"]
 GRUPPEN = (REGIONAL, FERN)  # display order
 
@@ -187,7 +187,7 @@ class Datenstand(BaseModel):
     monate: list[str]  # 'YYYY-MM'
     bahnhoefe: int  # named stations
     vollabdeckung_ab: str  # first month with at least half the stations of the largest month
-    fehlende_stunden: dict[str, int]  # month -> hours without any stop; only months with gaps
+    fehlende_stunden: dict[str, int]  # month -> hours with incomplete data; only months with gaps
     fahrplanwechsel: list[str]  # ISO dates of the timetable changes inside the data range
 
 
@@ -336,7 +336,7 @@ def heatmap(
 @app.get("/karte", response_model=Karte, operation_id="getKarte")
 def karte(gattung: Gattung = "alle", von: Month = None, bis: Month = None) -> Karte:
     mtimes = (os.stat(AGG_PATH).st_mtime_ns, os.stat(STATIONS_PATH).st_mtime_ns)
-    return karte_for(AGG_PATH, STATIONS_PATH, mtimes, gattung, period_start(von, bis), bis)
+    return karte_for(AGG_PATH, mtimes, gattung, period_start(von, bis), bis)
 
 
 # ponytail: per-process cache, so a month combination is computed once per process; revisit when the
@@ -344,7 +344,6 @@ def karte(gattung: Gattung = "alle", von: Month = None, bis: Month = None) -> Ka
 @lru_cache(maxsize=16)
 def karte_for(
     agg: str,
-    stations_path: str,
     mtimes: tuple[int, int],  # part of the key, so new data is never served stale
     gattung: str,
     von: str | None,
@@ -426,6 +425,8 @@ def line_stats_for(
     return found, [] if found is None else line_entries(sel, linien)
 
 
+LOW_N = 15  # as in the heatmap and the UI: below it a value is not shown
+
 METRICS: dict[str, Metric] = {
     "puenktlich": "punctual_share",
     "median": "median",
@@ -438,7 +439,7 @@ METRICS: dict[str, Metric] = {
 def rankings(
     typ: Literal["linien", "bahnhoefe"],
     metrik: Literal["puenktlich", "median", "p90", "ausfallquote"] = "puenktlich",
-    min_n: Annotated[int, Query(ge=15)] = 500,
+    min_n: Annotated[int, Query(ge=LOW_N)] = 500,
     gattung: Gattung = "alle",
     von: Month = None,
     bis: Month = None,
@@ -519,9 +520,6 @@ def statistik(
             if (g,) in groups
         ],
     )
-
-
-LOW_N = 15  # as in the heatmap and the UI: below it a value is not shown
 
 
 def thin(s: CellStats) -> bool:
