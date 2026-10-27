@@ -1,4 +1,4 @@
-"""Commit gate: formatting, lint, types, tests, frontend checks, Bicep build, secret scan.
+"""Commit gate: format, lint, types, tests, frontend checks, licence file, Bicep, secret scan.
 
 Manual mode stages everything first and fails on unstaged or untracked files.
 `--hook` (pre-commit) runs only the checks.
@@ -23,6 +23,16 @@ CHECKS: list[tuple[str, list[str], Path]] = [
     *(
         (f"frontend {s}", [NPM, "run", s], ROOT / "frontend")
         for s in ("typecheck", "lint", "format:check", "gen:check", "test:e2e")
+    ),
+    # after test:e2e, whose production build writes the licence file; on a difference, copy it:
+    # Copy-Item frontend/dist-e2e/licenses.txt THIRD_PARTY_LICENSES.md
+    (
+        "licence file",
+        [
+            *("git", "diff", "--no-index", "--exit-code"),
+            *("frontend/dist-e2e/licenses.txt", "THIRD_PARTY_LICENSES.md"),
+        ],
+        ROOT,
     ),
     # offline, no login: compiles and lints the infrastructure
     ("bicep", [AZ, "bicep", "build", "--file", "infra/main.bicep", "--stdout"], ROOT),
