@@ -71,7 +71,7 @@ Timetable apps (bahn.de, DB Navigator) optimise for the connection that is *sche
 
 ### 3.4 Idea backlog (open, unprioritised)
 
-Personal trip log with own balance · passenger-rights calculator (how often ≥ 60/120 min) · calendar export of the chosen connection · effect of timetable changes / construction work · holiday effects · save a "recurring trip" with a weekly report · compare regional vs. long-distance for the same relation · cause statistics (if a data source provides them). Further ideas are welcome: add new items here, do not build them directly.
+Personal trip log with own balance · passenger-rights calculator (how often ≥ 60/120 min) · calendar export of the chosen connection · effect of timetable changes / construction work · holiday effects · save a "recurring trip" with a weekly report · compare regional vs. long-distance for the same relation · cause statistics (if a data source provides them) · records independent of delays: stations with the most/fewest stops, lines or trains per hour, lines with the most/fewest stops (needs a minimum sample, since one-off trains fill the "fewest" lists) · cross-border trains: the source only has German stations, so a train abroad ends at the border and its line names the last German station; marking such lines as "section in Germany" is small, the full run would need an own collector against foreign sources (see 3.3). Further ideas are welcome: add new items here, do not build them directly.
 
 ---
 
