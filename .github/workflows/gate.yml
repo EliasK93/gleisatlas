@@ -1,5 +1,5 @@
 # Runs the same gate as the pre-commit hook, in CI mode (see scripts/gate.py).
-# Third-party actions and gitleaks are pinned to a commit SHA or checksum.
+# Third-party actions, gitleaks and Bicep are pinned to a commit SHA or checksum.
 name: gate
 
 on:
@@ -42,6 +42,16 @@ jobs:
           tar -xzf gitleaks.tar.gz -C "$RUNNER_TEMP/bin" gitleaks
           rm gitleaks.tar.gz
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+
+      # az uses this verified binary from PATH ($RUNNER_TEMP/bin comes first, added above), never
+      # the latest download or the runner image's own bicep.
+      - name: Install Bicep 0.48.1
+        run: |
+          curl -sSfL -o "$RUNNER_TEMP/bin/bicep" https://github.com/Azure/bicep/releases/download/v0.48.1/bicep-linux-x64
+          echo "b09ec25a9d376c1f8e33ede6ed22b587f915ad68488d5db77a6f9541748c7f6e  $RUNNER_TEMP/bin/bicep" | sha256sum -c -
+          chmod +x "$RUNNER_TEMP/bin/bicep"
+          az config set bicep.use_binary_from_path=true
+          az bicep version
 
       - name: Install dependencies
         run: |

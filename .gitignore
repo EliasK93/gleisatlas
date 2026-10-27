@@ -3,6 +3,7 @@ data/
 __pycache__/
 node_modules/
 dist/
+dist-e2e/
 .pytest_cache/
 .ruff_cache/
 graphify-out/
@@ -11,3 +12,4 @@ playwright-report/
 *.tsbuildinfo
 CLAUDE.local.md
 *.local
+logs/

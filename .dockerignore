@@ -1,0 +1,7 @@
+# Whitelist: the build context holds only what the Dockerfile copies (never data/ or node_modules).
+*
+!pyproject.toml
+!uv.lock
+!core/
+!backend/
+**/__pycache__

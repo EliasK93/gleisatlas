@@ -1,4 +1,4 @@
-"""Commit gate: formatting, lint, types, tests, frontend checks, secret scan.
+"""Commit gate: formatting, lint, types, tests, frontend checks, Bicep build, secret scan.
 
 Manual mode stages everything first and fails on unstaged or untracked files.
 `--hook` (pre-commit) runs only the checks.
@@ -13,6 +13,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 NPM = "npm.cmd" if sys.platform == "win32" else "npm"
+AZ = "az.cmd" if sys.platform == "win32" else "az"
 
 CHECKS: list[tuple[str, list[str], Path]] = [
     ("ruff format", ["uv", "run", "ruff", "format", "--check", "."], ROOT),
@@ -23,6 +24,8 @@ CHECKS: list[tuple[str, list[str], Path]] = [
         (f"frontend {s}", [NPM, "run", s], ROOT / "frontend")
         for s in ("typecheck", "lint", "format:check", "gen:check", "test:e2e")
     ),
+    # offline, no login: compiles and lints the infrastructure
+    ("bicep", [AZ, "bicep", "build", "--file", "infra/main.bicep", "--stdout"], ROOT),
 ]
 GITLEAKS = ["gitleaks", "git", "--redact", "--no-banner"]
 
