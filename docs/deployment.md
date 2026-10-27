@@ -32,6 +32,8 @@ Gleisatlas v0.2 runs on Azure: the web app on Static Web Apps, the API on Contai
 - **A public-read blob container (blob level, no listing).** Reason: the aggregates are public CC BY data, so the download needs no SDK and no secret. Fallback if a policy forbids public access: a managed-identity token fetched with stdlib `urllib`.
 - **A user-assigned identity with AcrPull on the registry pulls the image; the registry has no admin user.** Reason: no registry password exists anywhere, and the role covers one registry only.
 - **CORS from the environment** (`CORS_ORIGINS`, default `http://localhost:5317`), set by Bicep to the web app's hostname. Reason: one code path for local and Azure.
+- **The API's `/docs` and `/redoc` are off in production** (`docs_url=None, redoc_url=None`). Reason: both pages load Swagger UI or ReDoc from a CDN without a pinned version, which a public API should not serve; `backend/openapi.json` in the repository documents the API.
+- **`huggingface-hub` lives in the uv dependency group `pipeline`**, installed by a local `uv sync` and skipped in the image. Reason: only the download step uses it; the API never imports it.
 - **Our own request log without IPs**, with uvicorn's access log off and the ingress HTTP logs not enabled. Reason: the app needs paths, status and duration, not client addresses (the ingress HTTP log would store `X-Forwarded-For`).
 - **Log Analytics with 30 days retention and a daily cap of 0.1 GB.** Reason: 31 days are included in the price, and the cap keeps ingestion inside the free 5 GB per month.
 - **One process: max 1 replica, 1 uvicorn worker.** Reason: the query cap and the `lru_cache`s in `backend/main.py` are per process ([patterns.md](patterns.md) §8).
@@ -136,6 +138,8 @@ $out = az deployment group show --resource-group gleisatlas --name main --query 
 $apiUrl = $out.apiUrl.value
 curl.exe -s "$apiUrl/datenstand"
 ```
+
+Before the first frontend build, narrow the CSP to the API's host. `connect-src` in `frontend/public/staticwebapp.config.json` still carries the wildcard `https://*.westeurope.azurecontainerapps.io` (§8), because the host is only known once phase 2 has created the Container App. Replace the wildcard with the exact host of the `apiUrl` output (scheme and host, no path) and commit the file (`Web:`) before building. `frontend/e2e/csp.spec.ts` compares the served header with that file, so it follows by itself; but `frontend/playwright.config.ts` builds the e2e bundle with `VITE_API_URL=https://api.e2e.westeurope.azurecontainerapps.io`, which the narrowed policy blocks. Set it to the same host in that commit, or the CSP project fails on every page.
 
 The frontend build reads `frontend/.env.production.local` (gitignored). `VITE_API_URL` is the API URL; the four Impressum keys are the provider's full name, street and house number, postcode and city, and a contact e-mail address, exactly as they should appear on `/impressum`. Leave out the Impressum keys (write only the `VITE_API_URL` line) and the page reads "Angaben folgen." instead. `WriteAllLines` writes UTF-8 without a BOM, which Vite needs; Notepad works too.
 
@@ -301,17 +305,16 @@ Not in this log: page views of the web app (Static Web Apps Free has no access l
 - [ ] No CSP violation in the browser console on the deployed site ([theme-and-language.md](theme-and-language.md) §6 refers here).
 - [ ] The Impressum and Datenschutz pages show the real values, or "Angaben folgen." while the Impressum keys are not set; `/licenses.txt` opens as text, not as a download.
 - [ ] After a few days the unfinished-requests query in §4 returns nothing (the Polars warning watch, [patterns.md](patterns.md) §8).
-- Ticked on Azure as well, listed in their own docs: [app-shell.md](app-shell.md) §6 (SPA fallback, popover), [map.md](map.md) §6 (tiles and attribution, WebGL, cold `/karte`), [theme-and-language.md](theme-and-language.md) §6 (wordmark, no light flash), [patterns.md](patterns.md) §6 and [pipeline.md](pipeline.md) §6 (AC-5, heatmap warm under 3 s).
+- Ticked on Azure as well, listed in their own docs: [app-shell.md](app-shell.md) §6 (SPA fallback, popover), [map.md](map.md) §6 (tiles and attribution, WebGL, cold `/karte`), [theme-and-language.md](theme-and-language.md) §6 (wordmark, no light flash), [patterns.md](patterns.md) §6 (AC-5, heatmap warm under 3 s).
 
 ## 7 Open decisions
 
 - A custom domain, which would replace the default hostnames and narrow the CSP's `connect-src` to one host.
 - Deploying from GitHub Actions (OIDC to Azure) instead of by hand, once the manual runbook has settled.
-- Moving `huggingface-hub` into a pipeline-only dependency group, so the API image no longer installs it.
 
 ## 8 Known shortcuts
 
-- **The CSP allows any Container Apps host in West Europe** (`connect-src https://*.westeurope.azurecontainerapps.io`), because the API's hostname is only known after the first deploy. Narrow it to the `apiUrl` host when the hostname is stable or a custom domain exists.
+- **The CSP allows any Container Apps host in West Europe** (`connect-src https://*.westeurope.azurecontainerapps.io`), because the API's hostname is only known after the first deploy. The runbook (§4) narrows it to the `apiUrl` host before the first frontend build; a custom domain would narrow it again.
 - **The blob container is public for reading** (`// ponytail:` in `infra/main.bicep`). Anyone with a file's URL can download the aggregates, which are CC BY anyway; listing is off. Every download counts as internet egress; beyond the free 100 GB a month it is billed per GB to the storage account, which the budget covers. If a policy forbids public access, switch to a managed-identity token in `backend/fetch.py`.
 - **The per-process caches are lost on every scale to zero.** The first `/karte` after a wake-up recomputes (3.6–4.0 s locally on one thread), on top of the container start and the 72 MB download. Revisit with min 1 replica (costs idle time) or a precomputed map file.
 - **The alerts do not stop anything.** Scale to zero does not cap the cost: a request at least every two minutes (the 120 s cooldown) keeps the replica active around the clock, about … a month for compute at 0.5 vCPU / 1 GiB, about … with the fixed costs, above the … cap. The … and … mails and the emergency stop in §4 are the protection.
@@ -319,7 +322,6 @@ Not in this log: page views of the web app (Static Web Apps Free has no access l
 - **`backend.fetch` downloads all five files at every container start**, without a checksum or ETag; a failed download leaves a `.part` file in a container that is thrown away anyway. It imports `backend.main` for the path list, which loads FastAPI and Polars before the download (a second or two).
 - **The daily log cap of 0.1 GB drops lines.** Under a request flood, ingestion stops for the rest of the day, which is when the unfinished-requests query matters most. Raise the cap (`dailyQuotaGb`) if that happens.
 - **The stdout lines carry no timestamp** (Log Analytics adds `TimeGenerated`); the 8-hex id pairs a start with its end line but is not unique forever.
-- **The image installs `huggingface-hub`**, a main dependency for the pipeline that the API never imports (§7).
 - **The licence file lists the bundled JavaScript packages and the font, not Tailwind.** Vite's `build.license` (in `frontend/vite.config.ts`) only sees modules, while Tailwind's base styles (MIT) arrive through the CSS pipeline, and the minified CSS drops their notice. Add Tailwind's licence by hand to the file if the legal check asks for it.
 - **The Impressum may be empty.** Without the four `VITE_IMPRESSUM_*` keys the page reads "Angaben folgen."
 - **The gate's Bicep line passes on warnings**; only errors fail it. A new BCP081 warning after a Bicep update shows up in `az bicep build` output only.

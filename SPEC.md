@@ -162,14 +162,14 @@ Delay propagation along a line · weather correlation · map heatmap by station 
 |---|---|---|
 | Data processing | Python 3.12+, `uv`, **Polars** | Fast on large Parquet data, runs locally on Windows. |
 | Backend | **FastAPI**, Pydantic, Polars queries on Parquet aggregates | OpenAPI generated automatically. |
-| Frontend | **React + TypeScript + Vite**, **Tailwind**, **shadcn/ui**, charts with Recharts or ECharts, data fetching with TanStack Query | shadcn is React-native, large ecosystem. |
+| Frontend | **React + TypeScript + Vite**, **Tailwind**, native HTML controls, hand-drawn SVG charts, MapLibre GL for the map, data fetching with TanStack Query | No component or chart library was needed; see [docs/app-shell.md](docs/app-shell.md) §3. |
 | API contract | **OpenAPI-first**; the TS client is generated from the schema | Clean interface between backend and frontend. |
 | Design | Target in [docs/design.md](docs/design.md) and [docs/design/mockup.html](docs/design/mockup.html); theme tokens as CSS custom properties | One source for colours and spacing; dark mode without restyling. |
 | i18n | Message catalog from the start, German and English catalogs | UI language is switchable. |
 | Hosting (assumption, to verify in the roadmap) | Frontend: Azure Static Web Apps (Free) · Backend: Azure Container Apps (Consumption, scale-to-zero) · Aggregates: Azure Blob Storage · infrastructure as code (Bicep) | Budget. |
 | Budget | Target ≤ …/month, cap …/month; **Azure budget alert** at … and … | Requirement. |
 | Aggregate size | Target < 2 GB deployed; otherwise fall back to a watchlist (configurable station list) | Cost, cold-start time. |
-| Repo | Monorepo: `core/`, `pipeline/`, `backend/`, `frontend/`, `scripts/`, `docs/` (and `infra/` later) (incl. `docs/adr/`) | Clear working areas. |
+| Repo | Monorepo: `core/`, `pipeline/`, `backend/`, `frontend/`, `scripts/`, `docs/` (incl. `docs/adr/`) and `infra/` | Clear working areas. |
 | Conventions | Ruff + Pyright/mypy (Python), ESLint + TypeScript strict (frontend) | Hard, automatic guardrails. |
 
 ---
@@ -183,16 +183,16 @@ See [docs/roadmap.md](docs/roadmap.md).
 ## 8. Acceptance criteria
 
 ### Pipeline (F1)
-- [ ] AC-1: One command downloads all available months and produces the aggregates; a repeated run downloads only new months.
-- [ ] AC-2: With a changed source schema the pipeline aborts with a message naming the missing/new columns.
+- [x] AC-1: One command downloads all available months and produces the aggregates; a repeated run downloads only new months. (`tests/pipeline/test_update.py`, `test_second_run_fetches_nothing_and_still_combines`)
+- [x] AC-2: With a changed source schema the pipeline aborts with a message naming the missing/new columns. (`tests/pipeline/test_aggregate.py`, `test_schema_abort_names_a_new_column`)
 - [ ] AC-3: Deployed aggregates are < 2 GB (or the watchlist fallback is active and documented).
 - [ ] AC-4: Spot check: for 5 random train/stop/day combinations the computed delays match the raw rows.
 
 ### Pattern analysis (F2)
 - [ ] AC-5: The weekday × hour heatmap loads in < 3 s (warm) for "nationwide, all categories, last 3 months".
-- [ ] AC-6: The filter "regional only" demonstrably removes all ICE/IC/EC from all metrics.
-- [ ] AC-7: Cancellation rate and delay metrics are shown separately; cancelled stops do **not** enter the distribution as 0 min delay.
-- [ ] AC-8: Every metric shows n and the data period.
+- [x] AC-6: The filter "regional only" demonstrably removes all ICE/IC/EC from all metrics. (`tests/api/test_heatmap_api.py`, `test_regional_has_no_fern`; `tests/core/test_core.py`, `test_category_expr`)
+- [x] AC-7: Cancellation rate and delay metrics are shown separately; cancelled stops do **not** enter the distribution as 0 min delay. (`tests/core/test_core.py`, `test_arrival_delay_rules` and `test_cell_stats_with_cancellations`; `tests/api/test_map_api.py`, `test_statistik_bins_and_cancelled_sum_to_n`; `frontend/e2e/heatmap.spec.ts`, "only-cancelled cells have their own look and are not thin")
+- [x] AC-8: Every metric shows n and the data period. (`frontend/e2e/heatmap.spec.ts`, "7 weekday rows, hatched thin cells, approximate values, day totals"; `frontend/e2e/station.spec.ts`, "four tiles with value, sentence, meta and a coloured edge")
 
 ### Connection comparison (F3, F4)
 - [ ] AC-9: For a test relation with 1 transfer and a 90 min window, all matching connections are shown with median, P90, cancellation and transfer risk.
@@ -205,7 +205,7 @@ See [docs/roadmap.md](docs/roadmap.md).
 - [ ] AC-14: Both main areas are usable at 375 px width without horizontal scrolling.
 - [ ] AC-15: A search URL can be shared and reproduces the same view.
 - [ ] AC-16: Azure costs in the first full month of operation ≤ …, budget alert is set up and tested.
-- [ ] AC-17: CC BY 4.0 attribution is visible in UI and README.
+- [x] AC-17: CC BY 4.0 attribution is visible in UI and README. (`frontend/e2e/shell.spec.ts`, "the shell shows title, disclaimer and attribution"; the "Train data" row of the README's licences table)
 
 ---
 

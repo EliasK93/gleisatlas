@@ -135,7 +135,7 @@ Unknown or invalid values fall back to the default and are removed from the URL 
 - `frontend/src/Icon.tsx`: the icon set. `frontend/src/api.ts`: typed client over `schema.d.ts`; `must()` turns any non-2xx response into a query error.
 - UI text only via the catalogs `frontend/src/i18n/de.ts` and `en.ts` (`t()`, and `tx()` for placeholders filled with React nodes). Colours only via the tokens in `frontend/src/theme.css`; component classes in `index.css` use tokens only. Both rules are stated in [CLAUDE.md](../CLAUDE.md). `frontend/src/prefs.ts` holds the theme and language preferences; see [theme-and-language.md](theme-and-language.md).
 - `frontend/src/schema.d.ts` is generated from `backend/openapi.json`: `uv run python scripts/export_openapi.py`, then `npm.cmd --prefix frontend run gen`. The gate fails when it is stale (`gen:check`).
-- Tests: `frontend/e2e/*.spec.ts` run in Playwright against fixtures served through `page.route` (`frontend/e2e/fixtures.ts`), never a backend. Two projects: desktop Chromium and a Pixel 7 profile (also Chromium).
+- Tests: `frontend/e2e/*.spec.ts` run in Playwright against fixtures served through `page.route` (`frontend/e2e/fixtures.ts`), never a backend. Three projects: desktop Chromium, a Pixel 7 profile (also Chromium), and `csp`, which runs only `csp.spec.ts` against the production build.
 
 ## 5 Milestones
 
@@ -162,7 +162,7 @@ Unknown or invalid values fall back to the default and are removed from the URL 
 - The Linie chip exists only on the time series. The heatmap, the map and the rankings do not filter by line; they drop a `linie` key.
 - The rankings' minimum sample offers four values although the API accepts any value from 15, and the empty state has no one-click "lower the sample" button.
 - The time series compares no second series (see [patterns.md](patterns.md) §8).
-- The station search sends one request per keystroke, cached per term. Add a debounce if the API gets slow.
+- The station search has no debounce; see [map.md](map.md) §8.
 - Teilen gives no feedback when the browser denies the clipboard.
 - An unknown station in `bhf` on the heatmap shows the generic empty state, not "Diesen Bahnhof kennen wir nicht" with a search (design.md §7); the station page has that state (see [map.md](map.md)).
 - The sidebar has no collapse to a rail.

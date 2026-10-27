@@ -57,7 +57,7 @@ The UI on top of this is described in [app-shell.md](app-shell.md) and [map.md](
 - Aggregate keys: `weekday`, `hour`, `gruppe`, `eva`, `month`, `bucket`, `n` (see [pipeline.md](pipeline.md)). Line keys: `lines.parquet` has `linie`, `eva`, `gruppe`, `month`, `bucket`, `n` (no weekday or hour), `linien.parquet` has `linie`, `name`, `label`, `typ`. The line statistics are therefore per month and category, not per cell, and the selection chain (`gattung`, `eva`, `von`, `bis`) is the one of the heatmap.
 - `station_stats_for` (statistics per EVA for a selection) feeds `/karte` and `/rankings?typ=bahnhoefe`; `line_stats_for` feeds `/rankings?typ=linien`; `line_entries` also feeds `/stationen/{eva}/linien`. `/zeitverlauf` groups once by month and bucket and runs the statistics per month.
 - OpenAPI schema is exported to `backend/openapi.json` (`uv run python scripts/export_openapi.py`); the TypeScript client is generated from it, and the gate fails when either is stale.
-- CORS allows the local dev origin `http://localhost:5317`, GET only.
+- CORS allows the origins in `CORS_ORIGINS` (default `http://localhost:5317`), GET only; the deployed value is set in [deployment.md](deployment.md) §4.
 
 ## 5 Milestones
 
@@ -95,4 +95,4 @@ None. The line key is decided in [pipeline.md](pipeline.md) §3, and the timetab
 - The time series follows one selection (nationwide, one station or one line). Comparing up to three series in one chart is not built.
 - A line id is `{name}:{lowest EVA of its network}`. When a network gains a station with a lower EVA in a later month, its id changes, and a saved link to the old id returns 404. Accepted while the data only grows by whole months and a link is cheap to recreate from the rankings.
 - The `/stationen` list omits the 6 EVAs that have no name in the source.
-- `/karte`, the station statistics behind it and the station rankings, and the line statistics of the line rankings are each cached per process by selection and file modification time, at most 16 entries. The first `/karte` computation took about 2 s on 11 months (5k Pydantic models). Vectorise the statistics in Polars when more months make that slow.
+- `/karte`, the station statistics behind it and the station rankings, and the line statistics of the line rankings are each cached per process by selection and file modification time, at most 16 entries. The first `/karte` computation takes 3.6–4.0 s on 27 months with one thread (5k Pydantic models; [deployment.md](deployment.md) §3). Vectorise the statistics in Polars when more months make that slow.

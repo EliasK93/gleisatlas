@@ -73,13 +73,13 @@ After a change to the per-month logic (cleaning, line names, coverage rule) the 
 - `core/lines.py`, `core/periods.py`, `core/delay.py`: the pure parts (line names, end-station spelling and networks, timetable changes and coverage start, the delay and plausibility rules).
 - `data/coords.parquet`: `ibnr`, `lat`, `lon`, `land`, one row per IBNR for the whole of Wikidata (not only Germany). The join strips the leading zero of our EVA (`08000207` to `8000207`) with `core.stations.ibnr_expr`. An EVA without a match takes the coordinates of the one located station with exactly the same name (secondary EVAs such as S-Bahn platforms). Details and the source decision: [adr/0001-station-coordinates.md](adr/0001-station-coordinates.md).
 - `data/stations.parquet`: `n` is all stops of the EVA in the source, arrival stops with cancelled ones included; it ranks search results and sizes map dots. `lat`, `lon` and `land` are NULL where Wikidata has no match or no state.
-- Coverage report, printed by the combine step: named stations with coordinates (number and share), the share of stops that belong to them, and the unmatched named stations with the most stops. Over 27 months: 5,415 of 5,419 named stations (99.9 %). Unmatched: Berlin-Karlshorst, Bochum-Langendreer, Bürstadt (Ried) and Trebitz (b Könnern).
+- Coverage report, printed by the combine step: named stations with coordinates (number and share), the share of stops that belong to them, and the unmatched named stations with the most stops. Over 27 months: 5,418 of 5,419 named stations (100.0 %, as the report rounds it). Unmatched: Trebitz (b Könnern), one stop, no Wikidata item.
 - The source also contains `xml_station_name`, `id`, `is_additional_stop`, the departure columns and more; most are not used yet.
 - Time zone: Europe/Berlin, as in the source; times are not converted.
 
 ## 5 Milestones
 
-- [ ] M0 – Download command and one-month aggregate run through the gate. Re-check: `tests/core` (delay semantics, NULL bucket) and `tests/pipeline` (incl. schema abort) pass.
+- [x] M0 – Download command and one-month aggregate run through the gate. Re-check: `tests/core` (delay semantics, NULL bucket) and `tests/pipeline` (incl. schema abort) pass.
 - [x] M3 – Multi-month pipeline: incremental download, strict schema, cleaning, line networks, coverage, timetable changes marked. Re-check: `uv run pytest -q` passes, in particular
   - AC-1: `tests/pipeline/test_update.py` (`test_second_run_fetches_nothing_and_still_combines`, `test_month_missing_a_file_is_reprocessed`, `test_leftover_temporary_folder_is_not_complete`, `test_update_aborts_without_coords_before_fetching`)
   - AC-2: `tests/pipeline/test_aggregate.py` (`test_schema_abort`, `test_schema_abort_names_a_new_column`)
@@ -97,7 +97,6 @@ After a change to the per-month logic (cleaning, line names, coverage rule) the 
 
 - Windows 11, PowerShell, `uv`; paths use forward slashes in code and commands.
 - The first run over 27 months took 8–14 min with the downloads already local; a second run only combines and took 53 s. Memory stays moderate because Polars scans lazily.
-- [ ] The heatmap for nationwide, all categories and the last 3 months loads in under 3 s warm (AC-5). To be measured.
 
 ## 7 Open decisions
 
@@ -106,6 +105,7 @@ None.
 ## 8 Known shortcuts
 
 - The skip check looks only at the month folder: a month file that HuggingFace replaces later is not fetched again, and month folders carry no version. Changing the per-month logic needs `data/months/` deleted by hand (see §2).
+- Downloads use no pinned dataset `revision`. If the upstream dataset re-uploads a month, a newly fetched month and the older processed ones can come from different upstream states without notice. Revisit when upstream corrections matter: record the dataset commit in `meta` and reprocess the months whose commit differs.
 - The combine step rewrites every combined file on every run, also when no month is new.
 - The raw files stay in `data/raw/` after processing, about 5 GB for 27 months.
 - `combine` fails when no month folder is complete; it only happens if the remote list is empty.

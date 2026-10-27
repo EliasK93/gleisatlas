@@ -57,7 +57,7 @@ The viewer chooses the look (System, Hell, Dunkel) and the UI language (Deutsch,
 - `frontend/src/App.tsx`: `ThemeSwitch` and `LangSwitch` over one `PrefSwitch`.
 - `frontend/src/MapPage.tsx`: `STYLE` per theme, the `style.load` setup and the `setStyle` effect; the station colours are read from the tokens once per theme.
 - Every localStorage read and write sits in try/catch; a blocked storage keeps the pick until the page closes (theme) or falls back to the browser language (language).
-- Tests: `frontend/e2e/theme.spec.ts` and `frontend/e2e/i18n.spec.ts`. `playwright.config.ts` sets `locale: "de-DE"` for both projects, because Playwright's default would switch every other spec to English.
+- Tests: `frontend/e2e/theme.spec.ts` and `frontend/e2e/i18n.spec.ts`. `playwright.config.ts` sets `locale: "de-DE"` for all projects, because Playwright's default would switch every other spec to English.
 
 ## 5 Milestones
 

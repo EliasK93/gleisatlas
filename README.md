@@ -10,6 +10,8 @@ Rail reliability for Germany: historical delay, cancellation and transfer statis
 
 ## Quick start (PowerShell)
 
+Needs [uv](https://docs.astral.sh/uv/) and Node.js 22; uv installs the Python version from `.python-version`.
+
 ```powershell
 uv sync
 npm.cmd --prefix frontend install
@@ -21,6 +23,7 @@ winget install Microsoft.AzureCLI
 az bicep install --version v0.48.1
 
 # data: fetch station coordinates, then download and aggregate every month (a second run skips finished months)
+# the first run downloads about 5 GB into data/raw/ and takes about 8-14 min
 uv run python -m pipeline.coords
 uv run python -m pipeline.update
 
@@ -64,7 +67,7 @@ The site is set up for Azure (Static Web Apps, Container Apps, Blob Storage), de
 | Station coordinates and federal states | [Wikidata](https://www.wikidata.org) | CC0 |
 | Map tiles and style | © [OpenStreetMap](https://www.openstreetmap.org/copyright) contributors, [OpenMapTiles](https://openmaptiles.org), [OpenFreeMap](https://openfreemap.org) | OpenStreetMap data under ODbL; the attribution is on the map |
 | Libraries in the web app | React, React DOM, React Router, TanStack Query, openapi-fetch, MapLibre GL JS, the Inter font | MIT, BSD-3-Clause, SIL OFL 1.1; the full texts are in [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md) and on the site at `/licenses.txt` |
-| Libraries of the API (server only, not shipped to the browser) | Polars, FastAPI, uvicorn, huggingface-hub (direct dependencies in [pyproject.toml](pyproject.toml)) | MIT, MIT, BSD-3-Clause, Apache-2.0 |
+| Libraries of the API and the pipeline (not shipped to the browser) | Polars, FastAPI, uvicorn; the pipeline adds huggingface-hub (direct dependencies in [pyproject.toml](pyproject.toml)) | MIT, MIT, BSD-3-Clause, Apache-2.0 |
 
 `THIRD_PARTY_LICENSES.md` is the licence file Vite writes for the production build (`build.license` in `frontend/vite.config.ts`). The gate fails when it differs from the build's file, for example after a dependency update; then copy it over: `Copy-Item frontend/dist-e2e/licenses.txt THIRD_PARTY_LICENSES.md`.
 

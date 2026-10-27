@@ -1,6 +1,6 @@
 # Gleisatlas – Design Concept
 
-> **Note:** Light and dark mode are both implemented; the dark values in section 3.1 are the mockup's, except `--text-3`, which is lightened for contrast (see [theme-and-language.md](theme-and-language.md)). The mockup mixes light and dark areas in places; the light token set in section 3.1 is authoritative. UI strings are quoted in German as they appear in the app; the app also has an English catalog. Clickable mockup with fake data: [design/mockup.html](design/mockup.html).
+> **Note:** Light and dark mode are both implemented; the dark values in section 3.1 are the mockup's, except `--text-3`, which is lightened for contrast (see [theme-and-language.md](theme-and-language.md)). The mockup mixes light and dark areas in places; the light token set in section 3.1 is authoritative. UI strings are quoted in German as they appear in the app; the app also has an English catalog. The implementation deviates where the feature docs record a decision: Inter is bundled instead of loaded from a CDN, there is no component library (the "shadcn/ui basis" cells), and the URL keys are those of [app-shell.md](app-shell.md) §2. Clickable mockup with fake data: [design/mockup.html](design/mockup.html).
 
 ## 0. Guiding idea
 
