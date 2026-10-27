@@ -37,8 +37,8 @@ const DARK_STYLE = baseStyle("#1f242c");
 export const STATIONS: Station[] = [
   { eva: "8000207", name: "Köln Hbf", land: "Nordrhein-Westfalen", n: 90000 },
   { eva: "8000105", name: "Frankfurt (Main) Hbf", land: "Hessen", n: 80000 },
-  // Known station without map data (no coordinates).
-  { eva: "8002549", name: "Hamburg Hbf", land: "Hamburg", n: 70000 },
+  // Known station without map data (no coordinates); its EVA has a leading zero, as in the data.
+  { eva: "08002549", name: "Hamburg Hbf", land: "Hamburg", n: 70000 },
   // Two stations with the same name, one with no federal state and very little data.
   { eva: "8000300", name: "Neustadt", land: "Bayern", n: 5000 },
   { eva: "8000301", name: "Neustadt", land: "Hessen", n: 4000 },
@@ -294,15 +294,22 @@ export const emptyRangliste = (typ: string, metrik: string, minN: number): Rangl
   beste: [],
 });
 
-/** Twelve lines at a station, worst first; the fourth has only 9 stops. */
+/**
+ * Twelve lines at a station in the API's order: ten with a value, worst first; RE 11, whose stops
+ * were all cancelled; RE 12, with only 9 stops.
+ */
 export function linienFixture(): StationLinie[] {
   return Array.from({ length: 12 }, (_, i) => {
-    const low = i === 3;
-    return {
+    const line = {
       linie: `RE ${i + 1}:8000207`,
       name: `RE ${i + 1} · Köln Hbf`,
       typ: "RE",
-      n: low ? 9 : 1500 - i * 100,
+    };
+    if (i === 10)
+      return { ...line, n: 700, ausfallquote: 1, median: null, p90: null, puenktlich: null };
+    return {
+      ...line,
+      n: i === 11 ? 9 : 1500 - i * 100,
       ausfallquote: 0.02 + i * 0.001,
       median: 2,
       p90: 8,

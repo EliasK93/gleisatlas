@@ -110,13 +110,13 @@ test("the distribution has 7 delay bars and a separate ausgefallen bar", async (
   const bars = card.getByRole("listitem");
   await expect(bars).toHaveCount(8);
   const delay: [string, string][] = [
-    ["0–1", "44 %"],
+    ["< 1", "44 %"],
     ["1–3", "21 %"],
     ["3–6", "13 %"],
     ["6–10", "9 %"],
     ["10–20", "5 %"],
     ["20–30", "2 %"],
-    ["> 30", "1 %"],
+    ["≥ 30", "1 %"],
   ];
   for (const [i, [label, value]] of delay.entries()) {
     await expect(bars.nth(i)).toContainText(`${label} min`);
@@ -345,25 +345,27 @@ test("Weniger anzeigen collapses to ten rows and hands the focus to the toggle",
   await expect(card.getByRole("button", { name: "Alle 12 Linien anzeigen" })).toBeFocused();
 });
 
-test("Beste zuerst reverses the lines with enough data and keeps the others last", async ({
-  page,
-}) => {
+test("Beste zuerst reverses the lines with a value and keeps the others last", async ({ page }) => {
   await mockApi(page);
   await page.goto("/bahnhof/8000207");
   const card = section(page, "Linien an diesem Bahnhof");
+  await card.getByRole("button", { name: "Alle 12 Linien anzeigen" }).click();
+  await expect(lines(page).nth(9)).toContainText("RE 10 · Köln Hbf");
+  await expect(lines(page).nth(10)).toContainText("RE 11 · Köln Hbf");
+  await expect(lines(page).nth(11)).toContainText("RE 12 · Köln Hbf");
   await card.getByRole("button", { name: "Beste zuerst" }).click();
   await expect(pressed(card, "Beste zuerst")).toBeVisible();
-  await expect(lines(page)).toHaveCount(10);
-  await expect(lines(page).first()).toContainText("RE 12 · Köln Hbf");
-  await expect(lines(page).nth(8)).toContainText("RE 3 · Köln Hbf");
-  await card.getByRole("button", { name: "Alle 12 Linien anzeigen" }).click();
-  await expect(lines(page).nth(10)).toContainText("RE 1 · Köln Hbf");
-  // RE 4 has only 9 stops: it was fourth, and now it is last.
-  await expect(lines(page).last()).toContainText("RE 4 · Köln Hbf");
+  await expect(lines(page)).toHaveCount(12);
+  await expect(lines(page).first()).toContainText("RE 10 · Köln Hbf");
+  await expect(lines(page).nth(9)).toContainText("RE 1 · Köln Hbf");
+  // RE 11 has no value (all stops cancelled) and RE 12 only 9 stops: both stay behind the others.
+  await expect(lines(page).nth(10)).toContainText("RE 11 · Köln Hbf");
+  await expect(lines(page).last()).toContainText("RE 12 · Köln Hbf");
   await expect(lines(page).last()).toContainText("n = 9");
   await card.getByRole("button", { name: "Schlechteste zuerst" }).click();
   await expect(lines(page).first()).toContainText("RE 1 · Köln Hbf");
-  await expect(lines(page).nth(3)).toContainText("RE 4 · Köln Hbf");
+  await expect(lines(page).nth(10)).toContainText("RE 11 · Köln Hbf");
+  await expect(lines(page).last()).toContainText("RE 12 · Köln Hbf");
 });
 
 test("a cancellation rate of 10 % or more stays on one line in the lines table", async ({
@@ -394,8 +396,11 @@ test("expanding the lines with the keyboard moves focus to the first new row", a
 test("a line with too little data is hatched and shows no value", async ({ page }) => {
   await mockApi(page);
   await page.goto("/bahnhof/8000207");
-  const low = lines(page).nth(3);
-  await expect(low).toContainText("RE 4 · Köln Hbf");
+  await section(page, "Linien an diesem Bahnhof")
+    .getByRole("button", { name: "Alle 12 Linien anzeigen" })
+    .click();
+  const low = lines(page).nth(11);
+  await expect(low).toContainText("RE 12 · Köln Hbf");
   await expect(low).toContainText("n = 9");
   await expect(low).toContainText("–");
   await expect(low.getByText("59 %")).toHaveCount(0);

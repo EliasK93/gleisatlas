@@ -38,7 +38,7 @@ test("the map renders the stations and has no footer", async ({ page }) => {
   await expect(page.getByRole("region", { name: "Deutschlandkarte mit Bahnhöfen" })).toBeVisible();
   await expect(page.getByRole("contentinfo")).toHaveCount(0);
   await expect(
-    page.getByText("Daten: Deutsche Bahn via piebro/deutsche-bahn-data, CC BY 4.0"),
+    page.getByText("Daten: Deutsche Bahn via piebro/deutsche-bahn-data, CC BY 4.0, aggregiert"),
   ).toBeAttached();
 });
 
@@ -80,7 +80,7 @@ test("little data gets a note in the panel", async ({ page }) => {
 
 test("a station without map data shows its name and a hint", async ({ page }) => {
   await mockApi(page);
-  await page.goto("/karte?bhf=8002549");
+  await page.goto("/karte?bhf=08002549");
   const p = panel(page);
   await expect(p.getByRole("heading", { level: 2 })).toHaveText("Hamburg Hbf");
   await expect(p).toContainText("Für diesen Bahnhof gibt es mit diesen Filtern keine Kartendaten.");

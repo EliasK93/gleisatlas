@@ -42,6 +42,7 @@ import {
   PRIMARY,
   show,
   SoonTag,
+  stationPath,
   useNarrow,
 } from "./ui";
 
@@ -552,7 +553,7 @@ function StationPanel({
       )}
 
       <div className="flex flex-wrap items-center gap-2">
-        <Link to={{ pathname: `/bahnhof/${eva}`, search }} className={PRIMARY}>
+        <Link to={{ pathname: stationPath(eva), search }} className={PRIMARY}>
           {t("map.details")}
         </Link>
         <span className="inline-flex h-[34px] items-center gap-1.5 px-2 font-medium text-text-2 opacity-55">

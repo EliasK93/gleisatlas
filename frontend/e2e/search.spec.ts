@@ -93,7 +93,7 @@ test("Enter while a new term loads does not open a hit of the old term", async (
   await expect(options(page).first()).toContainText("Hamburg Hbf");
   await expect(page).toHaveURL(/\/karte$/);
   await field.press("Enter");
-  await expect(page).toHaveURL(/\/bahnhof\/8002549$/);
+  await expect(page).toHaveURL(/\/bahnhof\/08002549$/);
 });
 
 test("Ctrl+K and Cmd+K are taken over by the page", async ({ page }) => {

@@ -21,10 +21,8 @@ import { setLang, useTheme, type ThemePref } from "./prefs";
 import RankingsPage from "./RankingsPage";
 import StationPage from "./StationPage";
 import { GlobalSearch, useSearchShortcut } from "./StationSearch";
-import { HEATMAP, RANKINGS, Segmented, SoonTag, ZEITVERLAUF } from "./ui";
+import { HEATMAP, MAP, RANKINGS, Segmented, SoonTag, stationPath, ZEITVERLAUF } from "./ui";
 import ZeitverlaufPage from "./ZeitverlaufPage";
-
-const MAP = "/karte";
 
 export default function App() {
   return (
@@ -32,7 +30,7 @@ export default function App() {
       <Route element={<Shell />}>
         <Route index element={<Redirect to={MAP} />} />
         <Route path={MAP} element={<MapPage />} />
-        <Route path="/bahnhof/:eva" element={<StationPage />} />
+        <Route path={stationPath(":eva")} element={<StationPage />} />
         <Route path="/muster" element={<Redirect to={HEATMAP} />} />
         <Route path={HEATMAP} element={<HeatmapPage />} />
         <Route path={RANKINGS} element={<RankingsPage />} />

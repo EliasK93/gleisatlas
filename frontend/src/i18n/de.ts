@@ -1,7 +1,8 @@
 export const de = {
   "app.title": "Gleisatlas",
   "footer.disclaimer": "Historische Statistik, keine Prognose oder Garantie.",
-  "footer.attribution": "Daten: Deutsche Bahn Ist-Daten via piebro/deutsche-bahn-data, CC BY 4.0",
+  "footer.attribution":
+    "Daten: Deutsche Bahn Ist-Daten via piebro/deutsche-bahn-data, CC BY 4.0, aggregiert",
 
   "nav.label": "Hauptnavigation",
   "nav.discover": "Entdecken",
@@ -124,7 +125,7 @@ export const de = {
   "zv.table": "Werte pro Monat",
   "zv.col.month": "Monat",
   "zv.col.n": "Stichprobe (n)",
-  "zv.col.gap": "Stunden ohne Daten",
+  "zv.col.gap": "Stunden mit Lücken",
   "zv.unknownLine": "Diese Linie gibt es in den Daten nicht (mehr)",
   "zv.unknownLineHint":
     "Linien-Kennungen können sich ändern, wenn neue Monate dazukommen. Alte Links führen dann ins Leere.",
@@ -135,7 +136,7 @@ export const de = {
   "map.title": "Wie zuverlässig ist die Bahn?",
   "map.lead": "Jeder Punkt ist ein Bahnhof – ein Klick zeigt die Details.",
   "map.region": "Deutschlandkarte mit Bahnhöfen",
-  "map.attribution": "Daten: Deutsche Bahn via piebro/deutsche-bahn-data, CC BY 4.0",
+  "map.attribution": "Daten: Deutsche Bahn via piebro/deutsche-bahn-data, CC BY 4.0, aggregiert",
   "map.attributionToggle": "Quellenangaben ein- oder ausblenden",
   "map.zoomIn": "Vergrößern",
   "map.zoomOut": "Verkleinern",

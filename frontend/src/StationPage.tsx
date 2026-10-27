@@ -29,6 +29,7 @@ import {
   ErrorBanner,
   FILL,
   HEATMAP,
+  MAP,
   MetricSwitch,
   MiniBar,
   Segmented,
@@ -44,7 +45,6 @@ import { Sparkline } from "./ZeitverlaufPage";
 type Statistik = components["schemas"]["Statistik"];
 type Heatmap = components["schemas"]["Heatmap"];
 
-const MAP = "/karte";
 const DAYS = Array.from({ length: 7 }, (_, d) => d);
 const HOURS = Array.from({ length: 24 }, (_, h) => h);
 /** Scale class of each delay bin, as in the mockup. */
@@ -479,10 +479,17 @@ const LINES_FIRST = 10;
 
 type Linie = components["schemas"]["StationLinie"];
 
-/** The lines with enough data in reverse order, then the ones with too little, as they were. */
+/**
+ * The lines with a value in reverse order, then the ones whose stops were all cancelled, then the
+ * ones with too little data, each as they were.
+ */
 const bestFirst = (lines: Linie[]) => {
-  const thin = (l: Linie) => !!show("puenktlich", l, "").low;
-  return [...lines.filter((l) => !thin(l)).reverse(), ...lines.filter(thin)];
+  const rank = (l: Linie) => {
+    const s = show("puenktlich", l, "");
+    return s.low ? 2 : s.value === undefined ? 1 : 0;
+  };
+  const part = (r: number) => lines.filter((l) => rank(l) === r);
+  return [...part(0).reverse(), ...part(1), ...part(2)];
 };
 
 const ORDERS = [
@@ -515,8 +522,8 @@ function Lines({ eva, f }: { eva: string; f: FilterKeys }) {
         .then(must),
     placeholderData: keepPreviousData,
   });
-  // The API lists the lines with enough data worst first and the others after them; best first
-  // reverses only the former.
+  // The API lists the lines with a value worst first, then the all-cancelled ones, then the ones
+  // with too little data; best first reverses only the first group.
   const lines = q.data && (order === "worst" ? q.data : bestFirst(q.data));
   let body;
   if (q.isError) body = <ErrorBanner onRetry={() => q.refetch()} />;

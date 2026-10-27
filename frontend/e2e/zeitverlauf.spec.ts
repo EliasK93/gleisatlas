@@ -263,7 +263,7 @@ test.describe("desktop", () => {
     await expect(chart(page)).toHaveCount(0);
     const table = page.getByRole("table");
     await expect(table.locator("tbody tr")).toHaveCount(27);
-    for (const head of ["Monat", "Pünktlichkeit", "Ausfälle", "Stichprobe", "Stunden ohne Daten"])
+    for (const head of ["Monat", "Pünktlichkeit", "Ausfälle", "Stichprobe", "Stunden mit Lücken"])
       await expect(table.getByRole("columnheader", { name: head })).toBeVisible();
     const march = table.getByRole("row", { name: /Mär 26/ });
     for (const text of ["78 %", "1.240"]) await expect(march).toContainText(text);

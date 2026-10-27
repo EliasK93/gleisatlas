@@ -5,6 +5,7 @@ import { api, must } from "./api";
 import { t } from "./i18n";
 import { Icon } from "./Icon";
 import { int, readFilters, writeFilters } from "./metrics";
+import { stationPath } from "./ui";
 
 type Variant = "global" | "inline";
 
@@ -163,7 +164,7 @@ export function useOpenStation() {
   const navigate = useNavigate();
   return (eva: string) =>
     navigate({
-      pathname: `/bahnhof/${eva}`,
+      pathname: stationPath(eva),
       search: writeFilters({ ...readFilters(params), bhf: undefined }).toString(),
     });
 }

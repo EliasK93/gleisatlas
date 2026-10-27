@@ -32,6 +32,7 @@ import {
   Segmented,
   ShareButton,
   show,
+  stationPath,
   useNarrow,
   ZEITVERLAUF,
 } from "./ui";
@@ -219,7 +220,7 @@ function Lists({
                   most={most}
                   to={
                     rank.typ === "bahnhoefe"
-                      ? { pathname: `/bahnhof/${e.id}`, search }
+                      ? { pathname: stationPath(e.id), search }
                       : { pathname: ZEITVERLAUF, search: lineSearch(e.id) }
                   }
                 />

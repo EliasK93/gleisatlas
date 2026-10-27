@@ -72,10 +72,15 @@ export const DEFS: Record<Metric, Def> = {
 /** A share of all stops in whole percent; a non-zero share below 0.5 % reads "< 1 %", never "0 %". */
 export const share = (pct: number) => withUnit(pct > 0 && pct < 0.5 ? "< 1" : int(pct), "unit.pct");
 
-/** Lower limits in minutes of the seven delay bins of `verteilung`; the last bin is open. */
+/** Lower limits in minutes of the seven delay bins of `verteilung`; the first bin (including early
+ * arrivals) and the last are open. */
 const BIN_FROM = [0, 1, 3, 6, 10, 20, 30];
 export const binLabel = (i: number) =>
-  i === BIN_FROM.length - 1 ? `> ${BIN_FROM[i]}` : `${BIN_FROM[i]}–${BIN_FROM[i + 1]}`;
+  i === 0
+    ? `< ${BIN_FROM[1]}`
+    : i === BIN_FROM.length - 1
+      ? `≥ ${BIN_FROM[i]}`
+      : `${BIN_FROM[i]}–${BIN_FROM[i + 1]}`;
 
 /** Class 1 (very reliable) … 5 (very unreliable). */
 export function classOf(m: Metric, v: number): 1 | 2 | 3 | 4 | 5 {

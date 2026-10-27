@@ -3,7 +3,8 @@ import type { de } from "./de";
 export const en: Record<keyof typeof de, string> = {
   "app.title": "Gleisatlas",
   "footer.disclaimer": "Historical statistics, not a forecast or a guarantee.",
-  "footer.attribution": "Data: Deutsche Bahn actual data via piebro/deutsche-bahn-data, CC BY 4.0",
+  "footer.attribution":
+    "Data: Deutsche Bahn actual data via piebro/deutsche-bahn-data, CC BY 4.0, aggregated",
 
   "nav.label": "Main navigation",
   "nav.discover": "Discover",
@@ -124,7 +125,7 @@ export const en: Record<keyof typeof de, string> = {
   "zv.table": "Values per month",
   "zv.col.month": "Month",
   "zv.col.n": "Sample (n)",
-  "zv.col.gap": "Hours without data",
+  "zv.col.gap": "Hours with gaps",
   "zv.unknownLine": "This line is not (or no longer) in the data",
   "zv.unknownLineHint":
     "Line IDs can change when new months are added. Old links then lead nowhere.",
@@ -135,7 +136,7 @@ export const en: Record<keyof typeof de, string> = {
   "map.title": "How reliable is the railway?",
   "map.lead": "Every dot is a station. Click one.",
   "map.region": "Map of Germany with stations",
-  "map.attribution": "Data: Deutsche Bahn via piebro/deutsche-bahn-data, CC BY 4.0",
+  "map.attribution": "Data: Deutsche Bahn via piebro/deutsche-bahn-data, CC BY 4.0, aggregated",
   "map.attributionToggle": "Show or hide attributions",
   "map.zoomIn": "Zoom in",
   "map.zoomOut": "Zoom out",

@@ -123,6 +123,8 @@ export const MetricSwitch = ({
   />
 );
 
+export const MAP = "/karte";
+export const stationPath = (eva: string) => `/bahnhof/${eva}`;
 export const HEATMAP = "/muster/heatmap";
 export const RANKINGS = "/muster/rankings";
 export const ZEITVERLAUF = "/muster/zeitverlauf";
