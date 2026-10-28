@@ -8,7 +8,7 @@ import {
 } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import workerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url";
-import { useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useMemo, useRef, useState, type RefObject } from "react";
 import { Link, Navigate, useLocation, useSearchParams } from "react-router";
 import { clearParams, useSetParams } from "./useSetParams";
 import { api, must } from "./api";
@@ -64,6 +64,8 @@ const GERMANY: [[number, number], [number, number]] = [
 /** Base map labels appear from this zoom on, so the stations dominate the overview. */
 const LABEL_ZOOM = 7;
 const FOCUS_ZOOM = 9;
+/** Free space between the filter card and the start view of Germany on desktop. */
+const CARD_GAP = 12;
 /** Opacity of the dots with "~" values and of the hollow rings; both stay visible on either base map. */
 const PALE = 0.5;
 const VERY_PALE = 0.3;
@@ -127,6 +129,7 @@ export default function MapPage() {
   const [params] = useSearchParams();
   const setParams = useSetParams();
   const root = useRef<HTMLDivElement>(null);
+  const card = useRef<HTMLDivElement>(null);
   const f: FilterKeys = { ...readFilters(params), linie: undefined };
   const q = useQuery({
     queryKey: ["karte", f.g, f.von, f.bis],
@@ -157,13 +160,19 @@ export default function MapPage() {
   return (
     <div ref={root} className="absolute inset-0 overflow-hidden">
       <StationMap
+        card={card}
         data={data}
         metric={f.k}
         selected={station}
         onPick={(eva) => setParams(withParam("bhf", eva))}
       />
 
-      <div className="absolute inset-x-2.5 top-2.5 z-10 flex flex-col gap-2.5 overflow-hidden rounded-xl border border-border bg-surface p-2.5 shadow-card md:top-3 md:right-auto md:left-3 md:max-w-[calc(100%-24px)] md:p-3">
+      <div
+        ref={card}
+        data-testid="map-card"
+        // With the 360 px panel open the card stops 12 px before it, and its rows wrap.
+        className={`absolute inset-x-2.5 top-2.5 z-10 flex flex-col gap-2.5 overflow-hidden rounded-xl border border-border bg-surface p-2.5 shadow-card md:top-3 md:right-auto md:left-3 md:p-3 ${f.bhf ? "md:max-w-[calc(100%-396px)]" : "md:max-w-[calc(100%-24px)]"}`}
+      >
         <div className="max-md:-mb-2.5">
           <h1 className="text-lg leading-tight font-[650] tracking-[-0.015em] max-md:sr-only">
             {t("map.title")}
@@ -215,11 +224,14 @@ export default function MapPage() {
 }
 
 function StationMap({
+  card,
   data,
   metric,
   selected,
   onPick,
 }: {
+  /** The floating filter card, which the start view keeps clear of. */
+  card: RefObject<HTMLElement | null>;
   data?: Karte;
   metric: Metric;
   selected?: KartenStation;
@@ -250,14 +262,24 @@ function StationMap({
   });
 
   useEffect(() => {
+    // Room for the floating filter card on top: on desktop its measured bottom edge.
+    const padding = () =>
+      narrow.matches
+        ? { top: 140, bottom: 40, left: 8, right: 8 }
+        : {
+            top:
+              card.current!.getBoundingClientRect().bottom -
+              box.current!.getBoundingClientRect().top +
+              CARD_GAP,
+            bottom: 24,
+            left: 24,
+            right: 24,
+          };
     const m = new MapLibre({
       container: box.current!,
       style: STYLE[styled.current],
       bounds: GERMANY,
-      // Room for the floating filter card on top.
-      fitBoundsOptions: {
-        padding: narrow.matches ? { top: 140, bottom: 40, left: 8, right: 8 } : 24,
-      },
+      fitBoundsOptions: { padding: padding() },
       attributionControl: false,
       locale: {
         "Map.Title": t("map.region"),
@@ -328,10 +350,27 @@ function StationMap({
     });
     m.on("click", "stations", (e) => {
       const eva = e.features?.[0]?.properties.eva;
-      if (eva) pick(String(eva));
+      if (!eva) return;
+      // The panel opening narrows the card; a click on the map must not move the camera.
+      watch.disconnect();
+      pick(String(eva));
     });
-    return () => m.remove();
-  }, []);
+    // The card's height changes while the page loads (period list, font) and with the width: fit
+    // again as long as the camera still sits where the last fit put it and nobody picked a station.
+    let home = { z: m.getZoom(), c: m.getCenter() };
+    const refit = () => {
+      const { z, c } = home;
+      if (m.getZoom() !== z || m.getCenter().lng !== c.lng || m.getCenter().lat !== c.lat) return;
+      m.fitBounds(GERMANY, { padding: padding(), animate: false });
+      home = { z: m.getZoom(), c: m.getCenter() };
+    };
+    const watch = new ResizeObserver(refit);
+    watch.observe(card.current!);
+    return () => {
+      watch.disconnect();
+      m.remove();
+    };
+  }, [card]);
 
   useEffect(() => {
     // Only a change after the map exists; the first style is already the right one.

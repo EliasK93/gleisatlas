@@ -149,18 +149,21 @@ test.describe("map", () => {
     isMobile: boolean,
     reach: number,
   ) {
+    const box = (await page.getByTestId("map").boundingBox())!;
+    // Measured before it is hidden: a hidden element has no box.
+    const card = (await page.getByTestId("map-card").boundingBox())!;
     await page.addStyleTag({ content: "main > div > :not(:first-child) { visibility: hidden }" });
     const mercator = (lo: number, la: number) => ({
       x: (lo + 180) / 360,
       y: 0.5 - Math.log(Math.tan(Math.PI / 4 + (la * Math.PI) / 360)) / (2 * Math.PI),
     });
-    // The initial view fits Germany into the map, minus the padding set in MapPage.
+    // The initial view fits Germany into the map, minus the padding set in MapPage; on desktop the
+    // top padding is the filter card's bottom edge plus 12 px.
     const { top, bottom, left, right } = isMobile
       ? { top: 140, bottom: 40, left: 8, right: 8 }
-      : { top: 24, bottom: 24, left: 24, right: 24 };
+      : { top: card.y + card.height + 12 - box.y, bottom: 24, left: 24, right: 24 };
     const sw = mercator(5.9, 47.3);
     const ne = mercator(15.0, 55.05);
-    const box = (await page.getByTestId("map").boundingBox())!;
     const w = box.width - left - right;
     const h = box.height - top - bottom;
     const scale = Math.min(w / (ne.x - sw.x), h / (sw.y - ne.y));

@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { localLabel } from "../src/metrics";
-import { EMPTY_KARTE, karteFixture, mockApi } from "./fixtures";
+import { EMPTY_KARTE, fontsReady, karteFixture, mockApi } from "./fixtures";
 
 const map = (page: Page) => page.getByTestId("map");
 const panel = (page: Page) => page.getByRole("complementary");
@@ -242,11 +242,15 @@ test.describe("desktop", () => {
     });
   });
 
-  test("clicking the selected station again adds no history entry", async ({ page }) => {
-    await mockApi(page);
-    await page.goto("/karte");
+  const card = (page: Page) => page.getByTestId("map-card");
+
+  /**
+   * Where the initial view puts Köln and the north edge of Germany (Web Mercator): the map fits
+   * Germany with 24 px padding, except on top, where the filter card plus a 12 px gap stays free.
+   */
+  async function startView(page: Page) {
     await expect(map(page)).toHaveAttribute("data-ready", "true");
-    // The initial view fits Germany with 24 px padding; project Köln into it (Web Mercator).
+    await fontsReady(page);
     const mercator = (lon: number, lat: number) => ({
       x: (lon + 180) / 360,
       y: 0.5 - Math.log(Math.tan(Math.PI / 4 + (lat * Math.PI) / 360)) / (2 * Math.PI),
@@ -254,12 +258,68 @@ test.describe("desktop", () => {
     const sw = mercator(5.9, 47.3);
     const ne = mercator(15.0, 55.05);
     const box = (await map(page).boundingBox())!;
-    const scale = Math.min((box.width - 48) / (ne.x - sw.x), (box.height - 48) / (sw.y - ne.y));
-    const koeln = mercator(6.959, 50.943);
-    const at = {
-      x: box.x + box.width / 2 + (koeln.x - (sw.x + ne.x) / 2) * scale,
-      y: box.y + box.height / 2 + (koeln.y - (sw.y + ne.y) / 2) * scale,
+    const cardBox = (await card(page).boundingBox())!;
+    const top = cardBox.y + cardBox.height + 12 - box.y;
+    const scale = Math.min(
+      (box.width - 48) / (ne.x - sw.x),
+      (box.height - top - 24) / (sw.y - ne.y),
+    );
+    const centre = { x: (sw.x + ne.x) / 2, y: (sw.y + ne.y) / 2 };
+    const project = (lon: number, lat: number) => {
+      const p = mercator(lon, lat);
+      return {
+        x: box.x + box.width / 2 + (p.x - centre.x) * scale,
+        y: box.y + top + (box.height - top - 24) / 2 + (p.y - centre.y) * scale,
+      };
     };
+    return {
+      koeln: project(6.959, 50.943),
+      north: project(10, 55.05).y,
+      cardBottom: cardBox.y + cardBox.height,
+    };
+  }
+
+  for (const [width, height] of [
+    [1024, 768],
+    [1280, 800],
+    [1440, 900],
+    [1600, 1200],
+  ])
+    test(`the start view fits Germany below the filter card at ${width}×${height}`, async ({
+      page,
+    }) => {
+      await mockApi(page);
+      await page.setViewportSize({ width, height });
+      await page.goto("/karte");
+      const { koeln, north, cardBottom } = await startView(page);
+      expect(north).toBeGreaterThanOrEqual(cardBottom);
+      // The model is right when the dot is where it says: a click there selects Köln.
+      await page.mouse.click(koeln.x, koeln.y);
+      await expect(page).toHaveURL(/\/karte\?bhf=8000207$/);
+    });
+
+  for (const width of [1024, 1280, 1440])
+    test(`the open panel and the filter card stay apart at ${width} px`, async ({ page }) => {
+      await mockApi(page);
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto("/karte?bhf=8000207");
+      await expect(panel(page).getByRole("heading", { level: 2 })).toHaveText("Köln Hbf");
+      await fontsReady(page);
+      const c = (await card(page).boundingBox())!;
+      const p = (await panel(page).boundingBox())!;
+      expect(c.x + c.width, "card ends before the panel").toBeLessThanOrEqual(p.x);
+      for (const el of await card(page).locator("button, select").all()) {
+        const b = (await el.boundingBox())!;
+        expect(b.x).toBeGreaterThanOrEqual(c.x);
+        expect(b.x + b.width).toBeLessThanOrEqual(c.x + c.width);
+        expect(b.y + b.height).toBeLessThanOrEqual(c.y + c.height);
+      }
+    });
+
+  test("clicking the selected station again adds no history entry", async ({ page }) => {
+    await mockApi(page);
+    await page.goto("/karte");
+    const at = (await startView(page)).koeln;
     await page.mouse.click(at.x, at.y);
     await expect(page).toHaveURL(/\/karte\?bhf=8000207$/);
     await expect(panel(page).getByRole("heading", { level: 2 })).toHaveText("Köln Hbf");
@@ -267,6 +327,24 @@ test.describe("desktop", () => {
     await page.mouse.click(at.x, at.y);
     await page.mouse.click(at.x, at.y);
     expect(await page.evaluate(() => history.length)).toBe(before);
+  });
+
+  test("a click on the map keeps the camera, though the card grows with the panel", async ({
+    page,
+  }) => {
+    // At 1440 × 900 the narrower card wraps "Zurücksetzen" into a row of its own.
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await mockApi(page);
+    await page.goto("/karte");
+    const at = (await startView(page)).koeln;
+    const before = (await card(page).boundingBox())!.height;
+    await page.mouse.click(at.x, at.y);
+    await expect(panel(page).getByRole("heading", { level: 2 })).toHaveText("Köln Hbf");
+    await expect.poll(async () => (await card(page).boundingBox())!.height).toBeGreaterThan(before);
+    // Köln is still under the pointer: hovering the same spot names it again.
+    await page.mouse.move(at.x + 200, at.y + 200);
+    await page.mouse.move(at.x, at.y);
+    await expect(page.getByText(/^Köln Hbf · /)).toBeVisible();
   });
 
   test("the panel sits at the right, 360 px wide", async ({ page }) => {
