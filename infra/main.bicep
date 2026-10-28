@@ -85,7 +85,7 @@ resource acrPull 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
 }
 
 // Consumption only: no workload profiles, zone redundancy, VNet or private endpoints, which bring
-// the Dedicated plan's management charge (docs/deployment.md §4).
+// the Dedicated plan's management charge (docs/deployment.md §3).
 resource environment 'Microsoft.App/managedEnvironments@2026-07-01' = {
   name: 'gleisatlas-env'
   location: location
