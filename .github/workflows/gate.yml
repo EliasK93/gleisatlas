@@ -66,8 +66,8 @@ jobs:
           PYTEST_ADDOPTS: --junitxml=${{ runner.temp }}/pytest.xml
 
       # Pushes the test counts to the public gist behind the README's tests badge. Runs on push to
-      # main only, and also when tests failed, so the badge turns red. The gist is written with the
-      # product owner's token (secret GIST_TOKEN): GITHUB_TOKEN cannot write gists.
+      # main only, and also when tests failed, so the badge turns red. The gist is written with
+      # a personal access token with Gists read/write (secret GIST_TOKEN): GITHUB_TOKEN cannot write gists.
       - name: Update tests badge
         if: always() && github.event_name == 'push'
         env:

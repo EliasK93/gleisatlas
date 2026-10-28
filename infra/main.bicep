@@ -8,6 +8,9 @@ param budgetEmail string
 @description('First day of the month of the first deployment, e.g. 2026-11-01. Azure does not let a budget\'s start date change, so pass the same value on every later deployment.')
 param budgetStartDate string
 
+@description('Monthly budget of the resource group, in the billing currency. Alerts fire at 50 % and 90 % actual and 100 % forecast.')
+param budgetAmount int
+
 @description('The API image, e.g. <registry>.azurecr.io/api:<tag>. Empty: no Container App (phase 1).')
 param image string = ''
 
@@ -113,7 +116,7 @@ resource budget 'Microsoft.Consumption/budgets@2026-06-01' = {
   name: 'gleisatlas-budget'
   properties: {
     category: 'Cost'
-    amount: … // billing currency
+    amount: budgetAmount
     timeGrain: 'Monthly'
     timePeriod: { startDate: budgetStartDate }
     notifications: {

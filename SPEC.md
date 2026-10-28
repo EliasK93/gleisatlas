@@ -166,8 +166,8 @@ Delay propagation along a line · weather correlation · comparison with officia
 | API contract | **OpenAPI-first**; the TS client is generated from the schema | Clean interface between backend and frontend. |
 | Design | Target in [docs/design.md](docs/design.md) and [docs/design/mockup.html](docs/design/mockup.html); theme tokens as CSS custom properties | One source for colours and spacing; dark mode without restyling. |
 | i18n | Message catalog from the start, German and English catalogs | UI language is switchable. |
-| Hosting (see [docs/deployment.md](docs/deployment.md)) | Frontend: Azure Static Web Apps (Free) · Backend: Azure Container Apps (Consumption, scale-to-zero) · Aggregates: Azure Blob Storage · infrastructure as code (Bicep) | Budget. |
-| Budget | Target ≤ …/month, cap …/month; **Azure budget alert** at … and … | Requirement. |
+| Hosting (see [docs/deployment.md](docs/deployment.md)) | Frontend: Azure Static Web Apps (Free) · Backend: Azure Container Apps (Consumption, scale-to-zero) · Aggregates: Azure Blob Storage · infrastructure as code (Bicep) | Low fixed cost, scales to zero. |
+| Operating cost | Low fixed cost; **Azure budget** on the resource group with e-mail alerts at 50 % and 90 % actual and 100 % forecast (amount is a deploy parameter) | Costs stay visible, and Azure has no hard cap. |
 | Aggregate size | Target < 2 GB deployed; otherwise fall back to a watchlist (configurable station list) | Cost, cold-start time. |
 | Repo | Monorepo: `core/`, `pipeline/`, `backend/`, `frontend/`, `scripts/`, `docs/` (incl. `docs/adr/`) and `infra/` | Clear working areas. |
 | Conventions | Ruff + Pyright (Python), ESLint + TypeScript strict (frontend) | Hard, automatic guardrails. |
@@ -204,7 +204,7 @@ See [docs/roadmap.md](docs/roadmap.md).
 ### UI and operation
 - [ ] AC-14: Both main areas are usable at 375 px width without horizontal scrolling.
 - [ ] AC-15: A search URL can be shared and reproduces the same view.
-- [ ] AC-16: Azure costs in the first full month of operation ≤ …, budget alert is set up and tested.
+- [ ] AC-16: A budget with alerts is set up on the Azure resource group and its alert e-mail tested; the first full month of operation stays within it.
 - [x] AC-17: CC BY 4.0 attribution is visible in UI and README. (`frontend/e2e/shell.spec.ts`, "the shell shows title, disclaimer and attribution"; the "Train data" row of the README's licences table)
 
 ---
@@ -218,8 +218,8 @@ See [docs/roadmap.md](docs/roadmap.md).
 - Feature doc §3 or ADR updated if decisions were made.
 
 **For v1.0 overall (pragmatic):**
-- App runs deployed on Azure within budget.
-- It is used for real commutes and at least one other trip type.
+- App runs deployed on Azure within the configured budget.
+- It is tried on real trips: a recurring one and a one-off one.
 - Must features (F1–F5) fulfilled, AC-1 to AC-17 ticked.
 - Data update is documented and repeatable with one command.
 
@@ -233,7 +233,7 @@ Not part of the v1.0 DoD: CI/CD auto-deploy, monitoring, backtest of prediction 
 |---|---|---|
 | O1 | Connection source (4.2) | Spike, ADR |
 | O2 | Rule for a missed connection in the replay: take the next connection or count as failed? | Set in the replay-engine ADR; proposal: next connection of the same relation, max. +120 min |
-| O3 | Current Azure prices / free grants | Checked, see [docs/deployment.md](docs/deployment.md) §4 |
+| O3 | Current Azure free grants and billing items | Checked, see [docs/deployment.md](docs/deployment.md) §4 |
 | O5 | Project time frame | Not fixed; optional features only after v1.0 |
 | O6 | Handling of the timetable change (train numbers) | Decided: mark the change; the split per period comes with the planner (see [docs/pipeline.md](docs/pipeline.md)) |
 | O7 | Freshness of the community dataset | If no new month appears for > 2 months: evaluate an own collector as fallback |

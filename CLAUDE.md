@@ -46,10 +46,10 @@ Personal and machine-specific rules live in `CLAUDE.local.md` (gitignored).
 - Never rewrite history (no amend, rebase, reset --hard, force) and never skip hooks. Fix mistakes with a new commit.
 - Messages start with the area (`Core: `, `Pipeline: `, `API: `, `Web: `, `Docs: `, `Repo: `), one area per commit, subject says what changed and why. Code and the tests it needs go together.
 - The only trailer is `Co-Authored-By: <model> <noreply@anthropic.com>`.
-- Nothing personal in tracked files or commit messages: no real names beyond the public handle, no e-mail addresses, no machine paths, no employer or customer names.
+- Nothing personal in tracked files or commit messages: no real names beyond the public handle, no e-mail addresses, no machine paths.
 - Public tone: no diary noise, dates only on milestones and releases; delete superseded items instead of striking them through; no instructions aimed at the AI in human-facing docs; no milestone codes in code or test names; no TODO, FIXME or commented-out code; no template leftovers; one rule lives in one place; every module follows the same structure.
 - Accessibility labels are never changed to make tests easier; tests find elements by role, container or test ID.
-- Before going public: a fresh read-only review pass (code, then docs, config and history).
+- Before a release: a fresh read-only review pass (code, then docs, config and history).
 
 ### Batched testing
 - Queue several changes, then hand over one test round with a numbered checklist: what to open, what to do, what to see, and what needs no check.
