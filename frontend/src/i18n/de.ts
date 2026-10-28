@@ -2,7 +2,7 @@ export const de = {
   "app.title": "Gleisatlas",
   "footer.disclaimer": "Historische Statistik, keine Prognose oder Garantie.",
   "footer.attribution":
-    "Daten: Deutsche Bahn Ist-Daten via piebro/deutsche-bahn-data, CC BY 4.0, aggregiert",
+    "Daten: Deutsche Bahn Ist-Daten via piebro/deutsche-bahn-data, {licence}, aggregiert",
 
   "nav.label": "Hauptnavigation",
   "nav.discover": "Entdecken",
@@ -34,7 +34,6 @@ export const de = {
   "lang.en": "English",
 
   "data.status": "Datenstand: {month} · {stations} Bahnhöfe",
-  "data.source": "Daten: DB via piebro/deutsche-bahn-data,",
   "data.licence": "CC BY 4.0",
   "data.licenceUrl": "https://creativecommons.org/licenses/by/4.0/deed.de",
 
@@ -136,7 +135,7 @@ export const de = {
   "map.title": "Wie zuverlässig ist die Bahn?",
   "map.lead": "Jeder Punkt ist ein Bahnhof – ein Klick zeigt die Details.",
   "map.region": "Deutschlandkarte mit Bahnhöfen",
-  "map.attribution": "Daten: Deutsche Bahn via piebro/deutsche-bahn-data, CC BY 4.0, aggregiert",
+  "map.attribution": "Daten: Deutsche Bahn via piebro/deutsche-bahn-data, {licence}, aggregiert",
   "map.attributionToggle": "Quellenangaben ein- oder ausblenden",
   "map.zoomIn": "Vergrößern",
   "map.zoomOut": "Verkleinern",
@@ -231,6 +230,7 @@ export const de = {
   "legal.impressum.pending": "Angaben folgen.",
   "legal.privacy": "Datenschutz",
   "legal.source": "Quellcode",
+  "legal.notDb": "Kein Angebot der Deutschen Bahn.",
   "legal.privacy.note": "Maßgeblich ist diese deutsche Fassung.",
   "legal.p.controller.title": "Verantwortlicher",
   "legal.p.controller.text":
@@ -242,8 +242,9 @@ export const de = {
   "legal.p.logs.text":
     "Für die Auslieferung der Website und der API verarbeitet Azure die IP-Adresse der Besuchenden. Die Anwendung selbst protokolliert je Anfrage Methode, Pfad mit Abfrageparametern (dazu kann ein eingegebener Suchbegriff gehören), Status, Dauer und eine zufällige Anfragenummer, ohne IP-Adresse, und bewahrt dies 30 Tage für Betrieb und Fehleranalyse auf. Rechtsgrundlage ist Art. 6 Abs. 1 lit. f DSGVO (berechtigtes Interesse an einem sicheren und stabilen Betrieb).",
   "legal.p.map.title": "Karte",
+  "legal.p.map.link": "Datenschutzerklärung von OpenFreeMap",
   "legal.p.map.text":
-    "Der Browser lädt Kartenkacheln, Kartenstil, Schriften und Symbole der Karte direkt von {openfreemap} (tiles.openfreemap.org). Dabei erhält OpenFreeMap die IP-Adresse. Rechtsgrundlage ist Art. 6 Abs. 1 lit. f DSGVO (berechtigtes Interesse an der Kartendarstellung).",
+    "Der Browser lädt Kartenkacheln, Kartenstil, Schriften und Symbole der Karte direkt von {openfreemap} (tiles.openfreemap.org). Dabei erhält OpenFreeMap die IP-Adresse. Betreiberin ist die Hyperknot Software Kft. (Ungarn). Die Kacheln werden über das Netzwerk der Cloudflare, Inc. (USA) ausgeliefert, die dabei ebenfalls die IP-Adresse verarbeitet; Cloudflare ist nach dem EU-US Data Privacy Framework zertifiziert. Nach Angaben von OpenFreeMap enthalten deren Zugriffsprotokolle standardmäßig keine IP-Adressen und werden nach 7 Tagen gelöscht. Rechtsgrundlage ist Art. 6 Abs. 1 lit. f DSGVO (berechtigtes Interesse an der Kartendarstellung). Weitere Informationen: {openfreemapPrivacy}.",
   "legal.p.storage.title": "Lokaler Speicher",
   "legal.p.storage.text":
     "Die gewählte Darstellung und die Sprache liegen im localStorage des Browsers und verlassen das Gerät nicht. Es gibt keine Cookies, kein Tracking und keine Reichweitenmessung. Die Schrift der Oberfläche ist eingebunden, ein externer Schriftendienst wird dafür nicht genutzt.",

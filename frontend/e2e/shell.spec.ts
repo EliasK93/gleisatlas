@@ -13,7 +13,13 @@ test("the shell shows title, disclaimer and attribution", async ({ page }) => {
   await expect(page).toHaveTitle("Gleisatlas");
   const footer = page.getByRole("contentinfo");
   await expect(footer).toContainText("Historische Statistik, keine Prognose oder Garantie");
-  await expect(footer).toContainText("CC BY 4.0");
+  await expect(footer).toContainText("Kein Angebot der Deutschen Bahn");
+  const licence = footer.getByRole("link", { name: "CC BY 4.0" });
+  await expect(licence).toHaveAttribute(
+    "href",
+    "https://creativecommons.org/licenses/by/4.0/deed.de",
+  );
+  await expect(licence).toHaveAttribute("target", "_blank");
   await expect(page.getByRole("main")).toBeAttached();
 });
 
@@ -87,11 +93,10 @@ test.describe("desktop", () => {
       await expect(nav.getByText(name, { exact: true })).toBeVisible();
       await expect(page.getByRole("link", { name })).toHaveCount(0);
     }
-    await expect(page.getByText("Datenstand: Sept. 2026 · 5.219 Bahnhöfe")).toBeVisible();
-    await expect(page.getByRole("link", { name: "CC BY 4.0" })).toHaveAttribute(
-      "href",
-      "https://creativecommons.org/licenses/by/4.0/deed.de",
-    );
+    const note = page.getByTestId("data-note");
+    await expect(note.getByText("Datenstand: Sept. 2026 · 5.219 Bahnhöfe")).toBeVisible();
+    await expect(note).toContainText("Kein Angebot der Deutschen Bahn");
+    await expect(note).not.toContainText("piebro");
   });
 });
 
@@ -156,14 +161,16 @@ test.describe("mobile", () => {
     await expect(page).toHaveURL(/\/muster\/heatmap\?g=fern$/);
   });
 
-  test("Mehr lists the remaining pages, the data status and the licence", async ({ page }) => {
+  test("Mehr lists the remaining pages, the data status and the DB note", async ({ page }) => {
     await page.goto("/muster/heatmap");
     await page.getByRole("link", { name: "Mehr" }).click();
     await expect(page).toHaveURL(/\/mehr$/);
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Mehr");
     const main = page.getByRole("main");
     await expect(main.getByText("Umstieg prüfen", { exact: true })).toBeVisible();
-    await expect(main.getByText("Datenstand: Sept. 2026 · 5.219 Bahnhöfe")).toBeVisible();
-    await expect(main.getByRole("link", { name: "CC BY 4.0" })).toBeVisible();
+    const note = main.getByTestId("data-note");
+    await expect(note.getByText("Datenstand: Sept. 2026 · 5.219 Bahnhöfe")).toBeVisible();
+    await expect(note).toContainText("Kein Angebot der Deutschen Bahn");
+    await expect(note).not.toContainText("piebro");
   });
 });

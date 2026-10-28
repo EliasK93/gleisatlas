@@ -4,7 +4,7 @@ export const en: Record<keyof typeof de, string> = {
   "app.title": "Gleisatlas",
   "footer.disclaimer": "Historical statistics, not a forecast or a guarantee.",
   "footer.attribution":
-    "Data: Deutsche Bahn actual data via piebro/deutsche-bahn-data, CC BY 4.0, aggregated",
+    "Data: Deutsche Bahn actual data via piebro/deutsche-bahn-data, {licence}, aggregated",
 
   "nav.label": "Main navigation",
   "nav.discover": "Discover",
@@ -36,7 +36,6 @@ export const en: Record<keyof typeof de, string> = {
   "lang.en": "English",
 
   "data.status": "Data as of {month} · {stations} stations",
-  "data.source": "Data: DB via piebro/deutsche-bahn-data,",
   "data.licence": "CC BY 4.0",
   "data.licenceUrl": "https://creativecommons.org/licenses/by/4.0/deed.en",
 
@@ -136,7 +135,7 @@ export const en: Record<keyof typeof de, string> = {
   "map.title": "How reliable is the railway?",
   "map.lead": "Every dot is a station. Click one.",
   "map.region": "Map of Germany with stations",
-  "map.attribution": "Data: Deutsche Bahn via piebro/deutsche-bahn-data, CC BY 4.0, aggregated",
+  "map.attribution": "Data: Deutsche Bahn via piebro/deutsche-bahn-data, {licence}, aggregated",
   "map.attributionToggle": "Show or hide attributions",
   "map.zoomIn": "Zoom in",
   "map.zoomOut": "Zoom out",
@@ -230,6 +229,7 @@ export const en: Record<keyof typeof de, string> = {
   "legal.impressum.pending": "Details to follow.",
   "legal.privacy": "Privacy",
   "legal.source": "Source code",
+  "legal.notDb": "Not a Deutsche Bahn service.",
   "legal.privacy.note": "The German version is binding; this is a translation.",
   "legal.p.controller.title": "Controller",
   "legal.p.controller.text":
@@ -241,8 +241,9 @@ export const en: Record<keyof typeof de, string> = {
   "legal.p.logs.text":
     "To deliver the website and the API, Azure processes the visitor's IP address. For each request the application itself logs the method, the path with its query parameters (which can include a search term typed in), the status, the duration and a random request number, without an IP address, and keeps this for 30 days for operation and error analysis. The legal basis is Art. 6(1)(f) GDPR (legitimate interest in secure and stable operation).",
   "legal.p.map.title": "Map",
+  "legal.p.map.link": "OpenFreeMap's privacy policy",
   "legal.p.map.text":
-    "The browser loads map tiles, map style, map fonts and map icons directly from {openfreemap} (tiles.openfreemap.org). OpenFreeMap thereby receives the IP address. The legal basis is Art. 6(1)(f) GDPR (legitimate interest in showing the map).",
+    "The browser loads map tiles, map style, map fonts and map icons directly from {openfreemap} (tiles.openfreemap.org). OpenFreeMap thereby receives the IP address. The operator is Hyperknot Software Kft. (Hungary). The tiles are delivered through the network of Cloudflare, Inc. (USA), which also processes the IP address; Cloudflare is certified under the EU-US Data Privacy Framework. According to OpenFreeMap, its access logs contain no IP addresses by default and are deleted after 7 days. The legal basis is Art. 6(1)(f) GDPR (legitimate interest in showing the map). More information: {openfreemapPrivacy}.",
   "legal.p.storage.title": "Local storage",
   "legal.p.storage.text":
     "The chosen appearance and language are kept in the browser's localStorage and never leave the device. There are no cookies, no tracking and no analytics. The interface font is bundled; no external font service is used for it.",

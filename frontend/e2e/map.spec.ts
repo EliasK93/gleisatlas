@@ -37,9 +37,19 @@ test("the map renders the stations and has no footer", async ({ page }) => {
   // The focusable map canvas carries the accessible name.
   await expect(page.getByRole("region", { name: "Deutschlandkarte mit Bahnhöfen" })).toBeVisible();
   await expect(page.getByRole("contentinfo")).toHaveCount(0);
+  const attribution = page.locator(".maplibregl-ctrl-attrib");
   await expect(
-    page.getByText("Daten: Deutsche Bahn via piebro/deutsche-bahn-data, CC BY 4.0, aggregiert"),
+    attribution.getByText(
+      "Daten: Deutsche Bahn via piebro/deutsche-bahn-data, CC BY 4.0, aggregiert",
+    ),
   ).toBeAttached();
+  // The compact control may be collapsed, which hides its links; they stay in the DOM.
+  const licence = attribution.getByRole("link", { name: "CC BY 4.0", includeHidden: true });
+  await expect(licence).toHaveAttribute(
+    "href",
+    "https://creativecommons.org/licenses/by/4.0/deed.de",
+  );
+  await expect(licence).toHaveAttribute("target", "_blank");
 });
 
 test("?bhf= opens the panel; Schließen removes bhf and keeps the rest", async ({ page }) => {

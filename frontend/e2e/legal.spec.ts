@@ -69,11 +69,16 @@ test("the privacy page names the controller and the map provider", async ({ page
   const main = page.getByRole("main");
   await expect(main.getByRole("heading", { level: 2 })).toHaveCount(6);
   await expect(main.getByRole("link", { name: "Impressum" })).toHaveAttribute("href", "/impressum");
-  await expect(main.getByRole("link", { name: "OpenFreeMap" })).toHaveAttribute(
+  await expect(main.getByRole("link", { name: "OpenFreeMap", exact: true })).toHaveAttribute(
     "href",
     "https://openfreemap.org",
   );
   await expect(main).toContainText("tiles.openfreemap.org");
+  await expect(main).toContainText("Hyperknot");
+  await expect(main).toContainText("Cloudflare");
+  await expect(
+    main.getByRole("link", { name: "Datenschutzerklärung von OpenFreeMap" }),
+  ).toHaveAttribute("href", "https://openfreemap.org/privacy/");
 });
 
 test.describe("English browser", () => {
@@ -85,7 +90,14 @@ test.describe("English browser", () => {
     await expect(page.getByRole("main")).toContainText(IMPRESSUM.name);
     await page.getByRole("contentinfo").getByRole("link", { name: "Privacy" }).click();
     await expect(h1(page)).toHaveText("Privacy");
-    await expect(page.getByRole("main")).toContainText("OpenFreeMap");
-    await expect(page.getByRole("main").getByRole("link", { name: "Legal notice" })).toBeVisible();
+    const main = page.getByRole("main");
+    await expect(main).toContainText("OpenFreeMap");
+    await expect(main).toContainText("Hyperknot");
+    await expect(main).toContainText("Cloudflare");
+    await expect(main.getByRole("link", { name: "OpenFreeMap's privacy policy" })).toHaveAttribute(
+      "href",
+      "https://openfreemap.org/privacy/",
+    );
+    await expect(main.getByRole("link", { name: "Legal notice" })).toBeVisible();
   });
 });

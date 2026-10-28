@@ -7,6 +7,15 @@ export const DATENSCHUTZ = "/datenschutz";
 /** The repository, whose README and LICENSE name the licences of the app, data and map. */
 const SOURCE = "https://github.com/EliasK93/gleisatlas";
 
+/** The data licence, named and linked; the placeholder value of the footer attribution. */
+export function LicenceLink() {
+  return (
+    <a href={t("data.licenceUrl")} target="_blank" rel="noopener" className="underline">
+      {t("data.licence")}
+    </a>
+  );
+}
+
 const SECTIONS = ["controller", "hosting", "logs", "map", "storage", "rights"] as const;
 
 /** The two legal links, shared by the sidebar and the footer. They keep the query string like the other shell links. */
@@ -83,6 +92,16 @@ export function PrivacyPage() {
     openfreemap: (
       <a href="https://openfreemap.org" target="_blank" rel="noopener" className="underline">
         OpenFreeMap
+      </a>
+    ),
+    openfreemapPrivacy: (
+      <a
+        href="https://openfreemap.org/privacy/"
+        target="_blank"
+        rel="noopener"
+        className="underline"
+      >
+        {t("legal.p.map.link")}
       </a>
     ),
   };

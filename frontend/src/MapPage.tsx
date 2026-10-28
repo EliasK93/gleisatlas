@@ -268,8 +268,13 @@ function StationMap({
     });
     // A bottom corner stacks each new control above the previous one, so the attribution comes
     // first to sit below the zoom buttons.
+    // The control renders HTML, like the style's own attribution links.
+    const licence = `<a href="${t("data.licenceUrl")}" target="_blank" rel="noopener">${t("data.licence")}</a>`;
     m.addControl(
-      new AttributionControl({ compact: true, customAttribution: t("map.attribution") }),
+      new AttributionControl({
+        compact: true,
+        customAttribution: t("map.attribution", { licence }),
+      }),
       "bottom-right",
     );
     m.addControl(new NavigationControl({ showCompass: false }), "bottom-right");

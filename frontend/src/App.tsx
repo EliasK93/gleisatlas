@@ -13,9 +13,16 @@ import { useDatenstand } from "./api";
 import HeatmapPage from "./HeatmapPage";
 // ponytail: MapLibre ships in the main bundle (about 400 kB gzip); lazy-load MapPage if other pages' first load matters
 import MapPage from "./MapPage";
-import { LANG, t, type Lang, type MessageKey } from "./i18n";
+import { LANG, t, tx, type Lang, type MessageKey } from "./i18n";
 import { Icon, type IconName } from "./Icon";
-import { DATENSCHUTZ, IMPRESSUM, ImpressumPage, LegalLinks, PrivacyPage } from "./LegalPages";
+import {
+  DATENSCHUTZ,
+  IMPRESSUM,
+  ImpressumPage,
+  LegalLinks,
+  LicenceLink,
+  PrivacyPage,
+} from "./LegalPages";
 import { formatPeriod, int } from "./metrics";
 import { setLang, useTheme, type ThemePref } from "./prefs";
 import RankingsPage from "./RankingsPage";
@@ -107,8 +114,10 @@ function Shell() {
         </main>
         {!full && (
           <footer className="mx-auto mt-8 flex w-full max-w-[1200px] flex-wrap gap-x-6 gap-y-2 border-t border-border px-4 pt-4 pb-7 text-xs text-text-3 md:px-8">
-            <b className="font-semibold text-text-2">{t("footer.disclaimer")}</b>
-            <span>{t("footer.attribution")}</span>
+            <b className="font-semibold text-text-2">
+              {t("footer.disclaimer")} {t("legal.notDb")}
+            </b>
+            <span>{tx("footer.attribution", { licence: <LicenceLink /> })}</span>
             <LegalLinks />
           </footer>
         )}
@@ -250,16 +259,11 @@ function DataNote({ className }: { className: string }) {
   const { data } = useDatenstand();
   const month = data?.monate.at(-1);
   return (
-    <div className={className}>
+    <div className={className} data-testid="data-note">
       {data && month && (
         <p>{t("data.status", { month: formatPeriod(month), stations: int(data.bahnhoefe) })}</p>
       )}
-      <p>
-        {t("data.source")}{" "}
-        <a href={t("data.licenceUrl")} target="_blank" rel="noopener" className="underline">
-          {t("data.licence")}
-        </a>
-      </p>
+      <p>{t("legal.notDb")}</p>
     </div>
   );
 }
