@@ -29,8 +29,8 @@ The viewer chooses the look (System, Hell, Dunkel) and the UI language (Deutsch,
 - **Three levels with System as default.** Reason: a viewer who never touches the switch gets the look of their device; a pick covers the case where the site and the device disagree.
 - **A segmented control in the sidebar footer and on `/mehr`.** Reason: design.md §1.2 and §8 put the switch there, and the existing `Segmented` already has the 44 px hit areas.
 - **`data-theme` holds the resolved theme, plus an inline script in `<head>`.** Reason: CSS then needs one selector instead of a media query and an override, and the script sets the attribute before the first paint, so a dark viewer never sees a light flash.
-- **Dark token values come from the mockup, except `--text-3`, which is lightened to `#838b99`.** Reason: the mockup's `#6f7888` is about 3.6:1 on the dark `--surface-2`; `#838b99` reaches at least 4.5:1 on all three surfaces. This is the same reason light `--text-3` was darkened.
-- **Light `--text-3` is `#656d7e`, darker than M1's `#697182`.** Reason: `#697182` measures 4.29:1 on `--surface-2`, where hover rows, the search field and its placeholder sit. `#656d7e` reaches 4.80:1 on `--bg`, 5.20:1 on `--surface` and 4.55:1 on `--surface-2`, so `theme.spec.ts` checks all 18 pairs without an exemption.
+- **Dark token values come from the mockup, except `--text-3`, which is lightened to `#838b99`.** Reason: the mockup's `#6f7888` is about 3.6:1 on the dark `--surface-2`; `#838b99` reaches at least 4.5:1 on all three surfaces.
+- **Light `--text-3` is `#656d7e`.** Reason: it reaches 4.80:1 on `--bg`, 5.20:1 on `--surface` and 4.55:1 on `--surface-2`, so `theme.spec.ts` checks all 18 pairs without an exemption.
 - **The language switch's label is translated ("Sprache" / "Language").** Reason: the group name is its accessible name, and a name in the page's language reads naturally to a screen reader; the options carry their own language, which is what makes the switch findable from either UI. The specs address the group by this name.
 - **Month and percent patterns live in the catalog.** Reason: "Sep 26" reads as 26 September to an English reader, so English writes "Sep '26" (`format.monthShort`); British style sets the percent sign without a space ("87%"), German with a no-break space ("87 %") (`format.pct`). Each language decides its own pattern instead of the code hard-coding one.
 - **The dark base map is OpenFreeMap "dark".** Reason: no new provider, no API key, and the style is checked to exist.
@@ -61,8 +61,8 @@ The viewer chooses the look (System, Hell, Dunkel) and the UI language (Deutsch,
 
 ## 5 Milestones
 
-- [x] Dark theme. Re-check: `npm.cmd --prefix frontend run test:e2e`, `frontend/e2e/theme.spec.ts` ("System is the default and follows the OS", "Hell wins over the OS and survives a reload", "System after a pick follows the OS again", "Dunkel wins over the OS and survives a reload", "a stored value that is not a theme falls back to System", "text colours reach 4.5:1 on every surface in both themes", "the base map and the stations follow the theme", "a station picked while the new base style loads does not crash the page", "the switch on Mehr has 44 px hit areas").
-- [x] English catalog and language switch. Re-check: `npm.cmd --prefix frontend run test:e2e`, `frontend/e2e/i18n.spec.ts` ("the first visit is English", "Deutsch reloads into German and the pick is remembered", "the filters survive the switch", "short months carry an apostrophe, so they cannot read as a day", "a stored value that is not a language falls back to the browser", "the first visit is German", "English wins over the browser and survives a reload", "the switch on Mehr has 44 px hit areas"); `npm.cmd --prefix frontend run typecheck` fails when the catalogs' keys differ.
+- [x] Dark theme. Re-check: `npm --prefix frontend run test:e2e`, `frontend/e2e/theme.spec.ts` ("System is the default and follows the OS", "Hell wins over the OS and survives a reload", "System after a pick follows the OS again", "Dunkel wins over the OS and survives a reload", "a stored value that is not a theme falls back to System", "text colours reach 4.5:1 on every surface in both themes", "the base map and the stations follow the theme", "a station picked while the new base style loads does not crash the page", "the switch on Mehr has 44 px hit areas").
+- [x] English catalog and language switch. Re-check: `npm --prefix frontend run test:e2e`, `frontend/e2e/i18n.spec.ts` ("the first visit is English", "Deutsch reloads into German and the pick is remembered", "the filters survive the switch", "short months carry an apostrophe, so they cannot read as a day", "a stored value that is not a language falls back to the browser", "the first visit is German", "English wins over the browser and survives a reload", "the switch on Mehr has 44 px hit areas"); `npm --prefix frontend run typecheck` fails when the catalogs' keys differ.
 
 ## 6 Platform checks
 
@@ -72,7 +72,7 @@ The viewer chooses the look (System, Hell, Dunkel) and the UI language (Deutsch,
 
 ## 7 Open decisions
 
-- The English wording. The terms are set (Punctuality, Typical delay, Bad days (P90), Cancellations, Regional, Long-distance); the product owner reviews the rest in the test round.
+None. The English terms are set (Punctuality, Typical delay, Bad days (P90), Cancellations, Regional, Long-distance).
 
 ## 8 Known shortcuts
 

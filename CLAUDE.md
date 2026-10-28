@@ -61,7 +61,7 @@ Personal and machine-specific rules live in `CLAUDE.local.md` (gitignored).
 - Inside the repo: go. Edits, tests, the gate, local commits per these rules, local dev servers, downloads of the public dataset into the gitignored `data/` folder.
 - Outside effects: ask every time. Push, publish, anything that costs money, global config, files outside the repo, anything irreversible.
 - Logged-in CLIs that reach real accounts (`az`, `gh`, deploy services) are run by the product owner only.
-- No new library without saying why and what the no-library alternative is. Install with the stack's installer (`uv add`, `npm.cmd install`) and check the versioned docs before using an API.
+- No new library without saying why and what the no-library alternative is. Install with the stack's installer (`uv add`, `npm install`) and check the versioned docs before using an API.
 
 ### ponytail
 - The laziest version that passes the contract and the checks. ponytail decides how much code satisfies the contract, never whether to satisfy it.
@@ -84,11 +84,11 @@ Personal and machine-specific rules live in `CLAUDE.local.md` (gitignored).
 
 ## Project: Gleisatlas
 
-Historical reliability of German rail traffic: pattern analysis, connection comparison within a time window, transfer recommendations. Requirements: [SPEC.md](SPEC.md). Roadmap: [docs/roadmap.md](docs/roadmap.md). Design target: [docs/design.md](docs/design.md) with the clickable reference [docs/design/mockup.html](docs/design/mockup.html). App shell and heatmap UI: [docs/app-shell.md](docs/app-shell.md). Map, station detail and search: [docs/map.md](docs/map.md). Dark theme and language: [docs/theme-and-language.md](docs/theme-and-language.md). Azure deployment: [docs/deployment.md](docs/deployment.md).
+Historical reliability of German rail traffic: pattern analysis, connection comparison within a time window, transfer recommendations. Requirements: [SPEC.md](SPEC.md). Roadmap: [docs/roadmap.md](docs/roadmap.md). Feature docs, design and ADRs: the Documentation list in [README.md](README.md).
 
 ### Stack
 - Python 3.12+ with `uv`; Polars for data processing; FastAPI + Pydantic for the API.
-- React + TypeScript (strict) + Vite + Tailwind; TanStack Query; TS client generated from `backend/openapi.json`; Playwright for smoke tests.
+- React + TypeScript (strict) + Vite + Tailwind; TanStack Query; TS client generated from `backend/openapi.json`; Playwright for the end-to-end tests.
 - Azure: Static Web Apps (frontend), Container Apps (API), Blob Storage (aggregates), Bicep in `infra/`.
 
 ### Layout
@@ -107,9 +107,9 @@ Historical reliability of German rail traffic: pattern analysis, connection comp
 - Attribution CC BY 4.0 (Deutsche Bahn, via piebro/deutsche-bahn-data) in UI and README.
 
 ### Commands
-- Install: `uv sync` and `npm.cmd --prefix frontend install`, then `uv run python scripts/install_hooks.py`. The gate also needs gitleaks (`winget install Gitleaks.Gitleaks`) and the Azure CLI with Bicep: `winget install Microsoft.AzureCLI`, then `az bicep install --version v0.48.1`.
+- Install: `uv sync` and `npm --prefix frontend install`, then `uv run python scripts/install_hooks.py`. The gate also needs [gitleaks](https://github.com/gitleaks/gitleaks#installing) and the [Azure CLI](https://learn.microsoft.com/cli/azure/install-azure-cli) with Bicep: `az bicep install --version v0.48.1`.
 - Gate: `uv run python scripts/gate.py`. Format: `uv run python scripts/format.py`.
 - Data and aggregates: see [docs/pipeline.md](docs/pipeline.md).
-- API: `uv run uvicorn backend.main:app --port 8317`; with a log file (PowerShell): `$env:LOG_FILE = "logs/api.log"; uv run uvicorn backend.main:app --port 8317`. Web: `npm.cmd --prefix frontend run dev` (http://localhost:5317). The e2e suite starts its own servers on 5318 and 4317.
+- API: `uv run uvicorn backend.main:app --port 8317`; with a log file: the same command with the environment variable `LOG_FILE=logs/api.log` set. Web: `npm --prefix frontend run dev` (http://localhost:5317). The e2e suite starts its own servers on 5318 and 4317.
 - Deploy to Azure (product owner only): the runbook in [docs/deployment.md](docs/deployment.md) §4.
-- After an API change: `uv run python scripts/export_openapi.py`, then `npm.cmd --prefix frontend run gen` (the gate fails on a stale `backend/openapi.json` or `schema.d.ts`).
+- After an API change: `uv run python scripts/export_openapi.py`, then `npm --prefix frontend run gen` (the gate fails on a stale `backend/openapi.json` or `schema.d.ts`).

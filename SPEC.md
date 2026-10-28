@@ -31,7 +31,7 @@ Timetable apps (bahn.de, DB Navigator) optimise for the connection that is *sche
 | Devices | Desktop browser first, **smartphone browser must be usable** (responsive). No native app. |
 | UI language | German by default, switchable to English. Internationalisation is built in from the start (all UI strings in a message catalog); the English catalog exists ([docs/theme-and-language.md](docs/theme-and-language.md)). |
 | Theme | Light and dark, switchable (System, Light, Dark). Theme tokens (CSS custom properties) are used from the start so that dark mode needs no restyling. |
-| Development environment | Windows 11, Python as main language. |
+| Development environment | Local (Windows, macOS or Linux), Python as main language. |
 
 ---
 
@@ -44,7 +44,7 @@ Timetable apps (bahn.de, DB Navigator) optimise for the connection that is *sche
 | **v0.1 – Pattern analysis** | Data pipeline (nationwide), aggregates, dashboard for patterns (weekday, time, line, station, train category), cancellation vs. delay analysis. Runs locally. |
 | **v0.2 – Deployment** | v0.1 deployed on Azure, data update reproducible. |
 | **v1.0 – Connection comparison** | Start/destination/time window → connections with arrival distribution, transfer risk, transfer recommendation. Deployed. |
-| **v1.x – Optional features** | Depending on time: delay propagation along lines, weather correlation, map heatmap, comparison with official DB statistics. |
+| **v1.x – Optional features** | Depending on time: delay propagation along lines, weather correlation, comparison with official DB statistics. |
 | **v2 – Live situation** | Current delay of a concrete trip today + transfer risk in real time. |
 
 ### 3.2 In scope (v0.1–v1.0)
@@ -81,7 +81,7 @@ Personal trip log with own balance · passenger-rights calculator (how often ≥
 
 - Source: HuggingFace dataset `piebro/deutsche-bahn-data` (code: github.com/piebro/deutsche-bahn-data). License **CC BY 4.0 (Deutsche Bahn)** → attribution in UI and README is mandatory.
 - Basis: DB Timetables API (IRIS), polled 4× daily.
-- Coverage: ~100 largest stations from 2024-07, **all stations from 2025-11-02**.
+- Coverage: about 135 large stations from 2024-07, **all stations from 2025-11-02**.
 - Freshness: monthly Parquet files (`monthly_processed_data/data-YYYY-MM.parquet`, up to the end of the previous month) + raw data with ~6 h lag.
 - Relevant columns: `eva`, `station_name`, `train_type`, `train_number`, `line_number` (null for long-distance), `train_line_ride_id`, `train_line_station_num`, `arrival_planned_time`, `arrival_change_time`, `departure_planned_time`, `departure_change_time`, `arrival_is_canceled`, `departure_is_canceled`, `delay_in_min`. The files contain more columns (e.g. `time`, `xml_station_name`, `id`, `is_additional_stop`); see [docs/pipeline.md](docs/pipeline.md) for the findings.
 - Known problems: missing hours 2025-11 to 2026-07 (among others 102 h in July 2026); schema changes in 2026-05 and 2026-08 (make the pipeline robust against schema changes, validate the schema on import).
@@ -118,7 +118,7 @@ Decision criteria: stability, legal/terms of service, effort, regional + long-di
 - F1.2 Validates the schema; aborts with a clear message on an unknown schema.
 - F1.3 Cleans (duplicates, implausible values e.g. > 24 h), normalises time zones and marks timetable periods.
 - F1.4 Produces **compact aggregates** (Parquet files) for API and UI: distributions per train × stop × day type, pattern cube (weekday × hour × category × line × station), transfer statistics.
-- F1.5 Runs locally on Windows 11 and reproducibly with one command (later optionally as a scheduled job).
+- F1.5 Runs locally and reproducibly with one command (later optionally as a scheduled job).
 
 ### F2 – Pattern analysis (v0.1)
 - F2.1 Punctuality and delay distribution by **weekday, time, line/train, station, train category, month**.
@@ -152,7 +152,7 @@ Decision criteria: stability, legal/terms of service, effort, regional + long-di
 - F5.6 UI language German by default, switchable to English. All user-visible strings come from a message catalog (i18n from the start); the German and English catalogs exist.
 
 ### F6 – Optional features (v1.x)
-Delay propagation along a line · weather correlation · map heatmap by station · comparison with official DB statistics.
+Delay propagation along a line · weather correlation · comparison with official DB statistics.
 
 ---
 
@@ -160,17 +160,17 @@ Delay propagation along a line · weather correlation · map heatmap by station 
 
 | Area | Decision | Reason |
 |---|---|---|
-| Data processing | Python 3.12+, `uv`, **Polars** | Fast on large Parquet data, runs locally on Windows. |
+| Data processing | Python 3.12+, `uv`, **Polars** | Fast on large Parquet data, runs locally. |
 | Backend | **FastAPI**, Pydantic, Polars queries on Parquet aggregates | OpenAPI generated automatically. |
 | Frontend | **React + TypeScript + Vite**, **Tailwind**, native HTML controls, hand-drawn SVG charts, MapLibre GL for the map, data fetching with TanStack Query | No component or chart library was needed; see [docs/app-shell.md](docs/app-shell.md) §3. |
 | API contract | **OpenAPI-first**; the TS client is generated from the schema | Clean interface between backend and frontend. |
 | Design | Target in [docs/design.md](docs/design.md) and [docs/design/mockup.html](docs/design/mockup.html); theme tokens as CSS custom properties | One source for colours and spacing; dark mode without restyling. |
 | i18n | Message catalog from the start, German and English catalogs | UI language is switchable. |
-| Hosting (assumption, to verify in the roadmap) | Frontend: Azure Static Web Apps (Free) · Backend: Azure Container Apps (Consumption, scale-to-zero) · Aggregates: Azure Blob Storage · infrastructure as code (Bicep) | Budget. |
+| Hosting (see [docs/deployment.md](docs/deployment.md)) | Frontend: Azure Static Web Apps (Free) · Backend: Azure Container Apps (Consumption, scale-to-zero) · Aggregates: Azure Blob Storage · infrastructure as code (Bicep) | Budget. |
 | Budget | Target ≤ …/month, cap …/month; **Azure budget alert** at … and … | Requirement. |
 | Aggregate size | Target < 2 GB deployed; otherwise fall back to a watchlist (configurable station list) | Cost, cold-start time. |
 | Repo | Monorepo: `core/`, `pipeline/`, `backend/`, `frontend/`, `scripts/`, `docs/` (incl. `docs/adr/`) and `infra/` | Clear working areas. |
-| Conventions | Ruff + Pyright/mypy (Python), ESLint + TypeScript strict (frontend) | Hard, automatic guardrails. |
+| Conventions | Ruff + Pyright (Python), ESLint + TypeScript strict (frontend) | Hard, automatic guardrails. |
 
 ---
 
@@ -215,7 +215,7 @@ See [docs/roadmap.md](docs/roadmap.md).
 - Code merged, lint and type check green.
 - Core logic covered by tests (pipeline transformations, statistics, replay engine) – no coverage quota, but every calculation rule has at least one test.
 - Related acceptance criteria ticked.
-- README section or ADR updated if decisions were made.
+- Feature doc §3 or ADR updated if decisions were made.
 
 **For v1.0 overall (pragmatic):**
 - App runs deployed on Azure within budget.
@@ -223,7 +223,7 @@ See [docs/roadmap.md](docs/roadmap.md).
 - Must features (F1–F5) fulfilled, AC-1 to AC-17 ticked.
 - Data update is documented and repeatable with one command.
 
-Not part of the v1.0 DoD: CI/CD auto-deploy, monitoring, UI tests, backtest of prediction quality (sensible for v1.x).
+Not part of the v1.0 DoD: CI/CD auto-deploy, monitoring, backtest of prediction quality (sensible for v1.x).
 
 ---
 
@@ -233,8 +233,7 @@ Not part of the v1.0 DoD: CI/CD auto-deploy, monitoring, UI tests, backtest of p
 |---|---|---|
 | O1 | Connection source (4.2) | Spike, ADR |
 | O2 | Rule for a missed connection in the replay: take the next connection or count as failed? | Set in the replay-engine ADR; proposal: next connection of the same relation, max. +120 min |
-| O3 | Current Azure prices / free grants | Verify before creating resources |
-| O4 | Tooling for parallel work on Windows | Check before starting; assumption: Windows-native tooling suffices |
+| O3 | Current Azure prices / free grants | Checked, see [docs/deployment.md](docs/deployment.md) §4 |
 | O5 | Project time frame | Not fixed; optional features only after v1.0 |
 | O6 | Handling of the timetable change (train numbers) | Decided: mark the change; the split per period comes with the planner (see [docs/pipeline.md](docs/pipeline.md)) |
 | O7 | Freshness of the community dataset | If no new month appears for > 2 months: evaluate an own collector as fallback |

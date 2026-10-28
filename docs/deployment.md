@@ -32,7 +32,7 @@ Gleisatlas v0.2 runs on Azure: the web app on Static Web Apps, the API on Contai
 - **A public-read blob container (blob level, no listing).** Reason: the aggregates are public CC BY data, so the download needs no SDK and no secret. Fallback if a policy forbids public access: a managed-identity token fetched with stdlib `urllib`.
 - **A user-assigned identity with AcrPull on the registry pulls the image; the registry has no admin user.** Reason: no registry password exists anywhere, and the role covers one registry only.
 - **CORS from the environment** (`CORS_ORIGINS`, default `http://localhost:5317`), set by Bicep to the web app's hostname. Reason: one code path for local and Azure.
-- **The API's `/docs` and `/redoc` are off in production** (`docs_url=None, redoc_url=None`). Reason: both pages load Swagger UI or ReDoc from a CDN without a pinned version, which a public API should not serve; `backend/openapi.json` in the repository documents the API.
+- **The API's `/docs` and `/redoc` are off** (`docs_url=None, redoc_url=None`). Reason: both pages load Swagger UI or ReDoc from a CDN without a pinned version, which a public API should not serve; `backend/openapi.json` in the repository documents the API.
 - **`huggingface-hub` lives in the uv dependency group `pipeline`**, installed by a local `uv sync` and skipped in the image. Reason: only the download step uses it; the API never imports it.
 - **Our own request log without IPs**, with uvicorn's access log off and the ingress HTTP logs not enabled. Reason: the app needs paths, status and duration, not client addresses (the ingress HTTP log would store `X-Forwarded-For`).
 - **Log Analytics with 30 days retention and a daily cap of 0.1 GB.** Reason: 31 days are included in the price, and the cap keeps ingestion inside the free 5 GB per month.
@@ -41,7 +41,7 @@ Gleisatlas v0.2 runs on Azure: the web app on Static Web Apps, the API on Contai
 - **Consumption-only environment** (`environmentMode: 'ConsumptionOnly'`, no workload profiles, zone redundancy, VNet or private endpoints). Reason: those features bring the Dedicated plan's "Environment Management Hour" meter, about … a month.
 - **Scale-down cooldown 120 s** (`cooldownPeriod`, default 300 s, available in the stable API 2026-07-01). Reason: a wake-up is billed until the replica stops; 120 s still covers a visitor clicking through a few pages.
 - **The CSP is a static header, checked end to end.** `frontend/e2e/csp.spec.ts` runs the production build under `vite preview`, which sends the headers of `staticwebapp.config.json`, and fails on any CSP violation or console error on every page in both themes. Reason: this catches a wrong script hash and a missing directive (worker, tiles, fonts) alike, which a test that only compares the hash would not.
-- **Bicep in the gate.** `az bicep build --file infra/main.bicep --stdout` runs offline without a login, so every clone needs the Azure CLI with Bicep (README Quick start). CI downloads the Bicep 0.48.1 binary, checks it against the sha256 digest GitHub publishes for that release asset, and lets `az` take it from PATH, so it never pulls the latest version. Reason: a broken template fails before anyone deploys it.
+- **Bicep in the gate.** `az bicep build --file infra/main.bicep --stdout` runs offline without a login, so every clone needs the Azure CLI with Bicep (README, Development). CI downloads the Bicep 0.48.1 binary, checks it against the sha256 digest GitHub publishes for that release asset, and lets `az` take it from PATH, so it never pulls the latest version. Reason: a broken template fails before anyone deploys it.
 - **The registry keeps the legacy role-assignment mode** (`roleAssignmentMode: 'LegacyRegistryPermissions'`). Reason: Microsoft announced the ABAC repository mode as the future default, and that mode ignores the AcrPull assignment the app pulls with.
 - **A budget of … per month on the resource group**, alerts at actual 50 % and 90 % and forecast 100 %; the e-mail address is a deploy parameter. Reason: SPEC AC-16, and no personal address in the repository.
 - **The budget start date is a required parameter without a default.** Reason: Azure rejects a change of an existing budget's start date, so a default from `utcNow()` would break every deploy after the first month. The runbook reads the value back from the last deployment.
@@ -93,7 +93,7 @@ Parameters: `budgetEmail` and `budgetStartDate` (both required), `image` (defaul
 
 Expected: about … a month (ACR plus near zero for the rest), as long as the API is awake less than the free grant covers. One wake-up of 6 minutes at 0.5 vCPU / 1 GiB uses 0.5 × 360 = 180 vCPU-s and 1 × 360 = 360 GiB-s, so the grant covers 180,000 / 180 = 1,000 such wake-ups a month (about 100 active hours) at …. Worst case: see §8.
 
-**Runbook** (Windows PowerShell 5.1, from the repository root; values in angle brackets are personal and never go into the repository)
+**Runbook** (all code blocks are PowerShell: `powershell` on Windows, `pwsh` on macOS and Linux; run from the repository root; values in angle brackets are personal and never go into the repository)
 
 The account needs **Owner**, or **Contributor** plus **User Access Administrator** (or **Role Based Access Control Administrator**), on the resource group: Contributor creates the resources but not the AcrPull role assignment, and the other two roles create only role assignments. `az` may offer to install the `containerapp` and `log-analytics` extensions on first use; accept.
 
@@ -123,8 +123,7 @@ $registry = $out.registryName.value; $server = $out.registryServer.value; $stora
 foreach ($f in 'aggregate', 'stations', 'monate', 'lines', 'linien') { az storage blob upload --account-name $storage --container-name data --name "$f.parquet" --file "data/$f.parquet" --auth-mode key --overwrite --only-show-errors; if (-not $?) { break } }
 
 # Check: a blob is readable by URL (200), the container cannot be listed (404).
-curl.exe -s -o NUL -w "%{http_code}`n" "https://$storage.blob.core.windows.net/data/monate.parquet"
-curl.exe -s -o NUL -w "%{http_code}`n" "https://$storage.blob.core.windows.net/data?restype=container&comp=list"
+foreach ($u in "https://$storage.blob.core.windows.net/data/monate.parquet", "https://$storage.blob.core.windows.net/data?restype=container&comp=list") { try { (Invoke-WebRequest $u -UseBasicParsing).StatusCode } catch { [int]$_.Exception.Response.StatusCode } }
 
 # Build the image in the registry, tagged with the commit (build from a clean, committed tree).
 $tag = git rev-parse --short HEAD
@@ -136,33 +135,33 @@ az deployment group create --resource-group gleisatlas --template-file infra/mai
 # Read the outputs again (now with the API URL) and check the API.
 $out = az deployment group show --resource-group gleisatlas --name main --query properties.outputs | Out-String | ConvertFrom-Json
 $apiUrl = $out.apiUrl.value
-curl.exe -s "$apiUrl/datenstand"
+(Invoke-WebRequest "$apiUrl/datenstand" -UseBasicParsing).Content
 ```
 
 Before the first frontend build, narrow the CSP to the API's host. `connect-src` in `frontend/public/staticwebapp.config.json` still carries the wildcard `https://*.westeurope.azurecontainerapps.io` (§8), because the host is only known once phase 2 has created the Container App. Replace the wildcard with the exact host of the `apiUrl` output (scheme and host, no path) and commit the file (`Web:`) before building. `frontend/e2e/csp.spec.ts` compares the served header with that file, so it follows by itself; but `frontend/playwright.config.ts` builds the e2e bundle with `VITE_API_URL=https://api.e2e.westeurope.azurecontainerapps.io`, which the narrowed policy blocks. Set it to the same host in that commit, or the CSP project fails on every page.
 
-The frontend build reads `frontend/.env.production.local` (gitignored). `VITE_API_URL` is the API URL; the four Impressum keys are the provider's full name, street and house number, postcode and city, and a contact e-mail address, exactly as they should appear on `/impressum`. Leave out the Impressum keys (write only the `VITE_API_URL` line) and the page reads "Angaben folgen." instead. `WriteAllLines` writes UTF-8 without a BOM, which Vite needs; Notepad works too.
+The frontend build reads `frontend/.env.production.local` (gitignored). `VITE_API_URL` is the API URL; the four Impressum keys are the provider's full name, street and house number, postcode and city, and a contact e-mail address, exactly as they should appear on `/impressum`. Leave out the Impressum keys (write only the `VITE_API_URL` line) and the page reads "Angaben folgen." instead. `WriteAllLines` writes UTF-8 without a BOM, which Vite needs; any editor that saves UTF-8 without a BOM works too.
 
 ```powershell
 # Write the build settings (replace the four Impressum placeholders).
-[IO.File]::WriteAllLines("$PWD\frontend\.env.production.local", [string[]]@("VITE_API_URL=$apiUrl", 'VITE_IMPRESSUM_NAME=<full name>', 'VITE_IMPRESSUM_STREET=<street and house number>', 'VITE_IMPRESSUM_CITY=<postcode and city>', 'VITE_IMPRESSUM_EMAIL=<contact e-mail>'))
+[IO.File]::WriteAllLines((Join-Path $PWD 'frontend/.env.production.local'), [string[]]@("VITE_API_URL=$apiUrl", 'VITE_IMPRESSUM_NAME=<full name>', 'VITE_IMPRESSUM_STREET=<street and house number>', 'VITE_IMPRESSUM_CITY=<postcode and city>', 'VITE_IMPRESSUM_EMAIL=<contact e-mail>'))
 
 # Build the production bundle into frontend/dist (fails without VITE_API_URL).
-npm.cmd --prefix frontend run build
+npm --prefix frontend run build
 
 # Fetch the Static Web App's deployment token.
 $token = az staticwebapp secrets list --name $web --resource-group gleisatlas --query properties.apiKey --output tsv
 
 # Upload frontend/dist with the pinned SWA CLI; the token goes through the environment, not the command line, and is cleared afterwards.
 $env:SWA_CLI_DEPLOYMENT_TOKEN = $token
-npx.cmd --yes @azure/static-web-apps-cli@2.0.10 deploy frontend/dist --env production
+npx --yes @azure/static-web-apps-cli@2.0.10 deploy frontend/dist --env production
 Remove-Item Env:SWA_CLI_DEPLOYMENT_TOKEN; Remove-Variable token
 
-# Open the site.
-start "https://$($out.webHostname.value)"
+# Print the site's address (open it in a browser).
+"https://$($out.webHostname.value)"
 ```
 
-Later deployments, in a new PowerShell window:
+Later deployments, in a new PowerShell session:
 
 ```powershell
 # The budget's start date cannot change: take it from the last deployment.
@@ -185,7 +184,7 @@ Then read the outputs as above.
   ```
 
 - **Code update (API):** commit, then `$tag = git rev-parse --short HEAD`, `az acr build` and the phase-2 deployment as above, with the new tag.
-- **Code update (web app):** `npm.cmd --prefix frontend run build`, then the token and the SWA CLI deploy as above.
+- **Code update (web app):** `npm --prefix frontend run build`, then the token and the SWA CLI deploy as above.
 
 Emergency stop and its undo:
 
@@ -222,7 +221,7 @@ end <id> <status> <ms>ms
 az containerapp logs show --name gleisatlas-api --resource-group gleisatlas --follow --format text
 ```
 
-Each query below runs the same way: paste it into the here-string, then run the two lines after it (the query becomes one line, so `az.cmd` receives it in one piece; the queries use single quotes only, because Windows PowerShell 5.1 splits arguments at double quotes).
+Each query below runs the same way: paste it into the here-string, then run the two lines after it (the query becomes one line, so `az` receives it in one piece; the queries use single quotes only, because Windows PowerShell 5.1 splits native-command arguments at double quotes).
 
 ```powershell
 $kql = @'
@@ -287,8 +286,8 @@ Not in this log: page views of the web app (Static Web Apps Free has no access l
 ## 5 Milestones
 
 - [x] API ready for Container Apps: CORS from the environment, the request log, the data download at start, the image. Re-check: `uv run pytest -q`, `tests/api/test_deploy_api.py` (`test_cors_defaults_to_the_local_dev_server`, `test_cors_origins_come_from_the_environment`, `test_a_request_logs_one_start_and_one_end_line_with_the_same_id`, `test_a_failing_request_still_logs_its_end_line`, `test_the_log_file_gets_timestamped_lines_and_is_detached_again`, `test_fetch_downloads_every_file_with_the_same_bytes`, `test_fetch_names_the_file_that_cannot_be_downloaded`, `test_fetch_rejects_a_download_that_ends_early`, `test_fetch_does_nothing_without_a_data_url`).
-- [x] Impressum and privacy policy. Re-check: `npm.cmd --prefix frontend run test:e2e`, `frontend/e2e/legal.spec.ts`.
-- [x] Static Web Apps configuration with the CSP. Re-check: `npm.cmd --prefix frontend run test:e2e`, `frontend/e2e/csp.spec.ts`.
+- [x] Impressum and privacy policy. Re-check: `npm --prefix frontend run test:e2e`, `frontend/e2e/legal.spec.ts`.
+- [x] Static Web Apps configuration with the CSP. Re-check: `npm --prefix frontend run test:e2e`, `frontend/e2e/csp.spec.ts`.
 - [x] Bicep infrastructure with the budget. Re-check: `az bicep build --file infra/main.bicep --stdout` prints no warning; the gate line `bicep` in `uv run python scripts/gate.py`.
 - [ ] Deployed by the product owner with the runbook in §4. Re-check: the platform checks in §6.
 

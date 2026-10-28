@@ -6,7 +6,7 @@ Turns the monthly source files from `piebro/deutsche-bahn-data` into compact tab
 
 ## 2 Spec
 
-Commands (PowerShell, from the repo root):
+Commands (from the repo root):
 
 - `uv run python -m pipeline.coords` runs one SPARQL query against Wikidata and writes `data/coords.parquet`. Needs network access; run it once and again to refresh.
 - `uv run python -m pipeline.update` is the one command for the data. It lists the monthly files on HuggingFace, downloads and processes every month whose folder `data/months/YYYY-MM/` is missing or incomplete, and then combines all months. A second run downloads nothing (AC-1). It reads `data/coords.parquet` and aborts before fetching anything if the file is missing, so run `pipeline.coords` first.
@@ -95,7 +95,7 @@ After a change to the per-month logic (cleaning, line names, coverage rule) the 
 
 ## 6 Platform checks
 
-- Windows 11, PowerShell, `uv`; paths use forward slashes in code and commands.
+- `uv`; paths use forward slashes in code and commands, so the commands run the same on Windows, macOS and Linux.
 - The first run over 27 months took 8–14 min with the downloads already local; a second run only combines and took 53 s. Memory stays moderate because Polars scans lazily.
 
 ## 7 Open decisions
