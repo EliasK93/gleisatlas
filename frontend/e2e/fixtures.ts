@@ -25,11 +25,22 @@ const API_PATH =
   /^\/(heatmap|datenstand|stationen|karte|rankings|zeitverlauf)(?:\/([^/]+)(\/statistik|\/linien)?)?$/;
 const CORS = { "access-control-allow-origin": "*" };
 
-/** Stand in for the OpenFreeMap styles (light and dark), so map tests never touch the network. */
+/** Stand in for the OpenFreeMap styles (light and dark), so map tests never touch the network.
+ * The empty source carries the real attribution, which MapLibre shows only for a source in use. */
 const baseStyle = (background: string) => ({
   version: 8,
-  sources: {},
-  layers: [{ id: "background", type: "background", paint: { "background-color": background } }],
+  sources: {
+    openmaptiles: {
+      type: "geojson",
+      data: { type: "FeatureCollection", features: [] },
+      attribution:
+        '<a href="https://openfreemap.org" target="_blank">OpenFreeMap</a> <a href="https://www.openmaptiles.org/" target="_blank">&copy; OpenMapTiles</a> Data from <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a>',
+    },
+  },
+  layers: [
+    { id: "background", type: "background", paint: { "background-color": background } },
+    { id: "base", type: "fill", source: "openmaptiles" },
+  ],
 });
 const BASE_STYLE = baseStyle("#eef0f3");
 const DARK_STYLE = baseStyle("#1f242c");

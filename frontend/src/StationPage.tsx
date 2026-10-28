@@ -540,7 +540,7 @@ function Lines({ eva, f }: { eva: string; f: FilterKeys }) {
         {/* The column names, for the table look; every row also reads fine on its own. */}
         <div
           aria-hidden="true"
-          className="hidden grid-cols-[minmax(0,1.3fr)_minmax(0,1.2fr)_52px_72px_64px] gap-3 px-1 pb-2 text-xs text-text-3 md:grid"
+          className="hidden grid-cols-[minmax(0,1.3fr)_minmax(0,1.2fr)_52px_72px_104px] gap-3 px-1 pb-2 text-xs text-text-3 md:grid"
         >
           <span>{t("station.lines.line")}</span>
           <span className="col-span-2">{t("metric.puenktlich")}</span>
@@ -562,7 +562,7 @@ function Lines({ eva, f }: { eva: string; f: FilterKeys }) {
                       linie: l.linie,
                     }).toString(),
                   }}
-                  className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-2 rounded-lg border border-border p-3 hover:bg-surface-2 md:grid-cols-[minmax(0,1.3fr)_minmax(0,1.2fr)_52px_72px_64px] md:gap-y-0 md:rounded-none md:border-0 md:border-b md:px-1 md:py-2.5"
+                  className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-2 rounded-lg border border-border p-3 hover:bg-surface-2 md:grid-cols-[minmax(0,1.3fr)_minmax(0,1.2fr)_52px_72px_104px] md:gap-y-0 md:rounded-none md:border-0 md:border-b md:px-1 md:py-2.5"
                 >
                   <span className="flex min-w-0 flex-wrap items-center gap-x-1.5 md:order-1">
                     <Badge>{l.typ}</Badge>

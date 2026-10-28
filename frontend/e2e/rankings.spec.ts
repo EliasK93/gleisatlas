@@ -155,8 +155,8 @@ test.describe("desktop", () => {
     await expect(link).toHaveAttribute("href", "/muster/zeitverlauf?linie=RE+1%3A8000207");
   });
 
-  test("from 1024 px the two lists stand side by side and nothing overflows", async ({ page }) => {
-    await page.setViewportSize({ width: 1024, height: 800 });
+  test("from 1280 px the two lists stand side by side and nothing overflows", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
     await mockApi(page);
     await page.goto("/muster/rankings");
     const worst = (await column(page, WORST).boundingBox())!;
@@ -173,8 +173,8 @@ test.describe("desktop", () => {
     expect(fits).toBe(true);
   });
 
-  test("below 1024 px the lists stack", async ({ page }) => {
-    await page.setViewportSize({ width: 900, height: 800 });
+  test("below 1280 px the lists stack", async ({ page }) => {
+    await page.setViewportSize({ width: 1024, height: 800 });
     await mockApi(page);
     await page.goto("/muster/rankings");
     const worst = (await column(page, WORST).boundingBox())!;
@@ -328,8 +328,8 @@ for (const [locale, worst, label, metric, figure] of [
         const [first, ...rest] = data.schlechteste;
         return { ...data, schlechteste: [{ ...first, ausfallquote: 0.109 }, ...rest] };
       });
-      // Two cards from 1024 px, stacked below, and the phone project's own size with tabs.
-      for (const width of isMobile ? [0] : [1024, 900, 768, 1280]) {
+      // Two cards from 1280 px, stacked below, and the phone project's own size with tabs.
+      for (const width of isMobile ? [0] : [1280, 1024, 900, 768]) {
         if (width) await page.setViewportSize({ width, height: 800 });
         await page.goto("/muster/rankings");
         const card = column(page, worst);

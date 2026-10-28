@@ -49,6 +49,13 @@ select option {
   }
 }
 
+/* The open attribution wraps before it reaches the legend (12 px left + 300 px wide in MapPage). */
+@media (width >= 48rem) {
+  .maplibregl-ctrl-bottom-right {
+    max-width: calc(100% - 312px);
+  }
+}
+
 @utility card {
   @apply rounded-xl border border-border bg-surface p-[18px];
 }

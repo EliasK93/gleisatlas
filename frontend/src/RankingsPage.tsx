@@ -195,7 +195,7 @@ function Lists({
           className="-mx-4 -my-2 mb-1 px-4 py-2"
         />
       )}
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid gap-4 xl:grid-cols-2">
         {shown.map(({ key, title }) => (
           <section key={key} aria-labelledby={`rk-${key}`} className="card min-w-0">
             <h2 id={`rk-${key}`} className="mb-2 text-base font-[620]">
@@ -285,7 +285,7 @@ function Row({
 
 function Skeleton() {
   return (
-    <div role="status" className="grid animate-pulse gap-4 lg:grid-cols-2">
+    <div role="status" className="grid animate-pulse gap-4 xl:grid-cols-2">
       <span className="sr-only">{t("state.loading")}</span>
       {[0, 1].map((c) => (
         <div key={c} className="card flex flex-col gap-2">

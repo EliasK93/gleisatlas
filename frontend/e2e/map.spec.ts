@@ -337,3 +337,22 @@ test("the attribution sits below the zoom buttons", async ({ page }) => {
   const attribution = (await page.locator(".maplibregl-ctrl-attrib").boundingBox())!;
   expect(attribution.y).toBeGreaterThanOrEqual(zoom.y + zoom.height);
 });
+
+test("the open attribution wraps instead of running under the legend", async ({
+  page,
+  isMobile,
+}) => {
+  test.skip(isMobile, "the phone map is too narrow for the open attribution");
+  await mockApi(page);
+  for (const width of [1024, 1280, 1600]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto("/karte");
+    await expect(map(page)).toHaveAttribute("data-ready", "true");
+    const open = page.locator(".maplibregl-ctrl-attrib.maplibregl-compact-show");
+    await expect(open, `${width}`).toBeVisible();
+    const a = (await open.boundingBox())!;
+    const l = (await legend(page).boundingBox())!;
+    const apart = a.x >= l.x + l.width || a.y >= l.y + l.height || a.y + a.height <= l.y;
+    expect(apart, `${width}`).toBe(true);
+  }
+});

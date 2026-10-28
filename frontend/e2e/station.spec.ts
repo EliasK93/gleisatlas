@@ -381,6 +381,61 @@ test("a cancellation rate of 10 % or more stays on one line in the lines table",
   expect((await cell.boundingBox())!.height).toBeLessThan(20);
 });
 
+for (const [locale, region, labels, figure] of [
+  [
+    "de-DE",
+    "Linien an diesem Bahnhof",
+    ["Linie", "Pünktlichkeit", "Stichprobe", "✕ Ausfälle"],
+    "✕ 10,9 %",
+  ],
+  [
+    "en-US",
+    "Lines at this station",
+    ["Line", "Punctuality", "Sample", "✕ Cancellations"],
+    "✕ 10.9%",
+  ],
+] as const)
+  test.describe(`the lines table header in ${locale}`, () => {
+    test.use({ locale });
+    test.skip(({ isMobile }) => isMobile, "the header row is hidden on mobile");
+
+    test("every label stays on one line, apart from its neighbour and above its column", async ({
+      page,
+    }) => {
+      await mockApi(page, undefined, undefined, undefined, undefined, () =>
+        linienFixture().map((l, i) => (i === 0 ? { ...l, ausfallquote: 0.109 } : l)),
+      );
+      for (const width of [768, 1024, 1280]) {
+        await page.setViewportSize({ width, height: 800 });
+        await page.goto("/bahnhof/8000207");
+        const card = section(page, region);
+        const rows = card.getByRole("listitem");
+        await expect(rows).toHaveCount(10);
+        await fontsReady(page);
+        const head = card.locator('[aria-hidden="true"]').first();
+        // The text's own box: an element box would hide text that runs out of a narrow cell.
+        const ink = (l: Locator) =>
+          l.evaluate((el) => {
+            const range = document.createRange();
+            range.selectNodeContents(el);
+            const { x, width, height } = range.getBoundingClientRect();
+            return { x, width, height };
+          });
+        const boxes = await Promise.all(labels.map((n) => ink(head.getByText(n, { exact: true }))));
+        const cell = await ink(rows.first().getByText(figure));
+        const box = (await card.boundingBox())!;
+        const at = `${locale} ${width}`;
+        boxes.forEach((b, i) => {
+          expect(b.height, `${at} ${labels[i]}`).toBeLessThan(20);
+          if (i > 0) expect(boxes[i - 1].x + boxes[i - 1].width, at).toBeLessThanOrEqual(b.x);
+        });
+        const last = boxes[boxes.length - 1];
+        expect(Math.abs(last.x + last.width - (cell.x + cell.width)), at).toBeLessThanOrEqual(2);
+        expect(last.x + last.width, at).toBeLessThanOrEqual(box.x + box.width);
+      }
+    });
+  });
+
 test("expanding the lines with the keyboard moves focus to the first new row", async ({ page }) => {
   await mockApi(page);
   await page.goto("/bahnhof/8000207");
