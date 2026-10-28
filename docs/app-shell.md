@@ -16,7 +16,7 @@ The frame around every page: sidebar, filter bar, mobile top bar and tab bar, fo
 | `/muster/rankings` | Rankings of stations or lines |
 | `/muster/zeitverlauf` | Time series by month |
 | `/muster` | Redirect to `/muster/heatmap`, query string kept |
-| `/mehr` | Mobile list of the remaining items, the Darstellung and Sprache switches, data status and licence |
+| `/mehr` | Mobile list of the remaining items, the Darstellung and Sprache switches, data status and the "not a DB service" note |
 | `/` and any unknown path | Redirect to `/karte`, query string kept |
 
 **URL keys** (all filter state lives in the URL, so a link restores the view)
@@ -33,7 +33,7 @@ The frame around every page: sidebar, filter bar, mobile top bar and tab bar, fo
 
 Unknown or invalid values fall back to the default and are removed from the URL once. Keys are always written in one fixed order: `g`, `bhf`, `von`, `bis`, `linie`, `k`, then `typ` and `min`. Sidebar and tab-bar links carry the current query string, so filters persist across pages. A page drops the keys it has no meaning for: `bhf` on the rankings and on the time series when a `linie` is set, `linie` on every page but the time series. What `bhf` means on the map and on the station page is described in [map.md](map.md).
 
-**Sidebar** (from 768 px): logo, the station search field (see [map.md](map.md)), then the groups "Entdecken" (Karte, Wochentag × Uhrzeit, Rankings, Zeitverlauf), "Planen" (Verbindung planen, Umstieg prüfen) and "Bald" (Live-Lage heute, Verspätungsketten, Gespeicherte Fahrten), then "So liest man die Zahlen". Karte, Wochentag × Uhrzeit, Rankings and Zeitverlauf are links. Every other item is dimmed with a "bald" tag and is not a link; it becomes a link when its page ships. Above the footer sit the Darstellung (theme) and Sprache (language) switches, described in [theme-and-language.md](theme-and-language.md). The footer shows "Datenstand: {month} · {n} Bahnhöfe" and the CC BY 4.0 link. The page footer with the disclaimer is hidden on the map, which fills the viewport.
+**Sidebar** (from 768 px): logo, the station search field (see [map.md](map.md)), then the groups "Entdecken" (Karte, Wochentag × Uhrzeit, Rankings, Zeitverlauf), "Planen" (Verbindung planen, Umstieg prüfen) and "Bald" (Live-Lage heute, Verspätungsketten, Gespeicherte Fahrten), then "So liest man die Zahlen". Karte, Wochentag × Uhrzeit, Rankings and Zeitverlauf are links. Every other item is dimmed with a "bald" tag and is not a link; it becomes a link when its page ships. Above the footer sit the Darstellung (theme) and Sprache (language) switches, described in [theme-and-language.md](theme-and-language.md). The footer shows "Datenstand: {month} · {n} Bahnhöfe" and "Kein Angebot der Deutschen Bahn." The page footer with the disclaimer, that sentence and the source with the CC BY 4.0 link is hidden on the map, which fills the viewport.
 
 **Filter bar**
 
