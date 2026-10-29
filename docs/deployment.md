@@ -153,7 +153,7 @@ $apiUrl = $out.apiUrl.value
 (Invoke-WebRequest "$apiUrl/datenstand" -UseBasicParsing).Content
 ```
 
-Before the first frontend build, narrow the CSP to the API's host. `connect-src` in `frontend/public/staticwebapp.config.json` still carries the wildcard `https://*.swedencentral.azurecontainerapps.io` (§8), because the host is only known once phase 2 has created the Container App. Replace the wildcard with the exact host of the `apiUrl` output (scheme and host, no path) and commit the file (`Web:`) before building. `frontend/e2e/csp.spec.ts` compares the served header with that file, so it follows by itself; but `frontend/playwright.config.ts` builds the e2e bundle with `VITE_API_URL=https://api.e2e.swedencentral.azurecontainerapps.io`, which the narrowed policy blocks. Set it to the same host in that commit, or the CSP project fails on every page.
+`connect-src` in `frontend/public/staticwebapp.config.json` names the API's exact host (scheme and host, no path), and `frontend/playwright.config.ts` builds the e2e bundle with the same host as `VITE_API_URL`; the tests route API calls by path, so they never reach it. A Container App created anew gets a new host (§8): after phase 2, put the `apiUrl` output into both files and commit them (`Web:`) before the frontend build, or the browser blocks every API call. `frontend/e2e/csp.spec.ts` compares the served header with the config file.
 
 The frontend build reads `frontend/.env.production.local` (gitignored). `VITE_API_URL` is the API URL; the four Impressum keys are the provider's full name, street and house number, postcode and city, and a contact e-mail address, exactly as they should appear on `/impressum`. Leave out the Impressum keys (write only the `VITE_API_URL` line) and the page reads "Angaben folgen." instead. `WriteAllLines` writes UTF-8 without a BOM, which Vite needs; any editor that saves UTF-8 without a BOM works too.
 
@@ -324,12 +324,12 @@ Not in this log: page views of the web app (Static Web Apps Free has no access l
 
 ## 7 Open decisions
 
-- A custom domain, which would replace the default hostnames and narrow the CSP's `connect-src` to one host.
+- A custom domain, which would replace the default hostnames and keep the CSP's `connect-src` host stable across redeploys.
 - Deploying from GitHub Actions (OIDC to Azure) instead of by hand, once the manual runbook has settled.
 
 ## 8 Known shortcuts
 
-- **The CSP allows any Container Apps host in Sweden Central** (`connect-src https://*.swedencentral.azurecontainerapps.io`), because the API's hostname is only known after the first deploy. The runbook (§4) narrows it to the `apiUrl` host before the first frontend build; a custom domain would narrow it again.
+- **The CSP names the API's default hostname**, which Azure assigns when the Container App is created, so a deployment into a new resource group needs a `Web:` commit with the new host (§4). A custom domain would keep it stable.
 - **The blob container is public for reading** (`// ponytail:` in `infra/main.bicep`). Anyone with a file's URL can download the aggregates, which are CC BY anyway; listing is off. Every download counts as internet egress; beyond the free 100 GB a month it is billed per GB to the storage account, which the budget covers. If a policy forbids public access, switch to a managed-identity token in `backend/fetch.py`.
 - **The per-process caches are lost on every scale to zero.** The first `/karte` after a wake-up recomputes (3.6–4.0 s locally on one thread), on top of the container start and the 72 MB download. Revisit with min 1 replica (costs idle time) or a precomputed map file.
 - **The alerts do not stop anything.** Scale to zero does not cap the cost: a request at least every two minutes (the 120 s cooldown) keeps the replica active around the clock, so compute at 0.5 vCPU / 1 GiB is billed all month, far above the free grant and the fixed costs. The alert mails and the emergency stop in §4 are the protection.
