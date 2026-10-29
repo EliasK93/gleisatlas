@@ -2,11 +2,11 @@
 
 ## 1 Overview
 
-Gleisatlas v0.2 runs on Azure: the web app on Static Web Apps, the API on Container Apps, the aggregates in Blob Storage. Everything lives in one resource group in West Europe, described by `infra/main.bicep` and deployed by hand with the PowerShell runbook in §4. The container registry is the main fixed cost; at low traffic the rest stays near zero within the free grants (§4), and a budget on the resource group sends alert e-mails (SPEC AC-16).
+Gleisatlas v0.2 runs on Azure: the web app on Static Web Apps, the API on Container Apps, the aggregates in Blob Storage. Everything lives in one resource group in Sweden Central (the Static Web App's settings in East US 2), described by `infra/main.bicep` and deployed by hand with the PowerShell runbook in §4. The container registry is the main fixed cost; at low traffic the rest stays near zero within the free grants (§4), and a budget on the resource group sends alert e-mails (SPEC AC-16).
 
 ## 2 Spec
 
-- One resource group in West Europe holds every resource. Names come from `uniqueString(resourceGroup().id)` where they must be globally unique (storage account, registry).
+- One resource group in Sweden Central holds every resource; the Static Web App resource sits in East US 2 and serves its files worldwide. Names come from `uniqueString(resourceGroup().id)` where they must be globally unique (storage account, registry).
 - The web app is the production build of `frontend/` on Static Web Apps Free, under its default `*.azurestaticapps.net` hostname. Every path route falls back to `index.html`; `/assets/*` is cached as immutable; every response carries the CSP and the other headers of `frontend/public/staticwebapp.config.json`.
 - The API is the image from `Dockerfile` on Container Apps with external HTTPS ingress, 0.5 vCPU and 1 GiB, scaling from 0 to 1 replica. At start it downloads the five data files from the blob container `data` (`backend/fetch.py`), then serves on port 8000. Only the web app's origin passes CORS.
 - The aggregates are public CC BY data: anyone can read a blob by its URL, nobody can list the container.
@@ -20,7 +20,8 @@ Gleisatlas v0.2 runs on Azure: the web app on Static Web Apps, the API on Contai
 
 - **Data comes from Blob Storage at container start.** Reason: the image stays small and code-only, and a data update needs no image build.
 - **The API scales to zero.** Reason: most of the time nobody uses the site, and an idle replica costs nothing.
-- **West Europe for everything.** Reason: close to the audience, and every service used is offered there.
+- **Sweden Central for everything except the Static Web App.** Reason: an EU region that took the first deploy; West Europe rejected the new subscription ("not accepting new customers"), and Germany West Central had no capacity for a new Container Apps environment.
+- **The Static Web App resource in East US 2.** Reason: Static Web Apps is offered in five regions only, and the one in Europe (West Europe) is closed to the subscription; the region holds the resource's settings, while the files are served from Microsoft's worldwide edge locations either way.
 - **Azure default hostnames, no custom domain.** Reason: no domain cost or DNS setup for a reference project.
 - **The image is built in ACR Basic with `az acr build`.** Reason: no local Docker needed; ACR Tasks' free monthly build time covers it.
 - **The Impressum's personal data stays outside the repository.** Reason: the repository is public; the values come from the gitignored `frontend/.env.production.local` at build time.
@@ -66,11 +67,11 @@ Gleisatlas v0.2 runs on Azure: the web app on Static Web Apps, the API on Contai
 | Container Registry | `gleisatlas<suffix>` | Basic, admin user disabled, legacy role-assignment mode |
 | User-assigned identity | `gleisatlas-pull` | AcrPull on the registry only |
 | Container Apps environment | `gleisatlas-env` | Consumption only, logs to the workspace |
-| Static Web App | `gleisatlas-web` | Free, no repository link |
+| Static Web App | `gleisatlas-web` | Free, no repository link, region `webLocation` |
 | Budget | `gleisatlas-budget` | `budgetAmount` per month in the billing currency |
 | Container App | `gleisatlas-api` | only when `image` is set; port 8000, HTTPS only, single revision, 0–1 replicas, the platform's default HTTP scale rule |
 
-Parameters: `budgetEmail`, `budgetStartDate` and `budgetAmount` (all required), `image` (default empty), `cpu` (`0.5`), `memory` (`1Gi`), `polarsMaxThreads` (`1`). Outputs: `apiUrl` (empty without the app), `webName`, `webHostname`, `registryName`, `registryServer`, `storageName`, `workspaceId`.
+Parameters: `budgetEmail`, `budgetStartDate` and `budgetAmount` (all required), `image` (default empty), `webLocation` (`eastus2`), `cpu` (`0.5`), `memory` (`1Gi`), `polarsMaxThreads` (`1`). Outputs: `apiUrl` (empty without the app), `webName`, `webHostname`, `registryName`, `registryServer`, `storageName`, `workspaceId`.
 
 **Environment variables**
 
@@ -91,7 +92,7 @@ Parameters: `budgetEmail`, `budgetStartDate` and `budgetAmount` (all required), 
 3. At container start `python -m backend.fetch` downloads `DATA_URL + <file name>` for each file, then uvicorn starts with `--no-access-log`.
 4. The browser loads the web app from Static Web Apps, calls the API at `VITE_API_URL` (CORS allows the web app's origin) and loads tiles, style and fonts from `tiles.openfreemap.org`.
 
-**Cost items and free grants** (West Europe, from the Azure pricing pages and the Learn billing pages; check the current prices before deploying)
+**Cost items and free grants** ( from the Azure pricing pages and the Learn billing pages; check the current prices before deploying)
 
 | Item | Billing | Source |
 |---|---|---|
@@ -120,8 +121,8 @@ az account set --subscription <subscription name or id>
 # Register the resource providers once per subscription (each call waits until done).
 foreach ($ns in 'Microsoft.App', 'Microsoft.OperationalInsights', 'Microsoft.ContainerRegistry', 'Microsoft.Storage', 'Microsoft.Web', 'Microsoft.ManagedIdentity', 'Microsoft.Consumption') { az provider register --namespace $ns --wait }
 
-# Create the resource group in West Europe.
-az group create --name gleisatlas --location westeurope
+# Create the resource group in Sweden Central.
+az group create --name gleisatlas --location swedencentral
 
 # Phase 1: everything except the Container App. The budget starts on the first of this month.
 $email = '<e-mail address for the budget alerts>'
@@ -152,7 +153,7 @@ $apiUrl = $out.apiUrl.value
 (Invoke-WebRequest "$apiUrl/datenstand" -UseBasicParsing).Content
 ```
 
-Before the first frontend build, narrow the CSP to the API's host. `connect-src` in `frontend/public/staticwebapp.config.json` still carries the wildcard `https://*.westeurope.azurecontainerapps.io` (§8), because the host is only known once phase 2 has created the Container App. Replace the wildcard with the exact host of the `apiUrl` output (scheme and host, no path) and commit the file (`Web:`) before building. `frontend/e2e/csp.spec.ts` compares the served header with that file, so it follows by itself; but `frontend/playwright.config.ts` builds the e2e bundle with `VITE_API_URL=https://api.e2e.westeurope.azurecontainerapps.io`, which the narrowed policy blocks. Set it to the same host in that commit, or the CSP project fails on every page.
+Before the first frontend build, narrow the CSP to the API's host. `connect-src` in `frontend/public/staticwebapp.config.json` still carries the wildcard `https://*.swedencentral.azurecontainerapps.io` (§8), because the host is only known once phase 2 has created the Container App. Replace the wildcard with the exact host of the `apiUrl` output (scheme and host, no path) and commit the file (`Web:`) before building. `frontend/e2e/csp.spec.ts` compares the served header with that file, so it follows by itself; but `frontend/playwright.config.ts` builds the e2e bundle with `VITE_API_URL=https://api.e2e.swedencentral.azurecontainerapps.io`, which the narrowed policy blocks. Set it to the same host in that commit, or the CSP project fails on every page.
 
 The frontend build reads `frontend/.env.production.local` (gitignored). `VITE_API_URL` is the API URL; the four Impressum keys are the provider's full name, street and house number, postcode and city, and a contact e-mail address, exactly as they should appear on `/impressum`. Leave out the Impressum keys (write only the `VITE_API_URL` line) and the page reads "Angaben folgen." instead. `WriteAllLines` writes UTF-8 without a BOM, which Vite needs; any editor that saves UTF-8 without a BOM works too.
 
@@ -328,7 +329,7 @@ Not in this log: page views of the web app (Static Web Apps Free has no access l
 
 ## 8 Known shortcuts
 
-- **The CSP allows any Container Apps host in West Europe** (`connect-src https://*.westeurope.azurecontainerapps.io`), because the API's hostname is only known after the first deploy. The runbook (§4) narrows it to the `apiUrl` host before the first frontend build; a custom domain would narrow it again.
+- **The CSP allows any Container Apps host in Sweden Central** (`connect-src https://*.swedencentral.azurecontainerapps.io`), because the API's hostname is only known after the first deploy. The runbook (§4) narrows it to the `apiUrl` host before the first frontend build; a custom domain would narrow it again.
 - **The blob container is public for reading** (`// ponytail:` in `infra/main.bicep`). Anyone with a file's URL can download the aggregates, which are CC BY anyway; listing is off. Every download counts as internet egress; beyond the free 100 GB a month it is billed per GB to the storage account, which the budget covers. If a policy forbids public access, switch to a managed-identity token in `backend/fetch.py`.
 - **The per-process caches are lost on every scale to zero.** The first `/karte` after a wake-up recomputes (3.6–4.0 s locally on one thread), on top of the container start and the 72 MB download. Revisit with min 1 replica (costs idle time) or a precomputed map file.
 - **The alerts do not stop anything.** Scale to zero does not cap the cost: a request at least every two minutes (the 120 s cooldown) keeps the replica active around the clock, so compute at 0.5 vCPU / 1 GiB is billed all month, far above the free grant and the fixed costs. The alert mails and the emergency stop in §4 are the protection.
