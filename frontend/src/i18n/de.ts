@@ -237,7 +237,7 @@ export const de = {
     "Verantwortlich für diese Website ist der im {impressum} genannte Anbieter.",
   "legal.p.hosting.title": "Hosting",
   "legal.p.hosting.text":
-    "Die Schnittstelle (API) und die Daten laufen bei Microsoft Azure in der Region West Europe. Die Dateien der Website (Azure Static Web Apps) liefert Microsoft nach eigener Angabe von weltweit verteilten Standorten aus, also nicht nur aus dieser Region. Microsoft verarbeitet Daten im Auftrag (Auftragsverarbeitung nach Art. 28 DSGVO).",
+    "Die Schnittstelle (API) und die Daten laufen bei Microsoft Azure in der Region Sweden Central (Schweden). Die Dateien der Website (Azure Static Web Apps) liefert Microsoft nach eigener Angabe von weltweit verteilten Standorten aus. Microsoft verarbeitet Daten im Auftrag (Auftragsverarbeitung nach Art. 28 DSGVO).",
   "legal.p.logs.title": "Server-Protokolle",
   "legal.p.logs.text":
     "Für die Auslieferung der Website und der API verarbeitet Azure die IP-Adresse der Besuchenden. Die Anwendung selbst protokolliert je Anfrage Methode, Pfad mit Abfrageparametern (dazu kann ein eingegebener Suchbegriff gehören), Status, Dauer und eine zufällige Anfragenummer, ohne IP-Adresse, und bewahrt dies 30 Tage für Betrieb und Fehleranalyse auf. Rechtsgrundlage ist Art. 6 Abs. 1 lit. f DSGVO (berechtigtes Interesse an einem sicheren und stabilen Betrieb).",

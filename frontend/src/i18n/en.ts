@@ -236,7 +236,7 @@ export const en: Record<keyof typeof de, string> = {
     "The controller of this website is the provider named in the {impressum}.",
   "legal.p.hosting.title": "Hosting",
   "legal.p.hosting.text":
-    "The interface (API) and the data run on Microsoft Azure in the West Europe region. Microsoft says it serves the files of the website (Azure Static Web Apps) from geographically distributed locations around the world, so not only from that region. Microsoft processes data on behalf of the controller (processing under Art. 28 GDPR).",
+    "The interface (API) and the data run on Microsoft Azure in the Sweden Central region (Sweden). Microsoft says it serves the files of the website (Azure Static Web Apps) from geographically distributed locations around the world. Microsoft processes data on behalf of the controller (processing under Art. 28 GDPR).",
   "legal.p.logs.title": "Server logs",
   "legal.p.logs.text":
     "To deliver the website and the API, Azure processes the visitor's IP address. For each request the application itself logs the method, the path with its query parameters (which can include a search term typed in), the status, the duration and a random request number, without an IP address, and keeps this for 30 days for operation and error analysis. The legal basis is Art. 6(1)(f) GDPR (legitimate interest in secure and stable operation).",
