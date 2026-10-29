@@ -43,15 +43,17 @@ Timetable apps (bahn.de, DB Navigator) optimise for the connection that is *sche
 |---|---|
 | **v0.1 – Pattern analysis** | Data pipeline (nationwide), aggregates, dashboard for patterns (weekday, time, line, station, train category), cancellation vs. delay analysis. Runs locally. |
 | **v0.2 – Deployment** | v0.1 deployed on Azure, data update reproducible. |
+| **v0.3 – Day-level history** | Daily time series in place of the monthly one; the map for one past day against the normal for that weekday, drawn as a weather map (Germany, then Bundesländer, then stations); a line detail page with "Zeitfresser" sections and a graphic timetable (Bildfahrplan) for one day, planned against actual, as the visual form of delay propagation. Deployed. |
 | **v1.0 – Connection comparison** | Start/destination/time window → connections with arrival distribution, transfer risk, transfer recommendation. Deployed. |
-| **v1.x – Optional features** | Depending on time: delay propagation along lines, weather correlation, comparison with official DB statistics. |
-| **v2 – Live situation** | Current delay of a concrete trip today + transfer risk in real time. |
+| **v1.x – Optional features** | Depending on time: weather correlation (on the daily time series), comparison with official DB statistics. |
+| **v2 – Live situation** | Current delay of a concrete trip today + transfer risk in real time; "Bahnwetter": the day map for today. |
 
 ### 3.2 In scope (v0.1–v1.0)
 
 - Historical data nationwide, all stations in the dataset.
 - Filter by train category (regional / long-distance / individually selectable).
 - Pattern analysis (must).
+- Day-level history: daily time series, day map, line detail page (v0.3).
 - Connection comparison in a time window (must).
 - **Transfer recommendation**: empirically sufficient transfer time at a station or for a concrete train pair (must).
 - **Cancellations reported separately from delays** (must).
@@ -71,7 +73,7 @@ Timetable apps (bahn.de, DB Navigator) optimise for the connection that is *sche
 
 ### 3.4 Idea backlog (open, unprioritised)
 
-Daily time series instead of monthly, with a smoothed trend line on top, a calendar view, marked events (weather, holidays, strikes) and the 10 worst and best days; this is where the weather correlation (F6) would live · "Bahnwetter": today's punctuality against a typical day of the same weekday, shown first as a weather-style map (Germany as a whole, then regions and stations), with the numbers as a secondary view · the map coloured by the deviation from the normal for one day (today or any past day) · a line detail page with the line's stations and statistics and a graphic timetable (Bildfahrplan) of the line for one day, planned against actual, as the visual form of delay propagation (F6) · "Zeitfresser" sections: the map colours the sections between stations by where trains lose or make up time · passenger-rights calculator (how often ≥ 60/120 min) · calendar export of the chosen connection · effect of timetable changes / construction work · holiday effects · compare regional vs. long-distance for the same relation · cause statistics (if a data source provides them) · records independent of delays: stations with the most/fewest stops, lines or trains per hour, lines with the most/fewest stops (needs a minimum sample, since one-off trains fill the "fewest" lists) · cross-border trains: the source only has German stations, so a train abroad ends at the border and its line names the last German station; marking such lines as "section in Germany" is small, the full run would need an own collector against foreign sources (see 3.3). On hold: a personal trip log with its own balance, and a saved "recurring trip" with a weekly report. Further ideas are welcome: add new items here, do not build them directly.
+On the daily time series (v0.3): a smoothed trend line, a calendar view, marked events (weather, holidays, strikes) and the 10 worst and best days; this is where the weather correlation (F6) would live · passenger-rights calculator (how often ≥ 60/120 min) · calendar export of the chosen connection · effect of timetable changes / construction work · holiday effects · compare regional vs. long-distance for the same relation · cause statistics (if a data source provides them) · records independent of delays: stations with the most/fewest stops, lines or trains per hour, lines with the most/fewest stops (needs a minimum sample, since one-off trains fill the "fewest" lists) · cross-border trains: the source only has German stations, so a train abroad ends at the border and its line names the last German station; marking such lines as "section in Germany" is small, the full run would need an own collector against foreign sources (see 3.3). On hold: a personal trip log with its own balance, and a saved "recurring trip" with a weekly report. Further ideas are welcome: add new items here, do not build them directly.
 
 ---
 
@@ -152,7 +154,7 @@ Decision criteria: stability, legal/terms of service, effort, regional + long-di
 - F5.6 UI language German by default, switchable to English. All user-visible strings come from a message catalog (i18n from the start); the German and English catalogs exist.
 
 ### F6 – Optional features (v1.x)
-Delay propagation along a line · weather correlation · comparison with official DB statistics.
+Weather correlation · comparison with official DB statistics.
 
 ---
 
