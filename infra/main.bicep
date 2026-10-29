@@ -23,6 +23,9 @@ param memory string = '1Gi'
 @description('Polars threads; matches the vCPU count, since Polars otherwise sees the host\'s cores.')
 param polarsMaxThreads string = '1'
 
+@description('Region of the Static Web App, which is offered in few regions, none of them open in Europe to new subscriptions; its files are served worldwide either way (docs/deployment.md §3).')
+param webLocation string = 'eastus2'
+
 var location = resourceGroup().location
 var suffix = uniqueString(resourceGroup().id)
 var acrPullRole = subscriptionResourceId(
@@ -107,7 +110,7 @@ resource environment 'Microsoft.App/managedEnvironments@2026-07-01' = {
 
 resource web 'Microsoft.Web/staticSites@2025-03-01' = {
   name: 'gleisatlas-web'
-  location: location
+  location: webLocation
   sku: { name: 'Free', tier: 'Free' }
   properties: {} // no repository: deployed by token with the SWA CLI
 }
