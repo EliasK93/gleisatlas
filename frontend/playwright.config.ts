@@ -35,7 +35,10 @@ export default defineConfig({
       // A production build without provider details (no .env file for this mode), like the
       // deployed site before the Impressum is filled in; a reused server could serve a stale build.
       reuseExistingServer: false,
-      env: { VITE_API_URL: "https://api.e2e.swedencentral.azurecontainerapps.io" },
+      env: {
+        VITE_API_URL:
+          "https://gleisatlas-api.example.swedencentral.azurecontainerapps.io",
+      },
     },
   ],
 });
