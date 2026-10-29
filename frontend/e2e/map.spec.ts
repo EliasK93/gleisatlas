@@ -52,6 +52,28 @@ test("the map renders the stations and has no footer", async ({ page }) => {
   await expect(licence).toHaveAttribute("target", "_blank");
 });
 
+test("leaving the map while its card resizes throws no page error", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("pageerror", (e) => errors.push(e.message));
+  await mockApi(page);
+  for (const width of [200, 300, 400]) {
+    await page.goto("/karte");
+    await expect(page.getByTestId("map-card")).toBeVisible();
+    // The card resizes and the route changes in the same task, so the observer's callback runs
+    // once the map page is gone.
+    await page.evaluate((w) => {
+      document.querySelector<HTMLElement>("[data-testid=map-card]")!.style.width = `${w}px`;
+      history.pushState(null, "", "/muster/heatmap");
+      dispatchEvent(new PopStateEvent("popstate"));
+    }, width);
+    await expect(page.getByRole("heading", { level: 1 })).not.toHaveText(
+      "Wie zuverlässig ist die Bahn?",
+    );
+    await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => done(null))));
+  }
+  expect(errors).toEqual([]);
+});
+
 test("?bhf= opens the panel; Schließen removes bhf and keeps the rest", async ({ page }) => {
   await mockApi(page);
   await page.goto("/karte?g=fern&bhf=8000207");

@@ -49,6 +49,22 @@ select option {
   }
 }
 
+/* MapLibre's attribution is white with black text; it takes the surface and text tokens instead.
+   Only the toggle's icon (black in MapLibre's own image) needs a dark-theme rule. */
+.maplibregl-ctrl.maplibregl-ctrl-attrib.maplibregl-compact {
+  background-color: var(--color-surface);
+  color: var(--color-text);
+}
+.maplibregl-ctrl .maplibregl-ctrl-attrib-inner a {
+  color: var(--color-text-2);
+}
+.maplibregl-ctrl .maplibregl-ctrl-attrib-inner a:hover {
+  color: inherit;
+}
+:root[data-theme="dark"] .maplibregl-ctrl-attrib .maplibregl-ctrl-attrib-button {
+  filter: invert(1);
+}
+
 /* The open attribution wraps before it reaches the legend (12 px left + 300 px wide in MapPage). */
 @media (width >= 48rem) {
   .maplibregl-ctrl-bottom-right {

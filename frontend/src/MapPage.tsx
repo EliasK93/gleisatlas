@@ -359,6 +359,8 @@ function StationMap({
     // again as long as the camera still sits where the last fit put it and nobody picked a station.
     let home = { z: m.getZoom(), c: m.getCenter() };
     const refit = () => {
+      // A callback queued before the cleanup can run once the page's elements are gone.
+      if (!card.current || !box.current) return;
       const { z, c } = home;
       if (m.getZoom() !== z || m.getCenter().lng !== c.lng || m.getCenter().lat !== c.lat) return;
       m.fitBounds(GERMANY, { padding: padding(), animate: false });

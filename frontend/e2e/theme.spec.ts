@@ -230,6 +230,26 @@ test.describe("map", () => {
       .toBe(true);
   });
 
+  test("the open map attribution uses the surface and text tokens", async ({ page }) => {
+    await page.goto("/karte");
+    await expect(page.getByTestId("map")).toHaveAttribute("data-ready", "true");
+    const attribution = page.locator(".maplibregl-ctrl-attrib");
+    // Wide maps open it by default; on a phone the toggle opens it.
+    if (!(await attribution.evaluate((el) => el.classList.contains("maplibregl-compact-show"))))
+      await page.locator("summary.maplibregl-ctrl-attrib-button").click();
+    await expect(attribution).toHaveClass(/maplibregl-compact-show/);
+    const style = (selector: string, property: "backgroundColor" | "color") =>
+      page
+        .locator(selector)
+        .first()
+        .evaluate((el, p) => getComputedStyle(el)[p], property);
+    expect(await style(".maplibregl-ctrl-attrib", "backgroundColor")).toBe(
+      await token(page, "surface"),
+    );
+    expect(await style(".maplibregl-ctrl-attrib", "color")).toBe(await token(page, "text"));
+    expect(await style(".maplibregl-ctrl-attrib a", "color")).toBe(await token(page, "text-2"));
+  });
+
   test("stations with little data are drawn paler, in both themes", async ({ page, isMobile }) => {
     // Three stations of the same class (93 %): plenty of stops, 30 stops ("~"), 9 stops (no value).
     const karte = karteFixture();
