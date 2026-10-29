@@ -2,7 +2,7 @@
 
 ## 1 Overview
 
-Gleisatlas v0.2 runs on Azure: the web app on Static Web Apps, the API on Container Apps, the aggregates in Blob Storage. Everything lives in one resource group in Sweden Central (the Static Web App's settings in East US 2), described by `infra/main.bicep` and deployed by hand with the PowerShell runbook in §4. The container registry is the main fixed cost; at low traffic the rest stays near zero within the free grants (§4), and a budget on the resource group sends alert e-mails (SPEC AC-16).
+Gleisatlas v0.2 runs on Azure: the web app on Static Web Apps, the API on Container Apps, the aggregates in Blob Storage. Everything lives in one resource group in Sweden Central (the Static Web App's settings in East US 2), described by `infra/main.bicep` and deployed and torn down by one script each (§4). The container registry is the main fixed cost; at low traffic the rest stays near zero within the free grants (§4), and a budget on the resource group sends alert e-mails (SPEC AC-16).
 
 ## 2 Spec
 
@@ -27,6 +27,7 @@ Gleisatlas v0.2 runs on Azure: the web app on Static Web Apps, the API on Contai
 - **The Impressum's personal data stays outside the repository.** Reason: the repository is public; the values come from the gitignored `frontend/.env.production.local` at build time.
 - **Cost protection is alerts plus tight limits** (max 1 replica, small size, log cap). Reason: Azure has no hard spending cap on a pay-as-you-go subscription; an automatic stop would need an extra function and identity.
 - **The frontend is built locally and deployed with the SWA CLI.** Reason: no GitHub Actions secret or repository link needed for the first deploy.
+- **Deploy and teardown by script** (`scripts/azure.py deploy` and `teardown`). Reason: one command each way, with a stop at the first failure; the API's host changes on every fresh deploy, so the script narrows the CSP in the built copy instead of a commit with the new host.
 
 **Licences and attribution** (notes on the terms of the services used, not legal advice)
 
@@ -52,7 +53,7 @@ Gleisatlas v0.2 runs on Azure: the web app on Static Web Apps, the API on Contai
 - **Bicep in the gate.** `az bicep build --file infra/main.bicep --stdout` runs offline without a login, so every clone needs the Azure CLI with Bicep (README, Development). CI downloads the Bicep 0.48.1 binary, checks it against the sha256 digest GitHub publishes for that release asset, and lets `az` take it from PATH, so it never pulls the latest version. Reason: a broken template fails before anyone deploys it.
 - **The registry keeps the legacy role-assignment mode** (`roleAssignmentMode: 'LegacyRegistryPermissions'`). Reason: Microsoft announced the ABAC repository mode as the future default, and that mode ignores the AcrPull assignment the app pulls with.
 - **A monthly budget on the resource group**, alerts at actual 50 % and 90 % and forecast 100 %; the amount and the e-mail address are deploy parameters. Reason: SPEC AC-16; the amount depends on the deployer, and no personal address belongs in the repository.
-- **The budget start date is a required parameter without a default.** Reason: Azure rejects a change of an existing budget's start date, so a default from `utcNow()` would break every deploy after the first month. The runbook reads the value back from the last deployment.
+- **The budget start date is a required parameter without a default.** Reason: Azure rejects a change of an existing budget's start date, so a default from `utcNow()` would break every deploy after the first month. The deploy script reads the value back from the last deployment.
 - **Two phases through the `image` parameter.** Reason: the Container App can only start once the registry holds the image and the container holds the data; phase 1 creates both, phase 2 adds the app.
 - **Bicep API versions: the newest stable version the Bicep CLI has types for.** Reason: storage 2026-09-01 is listed on Learn but has no types in Bicep 0.48.1 (warning BCP081), so storage uses 2026-06-01.
 
@@ -82,13 +83,13 @@ Parameters: `budgetEmail`, `budgetStartDate` and `budgetAmount` (all required), 
 | `POLARS_MAX_THREADS` | API, set by Bicep | `1` |
 | `LOG_FILE` | API, local only | a path for a timestamped copy of the request lines; unset on Azure |
 | `AGGREGATE_PATH`, `STATIONS_PATH`, `MONATE_PATH`, `LINES_PATH`, `LINIEN_PATH` | API | default `data/<name>.parquet`; `backend.fetch` downloads to the same paths |
-| `VITE_API_URL` | frontend build | the `apiUrl` output |
+| `VITE_API_URL` | frontend build | the `apiUrl` output, set by the deploy script |
 | `VITE_IMPRESSUM_NAME`, `…_STREET`, `…_CITY`, `…_EMAIL` | frontend build | the provider's details; while one is empty, `/impressum` reads "Angaben folgen." |
 
 **Data flow**
 
 1. `pipeline.update` builds `data/*.parquet` locally ([pipeline.md](pipeline.md)).
-2. The runbook uploads the five files the API reads (`aggregate`, `stations`, `monate`, `lines`, `linien`) to the container `data`. `coords.parquet`, `raw/` and `months/` stay local.
+2. The deploy script uploads the five files the API reads (`aggregate`, `stations`, `monate`, `lines`, `linien`) to the container `data`. `coords.parquet`, `raw/` and `months/` stay local.
 3. At container start `python -m backend.fetch` downloads `DATA_URL + <file name>` for each file, then uvicorn starts with `--no-access-log`.
 4. The browser loads the web app from Static Web Apps, calls the API at `VITE_API_URL` (CORS allows the web app's origin) and loads tiles, style and fonts from `tiles.openfreemap.org`.
 
@@ -107,100 +108,47 @@ Parameters: `budgetEmail`, `budgetStartDate` and `budgetAmount` (all required), 
 
 Expected: the registry is the main fixed cost, and the rest stays near zero as long as the API is awake less than the free grant covers. One wake-up of 6 minutes at 0.5 vCPU / 1 GiB uses 0.5 × 360 = 180 vCPU-s and 1 × 360 = 360 GiB-s, so the grant covers 180,000 / 180 = 1,000 such wake-ups a month (about 100 active hours) at no charge. Worst case: see §8.
 
-**Runbook** (all code blocks are PowerShell: `powershell` on Windows, `pwsh` on macOS and Linux; run from the repository root; values in angle brackets are personal and never go into the repository)
+**Deploy and teardown by script** (`scripts/azure.py`, standard library only; run from the repository root; the remaining code blocks are PowerShell: `powershell` on Windows, `pwsh` on macOS and Linux)
 
-The account needs **Owner**, or **Contributor** plus **User Access Administrator** (or **Role Based Access Control Administrator**), on the resource group: Contributor creates the resources but not the AcrPull role assignment, and the other two roles create only role assignments. `az` may offer to install the `containerapp` and `log-analytics` extensions on first use; accept.
+The account needs **Owner**, or **Contributor** plus **User Access Administrator** (or **Role Based Access Control Administrator**), on the resource group: Contributor creates the resources but not the AcrPull role assignment, and the other two roles create only role assignments. Teardown step 3 may make `az` offer to install the `log-analytics` extension; accept.
 
-First deployment:
+Sign in once per session, then run the script. Two personal values come from the environment or, if unset, from a prompt; they never go into the repository: `GLEISATLAS_BUDGET_EMAIL` (receives the budget alerts) and `GLEISATLAS_BUDGET_AMOUNT` (the monthly budget in the billing currency, a whole number).
 
 ```powershell
-# Sign in and choose the subscription.
 az login
 az account set --subscription <subscription name or id>
-
-# Register the resource providers once per subscription (each call waits until done).
-foreach ($ns in 'Microsoft.App', 'Microsoft.OperationalInsights', 'Microsoft.ContainerRegistry', 'Microsoft.Storage', 'Microsoft.Web', 'Microsoft.ManagedIdentity', 'Microsoft.Consumption') { az provider register --namespace $ns --wait }
-
-# Create the resource group in Sweden Central.
-az group create --name gleisatlas --location swedencentral
-
-# Phase 1: everything except the Container App. The budget starts on the first of this month.
-$email = '<e-mail address for the budget alerts>'
-$budgetAmount = '<monthly budget in the billing currency, a whole number>'
-$budgetStart = (Get-Date -Day 1).ToString('yyyy-MM-dd')
-az deployment group create --resource-group gleisatlas --template-file infra/main.bicep --parameters budgetEmail=$email budgetAmount=$budgetAmount budgetStartDate=$budgetStart
-
-# Read the deployment outputs into variables (run again after every deployment).
-$out = az deployment group show --resource-group gleisatlas --name main --query properties.outputs | Out-String | ConvertFrom-Json
-$registry = $out.registryName.value; $server = $out.registryServer.value; $storage = $out.storageName.value; $web = $out.webName.value; $workspace = $out.workspaceId.value; $apiUrl = $out.apiUrl.value
-
-# Upload exactly the five files the API reads, with the account key of the signed-in user.
-foreach ($f in 'aggregate', 'stations', 'monate', 'lines', 'linien') { az storage blob upload --account-name $storage --container-name data --name "$f.parquet" --file "data/$f.parquet" --auth-mode key --overwrite --only-show-errors; if (-not $?) { break } }
-
-# Check: a blob is readable by URL (200), the container cannot be listed (404).
-foreach ($u in "https://$storage.blob.core.windows.net/data/monate.parquet", "https://$storage.blob.core.windows.net/data?restype=container&comp=list") { try { (Invoke-WebRequest $u -UseBasicParsing).StatusCode } catch { [int]$_.Exception.Response.StatusCode } }
-
-# Build the image in the registry, tagged with the commit (build from a clean, committed tree).
-$tag = git rev-parse --short HEAD
-az acr build --registry $registry --image "api:$tag" .
-
-# Phase 2: the same deployment plus the image adds the Container App.
-az deployment group create --resource-group gleisatlas --template-file infra/main.bicep --parameters budgetEmail=$email budgetAmount=$budgetAmount budgetStartDate=$budgetStart image="$server/api:$tag"
-
-# Read the outputs again (now with the API URL) and check the API.
-$out = az deployment group show --resource-group gleisatlas --name main --query properties.outputs | Out-String | ConvertFrom-Json
-$apiUrl = $out.apiUrl.value
-(Invoke-WebRequest "$apiUrl/datenstand" -UseBasicParsing).Content
+uv run python scripts/azure.py deploy
 ```
 
-`connect-src` in `frontend/public/staticwebapp.config.json` names the API's exact host (scheme and host, no path), and `frontend/playwright.config.ts` builds the e2e bundle with the same host as `VITE_API_URL`; the tests route API calls by path, so they never reach it. A Container App created anew gets a new host (§8): after phase 2, put the `apiUrl` output into both files and commit them (`Web:`) before the frontend build, or the browser blocks every API call. `frontend/e2e/csp.spec.ts` compares the served header with the config file.
+In VS Code, the launch configurations "Azure: deploy" and "Azure: teardown" run the same commands in the integrated terminal, where the prompts work.
 
-The frontend build reads `frontend/.env.production.local` (gitignored). `VITE_API_URL` is the API URL; the four Impressum keys are the provider's full name, street and house number, postcode and city, and a contact e-mail address, exactly as they should appear on `/impressum`. Leave out the Impressum keys (write only the `VITE_API_URL` line) and the page reads "Angaben folgen." instead. `WriteAllLines` writes UTF-8 without a BOM, which Vite needs; any editor that saves UTF-8 without a BOM works too.
+`deploy` prints a numbered header per step, streams the long steps (image build, deployments, frontend build, upload) and stops at the first failure with the step, the command (never a secret) and the error output, exit code 1. Steps that start or add cost print a `COST:` line first.
 
-```powershell
-# Write the build settings (replace the four Impressum placeholders).
-[IO.File]::WriteAllLines((Join-Path $PWD 'frontend/.env.production.local'), [string[]]@("VITE_API_URL=$apiUrl", 'VITE_IMPRESSUM_NAME=<full name>', 'VITE_IMPRESSUM_STREET=<street and house number>', 'VITE_IMPRESSUM_CITY=<postcode and city>', 'VITE_IMPRESSUM_EMAIL=<contact e-mail>'))
+1. Preflight: `az`, `git`, `npm` and `npx` on PATH; signed in (the subscription and user are printed); a clean working tree, because the image tag names the commit; the five data files exist; the two personal values.
+2. Register the seven resource providers.
+3. Create the resource group `gleisatlas` in Sweden Central.
+4. Phase 1, everything except the Container App. **COST:** from here the container registry is billed per day until teardown. The budget starts on the first of the current month, or keeps the start date of an earlier deployment (Azure rejects a change).
+5. Read the deployment outputs.
+6. Upload exactly the five files the API reads, with the signed-in user's account key.
+7. Check the blob access: a file answers 200 by URL, the container listing answers 404.
+8. Build the image `api:<short commit>` in the registry.
+9. Phase 2, the same deployment plus the image, which adds the Container App. **COST:** billed only while a replica runs.
+10. Poll `<apiUrl>/datenstand` until it answers 200 (up to 3 minutes) and print the seconds: the cold start.
+11. Build the frontend with `VITE_API_URL` set to the `apiUrl` output in the build's environment.
+12. Narrow `connect-src` in the built copy `frontend/dist/staticwebapp.config.json` from the wildcard `https://*.swedencentral.azurecontainerapps.io` to the API's exact origin. The file in the repository keeps the wildcard.
+13. Fetch the Static Web App's deployment token and upload `frontend/dist` with the pinned SWA CLI; the token goes through the environment, not the command line, and is never printed.
+14. Print the site URL and the API URL.
 
-# Build the production bundle into frontend/dist (fails without VITE_API_URL).
-npm --prefix frontend run build
+The frontend build reads `frontend/.env.production.local` (gitignored) for the Impressum: the keys `VITE_IMPRESSUM_NAME`, `VITE_IMPRESSUM_STREET`, `VITE_IMPRESSUM_CITY` and `VITE_IMPRESSUM_EMAIL` are the provider's full name, street and house number, postcode and city, and a contact e-mail address, exactly as they should appear on `/impressum`. The script never writes this file; `VITE_API_URL` comes from its own environment, which wins over the file. Leave the Impressum keys out and the page reads "Angaben folgen." instead. Save the file as UTF-8 without a BOM, which Vite needs.
 
-# Fetch the Static Web App's deployment token.
-$token = az staticwebapp secrets list --name $web --resource-group gleisatlas --query properties.apiKey --output tsv
+Running `deploy` again repeats every step and is safe: the same commit gives the same image tag, and the budget keeps its start date. So a change to `infra/main.bicep`, the API, the web app or the data goes live by committing and running `deploy` again.
 
-# Upload frontend/dist with the pinned SWA CLI; the token goes through the environment, not the command line, and is cleared afterwards.
-$env:SWA_CLI_DEPLOYMENT_TOKEN = $token
-npx --yes @azure/static-web-apps-cli@2.0.10 deploy frontend/dist --env production
-Remove-Item Env:SWA_CLI_DEPLOYMENT_TOKEN; Remove-Variable token
-
-# Print the site's address (open it in a browser).
-"https://$($out.webHostname.value)"
-```
-
-Later deployments, in a new PowerShell session:
-
-```powershell
-# The budget's start date cannot change: take it from the last deployment.
-$email = '<e-mail address for the budget alerts>'
-$budgetAmount = '<monthly budget in the billing currency, a whole number>'
-$budgetStart = az deployment group show --resource-group gleisatlas --name main --query properties.parameters.budgetStartDate.value --output tsv
-
-# The image the app runs now, for an infrastructure change without a code change.
-$image = az deployment group show --resource-group gleisatlas --name main --query properties.parameters.image.value --output tsv
-```
-
-Then read the outputs as above.
-
-- **Infrastructure update** (a change to `infra/main.bicep` only): the phase-2 deployment with the current image, `--parameters budgetEmail=$email budgetAmount=$budgetAmount budgetStartDate=$budgetStart image=$image`.
-
-- **Data update:** `uv run python -m pipeline.update`, then the upload loop above. A running replica keeps the old data until it restarts; the next cold start fetches the new files. To switch at once:
+- **Data update:** `uv run python -m pipeline.update`, then `deploy` again. A running replica keeps the old data until it restarts; the next cold start fetches the new files. To switch at once:
 
   ```powershell
   # Restart the active revision, so the container downloads the data again.
   az containerapp revision restart --name gleisatlas-api --resource-group gleisatlas --revision (az containerapp revision list --name gleisatlas-api --resource-group gleisatlas --query '[0].name' --output tsv)
   ```
-
-- **Code update (API):** commit, then `$tag = git rev-parse --short HEAD`, `az acr build` and the phase-2 deployment as above, with the new tag.
-- **Code update (web app):** `npm --prefix frontend run build`, then the token and the SWA CLI deploy as above.
 
 Emergency stop and its undo:
 
@@ -208,18 +156,23 @@ Emergency stop and its undo:
 # Stop: no request reaches the API any more, so the replica scales to zero and compute stops.
 az containerapp ingress disable --name gleisatlas-api --resource-group gleisatlas
 
-# Undo: open the ingress again (the phase-2 deployment restores it as well).
+# Undo: open the ingress again (running `deploy` restores it as well).
 az containerapp ingress enable --name gleisatlas-api --resource-group gleisatlas --type external --target-port 8000 --transport auto
 ```
 
 Delete everything:
 
 ```powershell
-# Delete the resource group with every resource in it (asks for confirmation).
-az group delete --name gleisatlas
+uv run python scripts/azure.py teardown
 ```
 
-The budget is scoped to the resource group; check under Cost Management, Budgets that it is gone. The Log Analytics workspace stays recoverable for 14 days after the deletion; a new deployment under the same name recovers it.
+1. Print the subscription; if the resource group does not exist, say that nothing is deployed and stop.
+2. Ask to type `gleisatlas`; anything else aborts, exit code 1.
+3. Permanently delete the Log Analytics workspace (skipped if it does not exist), so a soft-deleted workspace never blocks a later deploy in another region.
+4. Delete the resource group and wait until it is gone.
+5. Check that the group no longer exists and say that billing has stopped.
+
+The budget is scoped to the resource group and goes with it; check under Cost Management, Budgets that it is gone.
 
 **Reading the app log**
 
@@ -237,9 +190,10 @@ end <id> <status> <ms>ms
 az containerapp logs show --name gleisatlas-api --resource-group gleisatlas --follow --format text
 ```
 
-Each query below runs the same way: paste it into the here-string, then run the two lines after it (the query becomes one line, so `az` receives it in one piece; the queries use single quotes only, because Windows PowerShell 5.1 splits native-command arguments at double quotes).
+Each query below runs the same way: paste it into the here-string, then run the lines after it (the query becomes one line, so `az` receives it in one piece; the queries use single quotes only, because Windows PowerShell 5.1 splits native-command arguments at double quotes).
 
 ```powershell
+$workspace = az monitor log-analytics workspace show --resource-group gleisatlas --workspace-name gleisatlas-logs --query customerId --output tsv
 $kql = @'
 <query>
 '@
@@ -252,9 +206,9 @@ Requests that never finished (a start line without an end line, older than 5 min
 ```kusto
 ContainerAppConsoleLogs_CL
 | where ContainerAppName_s == 'gleisatlas-api' and TimeGenerated > ago(3d)
-| parse Log_s with kind ' ' id ' ' rest
-| where kind in ('start', 'end')
-| summarize started = minif(TimeGenerated, kind == 'start'), ends = countif(kind == 'end'), request = take_anyif(rest, kind == 'start') by id
+| parse Log_s with phase ' ' id ' ' rest
+| where phase in ('start', 'end')
+| summarize started = minif(TimeGenerated, phase == 'start'), ends = countif(phase == 'end'), request = take_anyif(rest, phase == 'start') by id
 | where isnotnull(started) and ends == 0 and started < ago(5m)
 | order by started desc
 ```
@@ -274,11 +228,11 @@ The slowest paths (p50 and p95 of the end line's duration, joined to the start l
 ```kusto
 let lines = ContainerAppConsoleLogs_CL
 | where ContainerAppName_s == 'gleisatlas-api' and TimeGenerated > ago(7d)
-| parse Log_s with kind ' ' id ' ' a ' ' b;
+| parse Log_s with phase ' ' id ' ' a ' ' b;
 lines
-| where kind == 'start'
+| where phase == 'start'
 | project id, path = tostring(split(b, '?')[0])
-| join kind=inner (lines | where kind == 'end' | project id, ms = toint(extract('^[0-9]+', 0, b))) on id
+| join kind=inner (lines | where phase == 'end' | project id, ms = toint(extract('^[0-9]+', 0, b))) on id
 | summarize requests = count(), p50 = percentile(ms, 50), p95 = percentile(ms, 95) by path
 | order by p95 desc
 ```
@@ -288,11 +242,11 @@ Responses outside 2xx (last 7 days, newest first):
 ```kusto
 let lines = ContainerAppConsoleLogs_CL
 | where ContainerAppName_s == 'gleisatlas-api' and TimeGenerated > ago(7d)
-| parse Log_s with kind ' ' id ' ' a ' ' b;
+| parse Log_s with phase ' ' id ' ' a ' ' b;
 lines
-| where kind == 'end' and (toint(a) < 200 or toint(a) > 299)
+| where phase == 'end' and (toint(a) < 200 or toint(a) > 299)
 | project TimeGenerated, id, status = toint(a), duration = b
-| join kind=leftouter (lines | where kind == 'start' | project id, method = a, request = b) on id
+| join kind=leftouter (lines | where phase == 'start' | project id, method = a, request = b) on id
 | project TimeGenerated, status, method, request, duration
 | order by TimeGenerated desc
 ```
@@ -309,35 +263,36 @@ Not in this log: page views of the web app (Static Web Apps Free has no access l
 
 ## 6 Platform checks
 
-- [ ] Both phases of `infra/main.bicep` deploy without errors.
-- [ ] `az acr build` builds the image in the registry.
-- [ ] The container downloads the data and starts: the live log stream shows uvicorn's start-up and the first `start`/`end` lines, the system log no pull or crash error.
-- [ ] Cold start after idle, measured: the first `/datenstand` after the replica stopped.
-- [ ] `/karte` cold and warm on Azure, measured (map.md §6 refers here).
-- [ ] AC-3: the deployed data is under 2 GB (`az storage blob list --account-name $storage --container-name data --auth-mode key --query '[].properties.contentLength'`).
+- [x] Both phases of `infra/main.bicep` deploy without errors.
+- [x] `az acr build` builds the image in the registry.
+- [x] The container downloads the data and starts: the live log stream shows uvicorn's start-up and the first `start`/`end` lines, the system log no pull or crash error.
+- [x] Cold start after idle, measured: the first `/datenstand` after the replica stopped took 20.9 s (container start and data download); warm 46 ms.
+- [x] `/karte` cold and warm on Azure, measured (map.md §6 refers here): 42 s cold, started together with the cold `/datenstand`, so about 20 s of start-up and 20 s of computation; warm 275 ms. Accepted while under a minute.
+- [x] AC-3: the deployed data is under 2 GB (75 MB) (`az storage blob list --account-name $storage --container-name data --auth-mode key --query '[].properties.contentLength'`).
 - [ ] AC-16: the budget alert e-mail arrives, tested with a temporary budget of 1 that is deleted afterwards; the first full month stays within the configured budget.
 - [ ] The first day in Cost Management shows no "Environment Management Hour" charge.
-- [ ] No CSP violation in the browser console on the deployed site ([theme-and-language.md](theme-and-language.md) §6 refers here).
-- [ ] The Impressum and Datenschutz pages show the real values, or "Angaben folgen." while the Impressum keys are not set; `/licenses.txt` opens as text, not as a download.
+- [x] No CSP violation in the browser console on the deployed site ([theme-and-language.md](theme-and-language.md) §6 refers here).
+- [x] The Impressum and Datenschutz pages show the real values, or "Angaben folgen." while the Impressum keys are not set; `/licenses.txt` opens as text, not as a download.
 - [ ] After a few days the unfinished-requests query in §4 returns nothing (the Polars warning watch, [patterns.md](patterns.md) §8).
 - Ticked on Azure as well, listed in their own docs: [app-shell.md](app-shell.md) §6 (SPA fallback, popover), [map.md](map.md) §6 (tiles and attribution, WebGL, cold `/karte`), [theme-and-language.md](theme-and-language.md) §6 (wordmark, no light flash), [patterns.md](patterns.md) §6 (AC-5, heatmap warm under 3 s).
 
 ## 7 Open decisions
 
 - A custom domain, which would replace the default hostnames and keep the CSP's `connect-src` host stable across redeploys.
-- Deploying from GitHub Actions (OIDC to Azure) instead of by hand, once the manual runbook has settled.
+- Deploying from GitHub Actions (OIDC to Azure) instead of by the script, once the script has settled.
 
 ## 8 Known shortcuts
 
-- **The CSP names the API's default hostname**, which Azure assigns when the Container App is created, so a deployment into a new resource group needs a `Web:` commit with the new host (§4). A custom domain would keep it stable.
+- **The committed CSP allows any Container App in Sweden Central** (`https://*.swedencentral.azurecontainerapps.io`), because the API's host is assigned when the Container App is created and differs on every fresh deploy. The deploy script narrows the built copy to the exact host, so the deployed site is tight; a build uploaded without the script is not. A custom domain would keep the host stable and the wildcard could go.
 - **The blob container is public for reading** (`// ponytail:` in `infra/main.bicep`). Anyone with a file's URL can download the aggregates, which are CC BY anyway; listing is off. Every download counts as internet egress; beyond the free 100 GB a month it is billed per GB to the storage account, which the budget covers. If a policy forbids public access, switch to a managed-identity token in `backend/fetch.py`.
 - **The per-process caches are lost on every scale to zero.** The first `/karte` after a wake-up recomputes (3.6–4.0 s locally on one thread), on top of the container start and the 72 MB download. Revisit with min 1 replica (costs idle time) or a precomputed map file.
 - **The alerts do not stop anything.** Scale to zero does not cap the cost: a request at least every two minutes (the 120 s cooldown) keeps the replica active around the clock, so compute at 0.5 vCPU / 1 GiB is billed all month, far above the free grant and the fixed costs. The alert mails and the emergency stop in §4 are the protection.
-- **Image tags are built and pushed by hand** from the working tree; `az acr build` uploads uncommitted changes too, so the tag only names the commit if the tree is clean. Old images stay in the registry until deleted by hand (10 GB included).
+- **Image tags come from the commit**; the script refuses a dirty tree, because `az acr build` uploads uncommitted changes too. Old images stay in the registry until deleted by hand (10 GB included).
+- **The deploy script cannot resume.** A rerun repeats every step (all are safe to repeat), and a failure in step 8 or later costs the earlier steps again. Its budget-date lookup counts any failure as "no earlier deployment"; a wrong date makes Azure reject the budget deployment, which stops the script.
 - **`backend.fetch` downloads all five files at every container start**, without a checksum or ETag; a failed download leaves a `.part` file in a container that is thrown away anyway. It imports `backend.main` for the path list, which loads FastAPI and Polars before the download (a second or two).
 - **The daily log cap of 0.1 GB drops lines.** Under a request flood, ingestion stops for the rest of the day, which is when the unfinished-requests query matters most. Raise the cap (`dailyQuotaGb`) if that happens.
 - **The stdout lines carry no timestamp** (Log Analytics adds `TimeGenerated`); the 8-hex id pairs a start with its end line but is not unique forever.
 - **The licence file lists the bundled JavaScript packages and the font, not Tailwind.** Vite's `build.license` (in `frontend/vite.config.ts`) only sees modules, while Tailwind's base styles (MIT) arrive through the CSS pipeline, and the minified CSS drops their notice. Add Tailwind's licence by hand to the file if a licence review asks for it.
 - **The Impressum may be empty.** Without the four `VITE_IMPRESSUM_*` keys the page reads "Angaben folgen."
 - **The gate's Bicep line passes on warnings**; only errors fail it. A new BCP081 warning after a Bicep update shows up in `az bicep build` output only.
-- **A deployment without `image` leaves an existing Container App untouched** (incremental mode) and outputs an empty `apiUrl`; every deployment after phase 1 passes the current image (`$image` in the runbook).
+- **A deployment without `image` leaves an existing Container App untouched** (incremental mode) and outputs an empty `apiUrl`; the script's phase 2 always passes the image. After a hand-run deployment of `infra/main.bicep`, pass the current image (`az deployment group show --resource-group gleisatlas --name main --query properties.parameters.image.value --output tsv`) or the app stays on its old revision.

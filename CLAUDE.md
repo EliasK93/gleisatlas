@@ -111,5 +111,5 @@ Historical reliability of German rail traffic: pattern analysis, connection comp
 - Gate: `uv run python scripts/gate.py`. Format: `uv run python scripts/format.py`.
 - Data and aggregates: see [docs/pipeline.md](docs/pipeline.md).
 - API: `uv run uvicorn backend.main:app --port 8317`; with a log file: the same command with the environment variable `LOG_FILE=logs/api.log` set. Web: `npm --prefix frontend run dev` (http://localhost:5317). The e2e suite starts its own servers on 5318 and 4317.
-- Deploy to Azure (product owner only): the runbook in [docs/deployment.md](docs/deployment.md) §4.
+- Deploy to Azure and tear it down (product owner only): `uv run python scripts/azure.py deploy` and `uv run python scripts/azure.py teardown`, described in [docs/deployment.md](docs/deployment.md) §4.
 - After an API change: `uv run python scripts/export_openapi.py`, then `npm --prefix frontend run gen` (the gate fails on a stale `backend/openapi.json` or `schema.d.ts`).

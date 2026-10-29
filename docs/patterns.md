@@ -69,7 +69,7 @@ The UI on top of this is described in [app-shell.md](app-shell.md) and [map.md](
 
 ## 6 Platform checks
 
-- [ ] Heatmap for nationwide, all categories, 3 months loads in under 3 s warm (AC-5). To be measured.
+- [x] Heatmap for nationwide, all categories, 3 months loads in under 3 s warm (AC-5). Seen on Azure with the default period of 11 months.
 - Measured on the 27 months of real data (in-process test client; cold is the first call, warm the second):
 
   | Call | Cold | Warm |

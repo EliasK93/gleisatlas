@@ -149,8 +149,8 @@ Unknown or invalid values fall back to the default and are removed from the URL 
 
 ## 6 Platform checks
 
-- [ ] Static Web Apps serves `index.html` for path routes such as `/muster/heatmap` on reload (SPA fallback), with a direct visit and a shared link. Verify on Azure.
-- [ ] The station popover sits below its chip in Firefox and Safari. Without anchor positioning it falls back to a centred popover; tick when the product owner has seen both browsers.
+- [x] Static Web Apps serves `index.html` for path routes such as `/muster/heatmap` on reload (SPA fallback), with a direct visit and a shared link. Verify on Azure.
+- [ ] The station popover sits below its chip in Firefox and Safari. Without anchor positioning it falls back to a centred popover; tick when the product owner has seen both browsers. Firefox seen; Safari open.
 
 ## 7 Open decisions
 
