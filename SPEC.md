@@ -185,11 +185,11 @@ See [docs/roadmap.md](docs/roadmap.md).
 ### Pipeline (F1)
 - [x] AC-1: One command downloads all available months and produces the aggregates; a repeated run downloads only new months. (`tests/pipeline/test_update.py`, `test_second_run_fetches_nothing_and_still_combines`)
 - [x] AC-2: With a changed source schema the pipeline aborts with a message naming the missing/new columns. (`tests/pipeline/test_aggregate.py`, `test_schema_abort_names_a_new_column`)
-- [ ] AC-3: Deployed aggregates are < 2 GB (or the watchlist fallback is active and documented).
-- [ ] AC-4: Spot check: for 5 random train/stop/day combinations the computed delays match the raw rows.
+- [x] AC-3: Deployed aggregates are < 2 GB (or the watchlist fallback is active and documented). (75 MB on Azure; `docs/deployment.md` §6)
+- [x] AC-4: Spot check: for 5 random train/stop/day combinations the computed delays match the raw rows. (6 combinations, all match; `docs/pipeline.md` §6, "AC-4 spot check")
 
 ### Pattern analysis (F2)
-- [ ] AC-5: The weekday × hour heatmap loads in < 3 s (warm) for "nationwide, all categories, last 3 months".
+- [x] AC-5: The weekday × hour heatmap loads in < 3 s (warm) for "nationwide, all categories, last 3 months". (seen on Azure warm under 3 s with the default period of 11 months, which reads more data than 3 months; `docs/patterns.md` §6)
 - [x] AC-6: The filter "regional only" demonstrably removes all ICE/IC/EC from all metrics. (`tests/api/test_heatmap_api.py`, `test_regional_has_no_fern`; `tests/core/test_core.py`, `test_category_expr`)
 - [x] AC-7: Cancellation rate and delay metrics are shown separately; cancelled stops do **not** enter the distribution as 0 min delay. (`tests/core/test_core.py`, `test_arrival_delay_rules` and `test_cell_stats_with_cancellations`; `tests/api/test_map_api.py`, `test_statistik_bins_and_cancelled_sum_to_n`; `frontend/e2e/heatmap.spec.ts`, "only-cancelled cells have their own look and are not thin")
 - [x] AC-8: Every metric shows n and the data period. (`frontend/e2e/heatmap.spec.ts`, "7 weekday rows, hatched thin cells, approximate values, day totals"; `frontend/e2e/station.spec.ts`, "four tiles with value, sentence, meta and a coloured edge")

@@ -97,6 +97,18 @@ After a change to the per-month logic (cleaning, line names, coverage rule) the 
 
 - `uv`; paths use forward slashes in code and commands, so the commands run the same on Windows, macOS and Linux.
 - The first run over 27 months took 8–14 min with the downloads already local; a second run only combines and took 53 s. Memory stays moderate because Polars scans lazily.
+- **AC-4 spot check.** Six stops drawn at random from six different months (delays of 1, 1, 4, 9 and 13 min, and one cancelled stop), each on a unique key. For each, the delay was computed by hand from the raw timestamps (change minus plan in whole minutes, truncated toward zero; cancelled is no delay) and compared with `arrival_delay_expr`. Then the stop's cell (weekday, hour, group, EVA, month, bucket) was looked up in `data/months/YYYY-MM/aggregate.parquet` and recounted from the whole raw month with the cleaning rules written out again in plain Python. All six agree, in the delay and in the cell count:
+
+  | Train | Station (EVA) | Planned arrival | Raw change | Raw delay | Computed delay | Cell count raw / file |
+  |---|---|---|---|---|---|---|
+  | S 1554 | Berlin-Friedenau (08089058) | 2025-12-22 09:04 | 09:05 | 1 min | 1 min | 41 / 41 |
+  | S 8903 | München Ost (08000262) | 2025-09-26 20:04 | 20:13 | 9 min | 9 min | 8 / 8 |
+  | S 41085 | Hamburg-Altona (08098553) | 2025-02-20 09:50 | 09:54 | 4 min | 4 min | 19 / 19 |
+  | NWB 83437 | Schierbrok (08005343) | 2026-03-02 23:37 | 23:50 | 13 min | 13 min | 1 / 1 |
+  | S 7088 | Berlin-Lichtenberg (08089182) | 2025-06-09 12:06 | 12:07 | 1 min | 1 min | 43 / 43 |
+  | RE 10207 | Dülmen (08000083) | 2026-08-02 08:19 | 09:19 | cancelled | NULL bucket | 1 / 1 |
+
+  The cell is the finest granularity the file has, so a count match shows the stop sits in the right bucket and nothing was dropped or doubled. The throwaway script is not in the repo; `scripts/check_sample.py` is the repeatable version of the delay comparison.
 
 ## 7 Open decisions
 
