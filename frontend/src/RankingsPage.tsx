@@ -63,7 +63,7 @@ export default function RankingsPage() {
   const [params] = useSearchParams();
   const setParams = useSetParams();
   // The rankings cover every station, so a bhf key has no meaning here, nor has a line.
-  const f: FilterKeys = { ...readFilters(params), bhf: undefined, linie: undefined };
+  const f: FilterKeys = { ...readFilters(params), bhf: undefined, linie: undefined, z: undefined };
   const rank = readRank(params);
   const q = useQuery({
     queryKey: ["rankings", rank.typ, f.k, rank.min, f.g, f.von, f.bis],

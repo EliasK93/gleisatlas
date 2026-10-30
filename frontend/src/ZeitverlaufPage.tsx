@@ -1,18 +1,40 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useState } from "react";
 import { Link, Navigate, useSearchParams } from "react-router";
 import { api, must, useDatenstand } from "./api";
-import { Filters } from "./Filters";
-import { LOCALE, t } from "./i18n";
 import {
-  DEFS,
+  Band,
+  cancelRate,
+  CANCEL,
+  isDay,
+  Line,
+  Markers,
+  MARKER_TOP,
+  median,
+  niceTicks,
+  nonNull,
+  p90,
+  PAD,
+  percent,
+  Plot,
+  rowLabel,
+  Sized,
+  stats,
+  trendValue,
+  TrendLine,
+  thin,
+  type Marker,
+  type Row,
+} from "./charts";
+import { Filters } from "./Filters";
+import { t } from "./i18n";
+import {
   formatMonth,
   formatPeriod,
   int,
   readFilters,
   seriesMetric,
   withParam,
-  withUnit,
   writeFilters,
   type Filters as FilterKeys,
   type Metric,
@@ -33,15 +55,8 @@ import {
 import { clearParams, useSetParams } from "./useSetParams";
 
 type Monat = components["schemas"]["Monat"];
-type Stats = components["schemas"]["Stats"];
+type Tag = components["schemas"]["Tag"];
 type Gaps = components["schemas"]["Datenstand"]["fehlende_stunden"];
-type Scale = { x: (i: number) => number; y: (v: number) => number; bottom: number };
-
-const PAD = { l: 48, r: 22, b: 22 };
-const DASH = "5 4";
-/** Rows of the marker labels above the plot, and the plot's top edge below them. */
-const MARKER_ROW = [11, 31];
-const MARKER_TOP = 46;
 
 /** Series are stored in the URL as the page's two views: punctuality, or delay with its band. */
 const VIEWS = [
@@ -49,7 +64,25 @@ const VIEWS = [
   { value: "median", label: t("zv.delay") },
 ] as const;
 
-const num = new Intl.NumberFormat(LOCALE);
+/** The resolution switch; the month view is `z=monat`, the day view has no key. */
+const RESOLUTIONS = [
+  { value: "tag", label: t("zv.view.day") },
+  { value: "monat", label: t("zv.view.month") },
+] as const;
+
+/** The chart names per resolution; they are the charts' accessible names. */
+const NAMES = {
+  month: {
+    puenktlich: t("zv.chart.puenktlich"),
+    delay: t("zv.chart.delay"),
+    ausfall: t("zv.chart.ausfall"),
+  },
+  day: {
+    puenktlich: t("zv.chart.puenktlich.day"),
+    delay: t("zv.chart.delay.day"),
+    ausfall: t("zv.chart.ausfall.day"),
+  },
+};
 
 /**
  * The series of one selection: one row per month with its statistics, `titel` names it. A station
@@ -63,292 +96,47 @@ const zeitverlaufQuery = (eva?: string, linie?: string, g?: "regional" | "fern")
       .then((r) => (r.response.status === 404 ? null : must(r))),
 });
 
-/** A month's statistics, or nothing for a month without stops (its rate is null). */
-const stats = (m: Monat): Stats | undefined =>
-  m.ausfallquote === null ? undefined : { ...m, ausfallquote: m.ausfallquote };
+/** The same for days (no lines), each with its trend. */
+const tagesverlaufQuery = (eva?: string, g?: "regional" | "fern") => ({
+  queryKey: ["tagesverlauf", eva, g] as const,
+  queryFn: () =>
+    api
+      .GET("/tagesverlauf", { params: { query: { eva, gattung: g ?? "alle" } } })
+      .then((r) => (r.response.status === 404 ? null : must(r))),
+});
 
-const percent = (m: Monat) => (m.puenktlich === null ? null : m.puenktlich * 100);
-const cancelRate = (m: Monat) => (m.ausfallquote === null ? null : m.ausfallquote * 100);
-const median = (m: Monat) => m.median;
+/** Months and days as the rows the charts draw; a month's gap hours come from /datenstand. */
+const monthRows = (months: Monat[], gaps: Gaps): Row[] =>
+  months.map(({ monat, ...m }) => ({ ...m, key: monat, missing: gaps[monat] ?? 0 }));
+const dayRows = (days: Tag[]): Row[] =>
+  days.map(({ tag, fehlende_stunden, ...d }) => ({ ...d, key: tag, missing: fehlende_stunden }));
 
-/** Little data by the rule of `show()` (arrived stops for delays), or missing hours: dashed. */
-const thin = (m: Monat, metric: Metric, gaps: Gaps) =>
-  !!show(metric, stats(m), "").low || (gaps[m.monat] ?? 0) > 0;
-
-/** The text of a month's tooltip: month, value or values (none when little data), n, gaps. */
-function tipOf(m: Monat, metric: Metric, gaps: Gaps) {
-  const parts = [formatMonth(m.monat)];
-  const s = stats(m);
-  const low = !!show(metric, s, "").low;
-  if (!s) parts.push(t("zv.noData"));
-  else {
-    if (!low)
-      for (const k of metric === "median" ? (["median", "p90"] as const) : [metric]) {
-        const v = DEFS[k].value(s);
-        parts.push(
-          v === null
-            ? t("hm.onlyCancelledLegend")
-            : t(`metric.${k}.cell`, { v: DEFS[k].format(v) }),
-        );
-      }
-    parts.push(t("station.n", { n: int(m.n) }));
-    if (low) parts.push(t("hm.lowLegend"));
-  }
-  const hours = gaps[m.monat];
-  if (hours) parts.push(t("zv.gap", { h: int(hours) }));
-  return parts.join(" · ");
-}
-
-const STEPS = [0.5, 1, 2, 5, 10, 20, 25, 50, 100];
-
-/** Gridline values from the finest step that covers min to max in at most four intervals. */
-function niceTicks(values: number[]) {
-  const [min, max] = values.length ? [Math.min(...values), Math.max(...values)] : [0, 100];
-  const step = STEPS.find((s) => Math.ceil(max / s) - Math.floor(min / s) <= 4) ?? 100;
-  const from = Math.floor(min / step);
-  const to = Math.max(Math.ceil(max / step), from + 1);
-  return Array.from({ length: to - from + 1 }, (_, i) => (from + i) * step);
-}
-
-const nonNull = (values: (number | null)[]) => values.filter((v): v is number => v !== null);
-
-/** Measures its box and hands the width to a chart drawn in plain SVG. */
-function Sized({ height, children }: { height: number; children: (width: number) => ReactNode }) {
-  const ref = useRef<HTMLDivElement>(null);
-  const [width, setWidth] = useState(0);
-  useLayoutEffect(() => {
-    const watch = new ResizeObserver(([e]) => setWidth(Math.floor(e.contentRect.width)));
-    watch.observe(ref.current!);
-    return () => watch.disconnect();
-  }, []);
-  return (
-    <div ref={ref} style={{ height }}>
-      {width > 0 && children(width)}
-    </div>
-  );
-}
-
-/**
- * The frame of a chart: gridlines with labels, month labels, and a transparent column per month
- * that carries the tooltip. `children` draw in the frame with the month and value scales.
- */
-function Plot({
-  id,
-  label,
-  months,
-  gaps,
-  metric,
-  width,
-  height,
-  top,
-  ticks,
-  unit,
-  children,
-}: {
-  id: string;
-  label: string;
-  months: Monat[];
-  gaps: Gaps;
-  metric: Metric;
-  width: number;
-  height: number;
-  top: number;
-  ticks: number[];
-  unit: "unit.pct" | "unit.min";
-  children: (s: Scale) => ReactNode;
-}) {
-  const band = (width - PAD.l - PAD.r) / months.length;
-  const bottom = height - PAD.b;
-  const [lo, hi] = [ticks[0], ticks[ticks.length - 1]];
-  const scale: Scale = {
-    x: (i) => PAD.l + (i + 0.5) * band,
-    y: (v) => bottom - ((v - lo) / (hi - lo)) * (bottom - top),
-    bottom,
-  };
-  // Every month gets a column, but a label only where it fits; the latest month always has one.
-  const every = Math.ceil(52 / band);
-  return (
-    <svg width={width} height={height} role="img" aria-label={label} className="block">
-      {ticks.map((v) => (
-        <g key={v}>
-          <line
-            x1={PAD.l}
-            x2={width - PAD.r}
-            y1={scale.y(v)}
-            y2={scale.y(v)}
-            className="stroke-border"
-          />
-          <text
-            x={PAD.l - 6}
-            y={scale.y(v)}
-            dy="0.32em"
-            textAnchor="end"
-            className="fill-text-3 text-[11px]"
-          >
-            {withUnit(num.format(v), unit)}
-          </text>
-        </g>
-      ))}
-      {months.map(
-        (m, i) =>
-          (months.length - 1 - i) % every === 0 && (
-            <text
-              key={m.monat}
-              x={scale.x(i)}
-              y={height - 6}
-              textAnchor="middle"
-              className="fill-text-3 text-[11px]"
-            >
-              {formatMonth(m.monat)}
-            </text>
-          ),
-      )}
-      {children(scale)}
-      {months.map((m, i) => (
-        <rect
-          key={m.monat}
-          data-testid={`${id}-${m.monat}`}
-          data-tip={tipOf(m, metric, gaps)}
-          x={scale.x(i) - band / 2}
-          y={0}
-          width={band}
-          height={height}
-          fill="transparent"
-        />
-      ))}
-    </svg>
-  );
-}
-
-/**
- * One series: a segment between neighbours that both have a value, dashed when either month is
- * thin, and a point per month (hollow when thin). A month without a value leaves a hole.
- */
-function Line({
-  months,
-  metric,
-  gaps,
-  scale,
-  value,
-}: {
-  months: Monat[];
-  metric: Metric;
-  gaps: Gaps;
-  scale: Scale;
-  value: (m: Monat) => number | null;
-}) {
-  return (
-    <>
-      {months.map((m, i) => {
-        const [from, to] = [months[i - 1], m];
-        const [a, b] = [from && value(from), value(to)];
-        if (a === undefined || a === null || b === null) return null;
-        return (
-          <line
-            key={m.monat}
-            data-testid="segment"
-            x1={scale.x(i - 1)}
-            y1={scale.y(a)}
-            x2={scale.x(i)}
-            y2={scale.y(b)}
-            strokeWidth={2.5}
-            strokeDasharray={thin(from, metric, gaps) || thin(to, metric, gaps) ? DASH : undefined}
-            className="stroke-cat1"
-          />
-        );
-      })}
-      {months.map((m, i) => {
-        const v = value(m);
-        return v === null ? null : (
-          <circle
-            key={m.monat}
-            data-testid="point"
-            cx={scale.x(i)}
-            cy={scale.y(v)}
-            r={3.5}
-            strokeWidth={2}
-            className={thin(m, metric, gaps) ? "fill-surface stroke-cat1" : "fill-cat1 stroke-cat1"}
-          />
-        );
-      })}
-    </>
-  );
-}
-
-/** The area between the median and P90, one shape per run of months that have both. */
-function Band({ months, scale }: { months: Monat[]; scale: Scale }) {
-  const runs: number[][] = [[]];
-  months.forEach((m, i) => {
-    if (m.median !== null && m.p90 !== null) runs[runs.length - 1].push(i);
-    else if (runs[runs.length - 1].length) runs.push([]);
-  });
-  return (
-    <>
-      {runs
-        .filter((run) => run.length > 1)
-        .map((run) => {
-          const upper = run.map((i) => `${scale.x(i)},${scale.y(months[i].p90!)}`);
-          const lower = run.map((i) => `${scale.x(i)},${scale.y(months[i].median!)}`).reverse();
-          return (
-            <polygon
-              key={run[0]}
-              data-testid="band"
-              points={[...upper, ...lower].join(" ")}
-              className="fill-cat1/15"
-            />
-          );
-        })}
-    </>
-  );
-}
-
-type Marker = { i: number; label: string; row: number; end: boolean };
-
-/** Dotted vertical lines with a label above the plot. */
-function Markers({ markers, scale }: { markers: Marker[]; scale: Scale }) {
-  return (
-    <>
-      {markers.map(({ i, label, row, end }) => {
-        const x = scale.x(i);
-        return (
-          <g key={`${label}-${i}`}>
-            <line
-              x1={x}
-              x2={x}
-              y1={MARKER_ROW[row] + 3}
-              y2={scale.bottom}
-              strokeDasharray="2 3"
-              className="stroke-text-3"
-            />
-            <text
-              x={x + (end ? -4 : 4)}
-              y={MARKER_ROW[row]}
-              textAnchor={end ? "end" : "start"}
-              className="fill-text-2 stroke-surface stroke-[3px] text-[11px] [paint-order:stroke]"
-            >
-              {label}
-            </text>
-          </g>
-        );
-      })}
-    </>
-  );
-}
+const trendOf = (metric: Metric) => (r: Row) => trendValue(r, metric);
 
 export default function ZeitverlaufPage() {
   const [params] = useSearchParams();
   const setParams = useSetParams();
   const read = readFilters(params);
-  // A line wins over a station, and the series switch has two views.
+  // A line wins over a station and only exists per month, so it has no view switch either.
   const f: FilterKeys = {
     ...read,
     bhf: read.linie ? undefined : read.bhf,
+    z: read.linie ? undefined : read.z,
     k: seriesMetric(read.k),
   };
-  const q = useQuery({
+  // Days are the default; a line only exists per month.
+  const day = !f.linie && f.z !== "monat";
+  const months = useQuery({
     ...zeitverlaufQuery(f.bhf, f.linie, f.g),
+    enabled: !day,
     placeholderData: keepPreviousData,
   });
+  const days = useQuery({
+    ...tagesverlaufQuery(f.bhf, f.g),
+    enabled: day,
+    placeholderData: keepPreviousData,
+  });
+  const q = day ? days : months;
   const datenstand = useDatenstand();
 
   // Drop invalid or unknown keys once, so a shared link only carries what the page shows.
@@ -376,26 +164,25 @@ export default function ZeitverlaufPage() {
       </EmptyCard>
     );
   else if (!data || !ds) body = <Skeleton />;
-  else if (data.monate.every((m) => m.n === 0))
-    body = (
+  else {
+    const rows = "tage" in data ? dayRows(data.tage) : monthRows(data.monate, ds.fehlende_stunden);
+    body = rows.every((r) => r.n === 0) ? (
       <EmptyCard
-        title={t("zv.empty")}
-        hint={t("zv.emptyHint")}
+        title={t(day ? "zv.empty.day" : "zv.empty")}
+        hint={t(day ? "zv.emptyHint.day" : "zv.emptyHint")}
         onReset={() => setParams(clearParams)}
       />
-    );
-  else
-    body = (
+    ) : (
       <View
-        months={data.monate}
+        rows={rows}
         title={data.titel ?? t("zv.nationwide")}
         metric={f.k}
-        gaps={ds.fehlende_stunden}
         timetable={ds.fahrplanwechsel}
         coverage={ds.vollabdeckung_ab}
         onMetric={(k) => setParams(withParam("k", k === "puenktlich" ? "" : k))}
       />
     );
+  }
 
   return (
     <div className="mx-auto max-w-[1200px] px-4 pt-4 md:px-8 md:pt-6">
@@ -406,54 +193,83 @@ export default function ZeitverlaufPage() {
           <h1 className="text-[21px] leading-tight font-[650] tracking-[-0.015em] md:text-[26px]">
             {t("nav.timeline")}
           </h1>
-          <p className="mt-1.5 max-w-[68ch] text-text-2">{t("zv.lead")}</p>
+          <p className="mt-1.5 max-w-[68ch] text-text-2">{t(day ? "zv.lead.day" : "zv.lead")}</p>
         </div>
         <ShareButton />
       </div>
       <Filters noPeriod lineTitle={data?.titel ?? undefined} />
+      {!f.linie && (
+        <div className="mb-3">
+          <Segmented
+            label={t("zv.view.label")}
+            options={[...RESOLUTIONS]}
+            value={day ? "tag" : "monat"}
+            onChange={(v) => setParams(withParam("z", v === "monat" ? v : ""))}
+            className="-mx-4 -my-2 px-4 py-2 md:m-0 md:p-0"
+          />
+        </div>
+      )}
       {body}
     </div>
   );
 }
 
 function View({
-  months,
+  rows,
   title,
   metric,
-  gaps,
   timetable,
   coverage,
   onMetric,
 }: {
-  months: Monat[];
+  rows: Row[];
   title: string;
   metric: Metric;
-  gaps: Gaps;
   timetable: string[];
   coverage: string;
   onMetric: (m: Metric) => void;
 }) {
   const [asTable, setAsTable] = useState(false);
   const [tip, setTip] = useTip();
+  const day = isDay(rows[0]);
+  const names = NAMES[day ? "day" : "month"];
   const delay = metric === "median";
-  const total = months.reduce((sum, m) => sum + m.n, 0);
+  const total = rows.reduce((sum, r) => sum + r.n, 0);
 
   // The timetable change labels sit above the coverage label, so two neighbours never overlap.
-  const at = (month: string) => months.findIndex((m) => m.monat === month);
+  const at = (date: string) => {
+    const key = day ? (date.length === 7 ? `${date}-01` : date) : date.slice(0, 7);
+    return rows.findIndex((r) => r.key === key);
+  };
   // The start of full coverage only means something when earlier months are shown too.
   const widened = at(coverage) > 0;
+  // A label this close to a side is anchored to it (the last four months, or the same share of days).
+  const near = day ? Math.round(rows.length * 0.16) : 4;
   const markers: Marker[] = [
     ...timetable
-      .map((d) => at(d.slice(0, 7)))
+      .map(at)
       .filter((i) => i >= 0)
-      .map((i) => ({ i, label: t("zv.marker.timetable"), row: 0, end: i > months.length - 5 })),
+      .map((i) => ({
+        i,
+        label: t("zv.marker.timetable"),
+        row: 0,
+        end: i > rows.length - 1 - near,
+      })),
     ...(widened
-      ? [{ i: at(coverage), label: t("zv.marker.coverage"), row: 1, end: at(coverage) > 4 }]
+      ? [{ i: at(coverage), label: t("zv.marker.coverage"), row: 1, end: at(coverage) > near }]
       : []),
   ];
   const top = markers.length ? MARKER_TOP : 10;
   // A median can lie below zero (an early train), so the delay scale covers it as well.
-  const values = nonNull(delay ? months.flatMap((m) => [m.p90, m.median]) : months.map(percent));
+  const values = nonNull(
+    rows.flatMap((r) =>
+      delay
+        ? [r.median, r.p90, trendValue(r, "median"), trendValue(r, "p90")]
+        : [percent(r), trendValue(r, "puenktlich")],
+    ),
+  );
+  const cancelValues = rows.flatMap((r) => [cancelRate(r), trendValue(r, "ausfall")]);
+  const [first, last] = [rows[0].key.slice(0, 7), rows[rows.length - 1].key.slice(0, 7)];
 
   return (
     <div
@@ -465,7 +281,7 @@ function View({
         <div className="mb-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
           <div>
             <h2 id="zv-main" className="text-base font-[620]">
-              {t(delay ? "zv.chart.delay" : "zv.chart.puenktlich")}
+              {delay ? names.delay : names.puenktlich}
             </h2>
             <p className="text-[13px] text-text-2">{title}</p>
           </div>
@@ -478,21 +294,17 @@ function View({
           />
         </div>
         <p className="mb-2 text-xs text-text-3">
-          {t("zv.meta", {
-            n: int(total),
-            period: formatPeriod(months[0].monat, months[months.length - 1].monat),
-          })}
+          {t(day ? "zv.meta.day" : "zv.meta", { n: int(total), period: formatPeriod(first, last) })}
         </p>
         {asTable ? (
-          <Table months={months} gaps={gaps} metric={metric} />
+          <Table rows={rows} metric={metric} />
         ) : (
           <Sized height={260}>
             {(width) => (
               <Plot
                 id="zv"
-                label={t(delay ? "zv.chart.delay" : "zv.chart.puenktlich")}
-                months={months}
-                gaps={gaps}
+                label={delay ? names.delay : names.puenktlich}
+                rows={rows}
                 metric={metric}
                 width={width}
                 height={260}
@@ -503,14 +315,27 @@ function View({
                 {(scale) => (
                   <>
                     <Markers markers={markers} scale={scale} />
-                    {delay && <Band months={months} scale={scale} />}
+                    {delay && (
+                      <Band
+                        rows={rows}
+                        scale={scale}
+                        lo={day ? trendOf("median") : median}
+                        hi={day ? trendOf("p90") : p90}
+                      />
+                    )}
                     <Line
-                      months={months}
+                      rows={rows}
                       metric={metric}
-                      gaps={gaps}
                       scale={scale}
                       value={delay ? median : percent}
                     />
+                    {day && (
+                      <TrendLine
+                        rows={rows}
+                        scale={scale}
+                        value={trendOf(delay ? "median" : "puenktlich")}
+                      />
+                    )}
                   </>
                 )}
               </Plot>
@@ -520,12 +345,13 @@ function View({
         <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-text-2">
           {!asTable && (
             <>
-              {delay && <span>{t("zv.legend.band")}</span>}
+              {day && <span>{t("zv.legend.trend")}</span>}
+              {delay && <span>{t(day ? "zv.legend.bandDay" : "zv.legend.band")}</span>}
               <span>{t("zv.legend.dashed")}</span>
               {widened && (
                 <span>
                   {t("zv.legend.coverage", {
-                    until: formatMonth(months[at(coverage) - 1].monat),
+                    until: formatMonth(rows[at(coverage) - 1].key.slice(0, 7)),
                     from: formatMonth(coverage),
                   })}
                 </span>
@@ -548,41 +374,58 @@ function View({
       {!asTable && (
         <section aria-labelledby="zv-cancel" className="card min-w-0">
           <h2 id="zv-cancel" className="mb-3 text-base font-[620]">
-            {t("zv.chart.ausfall")}
+            {names.ausfall}
           </h2>
           <Sized height={150}>
             {(width) => (
               <Plot
                 id="zc"
-                label={t("zv.chart.ausfall")}
-                months={months}
-                gaps={gaps}
+                label={names.ausfall}
+                rows={rows}
                 metric="ausfall"
                 width={width}
                 height={150}
                 top={8}
-                ticks={niceTicks([0, ...nonNull(months.map(cancelRate))])}
+                ticks={niceTicks([0, ...nonNull(cancelValues)])}
                 unit="unit.pct"
               >
                 {(scale) =>
-                  months.map((m, i) => {
-                    const v = cancelRate(m);
-                    if (v === null) return null;
-                    const w = Math.max((width - PAD.l - PAD.r) / months.length - 3, 2);
-                    return (
-                      <rect
-                        key={m.monat}
-                        data-testid="bar"
-                        x={scale.x(i) - w / 2}
-                        y={scale.y(v)}
-                        width={w}
-                        height={scale.y(0) - scale.y(v)}
-                        rx={2}
-                        fillOpacity={thin(m, "ausfall", gaps) ? 0.45 : 1}
-                        className="fill-cancel"
+                  day ? (
+                    <>
+                      <Line
+                        rows={rows}
+                        metric="ausfall"
+                        scale={scale}
+                        value={cancelRate}
+                        cls={CANCEL}
                       />
-                    );
-                  })
+                      <TrendLine
+                        rows={rows}
+                        scale={scale}
+                        value={trendOf("ausfall")}
+                        cls={CANCEL}
+                      />
+                    </>
+                  ) : (
+                    rows.map((r, i) => {
+                      const v = cancelRate(r);
+                      if (v === null) return null;
+                      const w = Math.max((width - PAD.l - PAD.r) / rows.length - 3, 2);
+                      return (
+                        <rect
+                          key={r.key}
+                          data-testid="bar"
+                          x={scale.x(i) - w / 2}
+                          y={scale.y(v)}
+                          width={w}
+                          height={scale.y(0) - scale.y(v)}
+                          rx={2}
+                          fillOpacity={thin(r, "ausfall") ? 0.45 : 1}
+                          className="fill-cancel"
+                        />
+                      );
+                    })
+                  )
                 }
               </Plot>
             )}
@@ -594,18 +437,19 @@ function View({
   );
 }
 
-/** Every month as a row: the accessible form of both charts. */
-function Table({ months, gaps, metric }: { months: Monat[]; gaps: Gaps; metric: Metric }) {
+/** Every row as a line: the accessible form of both charts. */
+function Table({ rows, metric }: { rows: Row[]; metric: Metric }) {
+  const day = isDay(rows[0]);
   const keys: Metric[] =
     metric === "median" ? ["median", "p90", "ausfall"] : ["puenktlich", "ausfall"];
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-[13px] tabular-nums">
-        <caption className="sr-only">{t("zv.table")}</caption>
+        <caption className="sr-only">{t(day ? "zv.table.day" : "zv.table")}</caption>
         <thead>
           <tr className="text-left text-xs text-text-3">
             <th scope="col" className="py-1.5 pr-3 font-normal">
-              {t("zv.col.month")}
+              {t(day ? "zv.col.day" : "zv.col.month")}
             </th>
             {keys.map((k) => (
               <th key={k} scope="col" className="px-3 py-1.5 text-right font-normal">
@@ -621,18 +465,18 @@ function Table({ months, gaps, metric }: { months: Monat[]; gaps: Gaps; metric: 
           </tr>
         </thead>
         <tbody>
-          {months.map((m) => (
-            <tr key={m.monat} className="border-t border-border">
+          {rows.map((r) => (
+            <tr key={r.key} className="border-t border-border">
               <th scope="row" className="py-1.5 pr-3 text-left font-[550] whitespace-nowrap">
-                {formatMonth(m.monat)}
+                {rowLabel(r)}
               </th>
               {keys.map((k) => (
                 <td key={k} className="px-3 py-1.5 text-right whitespace-nowrap">
-                  {show(k, stats(m), "").text}
+                  {show(k, stats(r), "").text}
                 </td>
               ))}
-              <td className="px-3 py-1.5 text-right">{int(m.n)}</td>
-              <td className="py-1.5 pl-3 text-right">{gaps[m.monat] ?? "–"}</td>
+              <td className="px-3 py-1.5 text-right">{int(r.n)}</td>
+              <td className="py-1.5 pl-3 text-right">{r.missing || "–"}</td>
             </tr>
           ))}
         </tbody>
@@ -667,10 +511,9 @@ export function Sparkline({
   const q = useQuery(zeitverlaufQuery(eva, undefined, g));
   const datenstand = useDatenstand();
   const [tip, setTip] = useTip();
-  const months = q.data?.monate.slice(-12) ?? [];
+  const rows = monthRows(q.data?.monate.slice(-12) ?? [], datenstand.data?.fehlende_stunden ?? {});
   // The headline is the latest month that shows a value, by the same rule as the table.
-  const latest = months.findLast((m) => show("puenktlich", stats(m), "").value !== undefined);
-  const gaps = datenstand.data?.fehlende_stunden ?? {};
+  const latest = rows.findLast((r) => show("puenktlich", stats(r), "").value !== undefined);
 
   let body;
   if (q.isError || datenstand.isError)
@@ -681,7 +524,7 @@ export function Sparkline({
         <span className="sr-only">{t("state.loading")}</span>
       </div>
     );
-  else if (!months.some((m) => m.n > 0))
+  else if (!rows.some((r) => r.n > 0))
     body = <p className="text-text-2">{t("station.history.none")}</p>;
   else
     body = (
@@ -695,7 +538,7 @@ export function Sparkline({
           </b>
           <span className="text-[13px] text-text-2">
             {latest
-              ? t("station.history.latest", { month: formatMonth(latest.monat), n: int(latest.n) })
+              ? t("station.history.latest", { month: formatMonth(latest.key), n: int(latest.n) })
               : t("hm.lowLegend")}
           </span>
         </p>
@@ -704,24 +547,15 @@ export function Sparkline({
             <Plot
               id="sp"
               label={t("station.history.chart")}
-              months={months}
-              gaps={gaps}
+              rows={rows}
               metric="puenktlich"
               width={width}
               height={110}
               top={8}
-              ticks={niceTicks(nonNull(months.map(percent)))}
+              ticks={niceTicks(nonNull(rows.map(percent)))}
               unit="unit.pct"
             >
-              {(scale) => (
-                <Line
-                  months={months}
-                  metric="puenktlich"
-                  gaps={gaps}
-                  scale={scale}
-                  value={percent}
-                />
-              )}
+              {(scale) => <Line rows={rows} metric="puenktlich" scale={scale} value={percent} />}
             </Plot>
           )}
         </Sized>

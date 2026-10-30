@@ -11,6 +11,8 @@ type Rangliste = components["schemas"]["Rangliste"];
 type StationLinie = components["schemas"]["StationLinie"];
 type Zeitverlauf = components["schemas"]["Zeitverlauf"];
 type Monat = components["schemas"]["Monat"];
+type Tagesverlauf = components["schemas"]["Tagesverlauf"];
+type Tag = components["schemas"]["Tag"];
 
 /** The dummies of frontend/.env.development, which only the dev server reads; the e2e build has none. */
 export const IMPRESSUM = {
@@ -22,7 +24,7 @@ export const IMPRESSUM = {
 
 // Routed by path, so a set VITE_API_URL can never send a test to a real server.
 const API_PATH =
-  /^\/(heatmap|datenstand|stationen|karte|rankings|zeitverlauf)(?:\/([^/]+)(\/statistik|\/linien)?)?$/;
+  /^\/(heatmap|datenstand|stationen|karte|rankings|zeitverlauf|tagesverlauf)(?:\/([^/]+)(\/statistik|\/linien)?)?$/;
 const CORS = { "access-control-allow-origin": "*" };
 
 /** Stand in for the OpenFreeMap styles (light and dark), so map tests never touch the network.
@@ -197,6 +199,9 @@ const DATENSTAND: Datenstand = {
   vollabdeckung_ab: "2025-11",
   fehlende_stunden: { "2025-06": 12 },
   fahrplanwechsel: ["2024-12-15", "2025-12-14"],
+  erster_tag: "2024-07-01",
+  letzter_tag: "2026-09-30",
+  fehlende_stunden_tage: { "2026-03-14": 6 },
 };
 
 const base = { n: 1240, ausfallquote: 0.02, median: 2, p90: 8, puenktlich: 0.75 };
@@ -356,12 +361,57 @@ export function zeitverlaufFixture(eva: string | null, linie: string | null): Ze
   return { titel, monate };
 }
 
-/** What a `zeitverlauf` callback returns for a selection the API does not know (a 404). */
+/**
+ * 822 days from 2024-07-01 to 2026-09-30 with a slow wave as the trend (none in the first and last
+ * 13 days, like the API). 2025-01-10 has no stops, 2026-03-10 (a Tuesday) reads 78 % of 1,240 stops
+ * against a trend of 80 %, 2026-03-14 has 6 missing hours and 2026-03-20 only 9 stops.
+ */
+export function tagesverlaufFixture(eva: string | null): Tagesverlauf {
+  const first = Date.UTC(2024, 6, 1);
+  const tage: Tag[] = Array.from({ length: 822 }, (_, i) => {
+    const tag = new Date(first + i * 86400000).toISOString().slice(0, 10);
+    const edge = i < 13 || i > 822 - 14;
+    const wave = Math.sin(i / 60);
+    const day: Tag = {
+      tag,
+      n: 1000 + (i % 7) * 10,
+      ausfallquote: 0.02 + (i % 4) * 0.005,
+      median: 2 + (i % 3) * 0.5,
+      p90: 8 + (i % 4),
+      puenktlich: 0.7 + (i % 5) * 0.02,
+      fehlende_stunden: 0,
+      trend: edge
+        ? { puenktlich: null, ausfallquote: null, median: null, p90: null }
+        : {
+            puenktlich: 0.72 + 0.06 * wave,
+            ausfallquote: 0.03 + 0.01 * wave,
+            median: 2.5 + wave,
+            p90: 9.5 + 2 * wave,
+          },
+    };
+    if (tag === "2025-01-10")
+      return { ...day, n: 0, ausfallquote: null, median: null, p90: null, puenktlich: null };
+    if (tag === "2026-03-10")
+      return {
+        ...day,
+        n: 1240,
+        puenktlich: 0.78,
+        trend: { ...day.trend, puenktlich: 0.8 },
+      };
+    if (tag === "2026-03-14") return { ...day, fehlende_stunden: 6 };
+    if (tag === "2026-03-20") return { ...day, n: 9 };
+    return day;
+  });
+  return { titel: STATIONS.find((s) => s.eva === eva)?.name ?? null, tage };
+}
+
+/** What a `zeitverlauf` or `tagesverlauf` callback returns for an unknown selection (a 404). */
 export const NOT_FOUND = "not-found";
 
 /** Serves the API and the base map style from fixtures. `heatmap`, `karte`, `statistik`,
- * `rankings`, `linien` and `zeitverlauf` return the body, or null for a server error; an unknown
- * EVA is a 404, and so is `NOT_FOUND` from `zeitverlauf`. Returns the list of requested API URLs.
+ * `rankings`, `linien`, `zeitverlauf` and `tagesverlauf` return the body, or null for a server
+ * error; an unknown EVA is a 404, and so is `NOT_FOUND` from `zeitverlauf` or `tagesverlauf`.
+ * Returns the list of requested API URLs.
  */
 export async function mockApi(
   page: Page,
@@ -375,6 +425,10 @@ export async function mockApi(
     linie: string | null,
     gattung: string,
   ) => Zeitverlauf | typeof NOT_FOUND | null = zeitverlaufFixture,
+  tagesverlauf: (
+    eva: string | null,
+    gattung: string,
+  ) => Tagesverlauf | typeof NOT_FOUND | null = tagesverlaufFixture,
 ): Promise<URL[]> {
   const requests: URL[] = [];
   await page.route("https://tiles.openfreemap.org/**", (route) =>
@@ -401,6 +455,9 @@ export async function mockApi(
       } else if (name === "zeitverlauf") {
         const q = url.searchParams;
         body = zeitverlauf(q.get("eva"), q.get("linie"), q.get("gattung") ?? "alle");
+      } else if (name === "tagesverlauf") {
+        const q = url.searchParams;
+        body = tagesverlauf(q.get("eva"), q.get("gattung") ?? "alle");
       } else if (eva) {
         body = STATIONS.find((s) => s.eva === eva) ?? null;
         if (body === null) return route.fulfill({ status: 404, headers: CORS, json: {} });

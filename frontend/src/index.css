@@ -61,8 +61,35 @@ select option {
 .maplibregl-ctrl .maplibregl-ctrl-attrib-inner a:hover {
   color: inherit;
 }
-:root[data-theme="dark"] .maplibregl-ctrl-attrib .maplibregl-ctrl-attrib-button {
-  filter: invert(1);
+/* Under forced colours MapLibre already swaps its icons to white; inverting them would hide them. */
+@media not (forced-colors: active) {
+  :root[data-theme="dark"] .maplibregl-ctrl-attrib .maplibregl-ctrl-attrib-button {
+    filter: invert(1);
+  }
+}
+
+/* MapLibre's zoom group is white with black icons; it takes the surface and border tokens, and
+   in the dark theme the icons (images) are inverted like the attribution toggle's. The group and
+   the buttons are matched twice over to win against MapLibre's own selectors and its hover state. */
+.maplibregl-ctrl.maplibregl-ctrl-group {
+  background-color: var(--color-surface);
+}
+.maplibregl-ctrl.maplibregl-ctrl-group:not(:empty) {
+  box-shadow: 0 0 0 1px var(--color-border);
+}
+.maplibregl-ctrl-group.maplibregl-ctrl button {
+  background-color: var(--color-surface);
+}
+.maplibregl-ctrl-group.maplibregl-ctrl button + button {
+  border-top-color: var(--color-border);
+}
+.maplibregl-ctrl-group.maplibregl-ctrl button:not(:disabled):hover {
+  background-color: var(--color-surface-2);
+}
+@media not (forced-colors: active) {
+  :root[data-theme="dark"] .maplibregl-ctrl-group .maplibregl-ctrl-icon {
+    filter: invert(1);
+  }
 }
 
 /* The open attribution wraps before it reaches the legend (12 px left + 300 px wide in MapPage). */

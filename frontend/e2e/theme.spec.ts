@@ -250,6 +250,21 @@ test.describe("map", () => {
     expect(await style(".maplibregl-ctrl-attrib a", "color")).toBe(await token(page, "text-2"));
   });
 
+  test("the zoom buttons take the surface token and invert their icons in the dark theme", async ({
+    page,
+  }) => {
+    await page.goto("/karte");
+    await expect(page.getByTestId("map")).toHaveAttribute("data-ready", "true");
+    const button = page.locator(".maplibregl-ctrl-zoom-in");
+    const icon = button.locator(".maplibregl-ctrl-icon");
+    await expect(button).toHaveCSS("background-color", await token(page, "surface"));
+    await expect(icon).toHaveCSS("filter", "invert(1)");
+    await page.emulateMedia({ colorScheme: "light" });
+    await expect(html(page)).toHaveAttribute("data-theme", "light");
+    await expect(button).toHaveCSS("background-color", await token(page, "surface"));
+    await expect(icon).toHaveCSS("filter", "none");
+  });
+
   test("stations with little data are drawn paler, in both themes", async ({ page, isMobile }) => {
     // Three stations of the same class (93 %): plenty of stops, 30 stops ("~"), 9 stops (no value).
     const karte = karteFixture();

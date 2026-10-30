@@ -122,6 +122,16 @@ export const formatMonth = (ym: string) =>
 export const formatPeriod = (von: string, bis = von) =>
   monthFormat.formatRange(monthDate(von), monthDate(bis));
 
+const dayFormat = new Intl.DateTimeFormat(LOCALE, {
+  weekday: "short",
+  day: "2-digit",
+  month: "2-digit",
+  year: "numeric",
+  timeZone: "UTC",
+});
+/** "2026-03-10" → "Di., 10.03.2026" (en: "Tue, 03/10/2026"): the weekday with the date. */
+export const formatDay = (ymd: string) => dayFormat.format(new Date(`${ymd}T00:00:00Z`));
+
 // 2024-01-01 was a Monday, so day 0 = Monday like the API.
 const dayDate = (d: number) => new Date(Date.UTC(2024, 0, 1 + d));
 const dayLong = new Intl.DateTimeFormat(LOCALE, { weekday: "long", timeZone: "UTC" });
@@ -136,8 +146,10 @@ export type Filters = {
   bhf?: string;
   von?: string;
   bis?: string;
-  /** A line id; only the time series page uses it, and it wins over `bhf` there. */
+  /** A line id; only the time series page uses it, and it wins over `bhf` there. Lines are monthly. */
   linie?: string;
+  /** The time series' resolution: only "monat" is written, the day view is the default. */
+  z?: "monat";
   k: Metric;
 };
 
@@ -149,20 +161,22 @@ export function readFilters(p: URLSearchParams): Filters {
   const von = p.get("von");
   const bis = p.get("bis");
   const linie = p.get("linie");
+  const z = p.get("z");
   return {
     g: g === "regional" || g === "fern" ? g : undefined,
     bhf: bhf && /^\d+$/.test(bhf) ? bhf : undefined,
     von: von && MONTH.test(von) ? von : undefined,
     bis: bis && MONTH.test(bis) ? bis : undefined,
     linie: linie && linie.length <= 200 ? linie : undefined,
+    z: z === "monat" ? z : undefined,
     k: METRICS.find((m) => m === k) ?? "puenktlich",
   };
 }
 
 /** The URL keys for `f`, without defaults: what readFilters accepted, nothing else. */
-export function writeFilters({ g, bhf, von, bis, linie, k }: Filters): URLSearchParams {
+export function writeFilters({ g, bhf, von, bis, linie, z, k }: Filters): URLSearchParams {
   // The order is fixed, so a link built here equals the URL the page would write itself.
-  const keys = { g, bhf, von, bis, linie, k: k === "puenktlich" ? undefined : k };
+  const keys = { g, bhf, von, bis, linie, z, k: k === "puenktlich" ? undefined : k };
   return new URLSearchParams(Object.entries(keys).filter((e): e is [string, string] => !!e[1]));
 }
 

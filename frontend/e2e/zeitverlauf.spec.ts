@@ -1,5 +1,12 @@
 import { expect, test, type Page } from "@playwright/test";
-import { fontsReady, mockApi, NOT_FOUND, queryOf, zeitverlaufFixture } from "./fixtures";
+import {
+  fontsReady,
+  mockApi,
+  NOT_FOUND,
+  queryOf,
+  tagesverlaufFixture,
+  zeitverlaufFixture,
+} from "./fixtures";
 
 // Scale tokens from theme.css as the browser reports them.
 const CANCEL = "rgb(93, 102, 117)";
@@ -9,9 +16,11 @@ const chart = (page: Page, name = "Pünktlichkeit pro Monat") =>
 const segments = (page: Page) => page.getByTestId("segment");
 const dashed = (page: Page) => page.locator('[data-testid="segment"][stroke-dasharray]');
 const tip = (page: Page) => page.getByRole("tooltip");
-const requests = (all: URL[]) => all.filter((u) => u.pathname === "/zeitverlauf");
-/** The query of the latest /zeitverlauf request. */
-const lastQuery = (all: URL[]) => queryOf(requests(all).at(-1));
+const requests = (all: URL[], path = "/zeitverlauf") => all.filter((u) => u.pathname === path);
+/** The query of the latest /zeitverlauf (or /tagesverlauf) request. */
+const lastQuery = (all: URL[], path = "/zeitverlauf") => queryOf(requests(all, path).at(-1));
+const DAY = "Pünktlichkeit pro Tag";
+const MONTHLY = "/muster/zeitverlauf?z=monat";
 const LINE = "linie=RE+1%3A8000207";
 /** The plot's lower edge in px: the SVG is 260 px high and the month labels take 22 px. */
 const PLOT_BOTTOM = 238;
@@ -34,17 +43,17 @@ test.describe("desktop", () => {
     page,
   }) => {
     const all = await mockApi(page);
-    await page.goto("/muster/zeitverlauf");
+    await page.goto(MONTHLY);
     await expect(chart(page)).toBeVisible();
     expect(lastQuery(all)).toEqual({ gattung: "alle" });
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Zeitverlauf");
     await expect(page.getByRole("main")).toContainText("Deutschland gesamt");
-    await expect(page).toHaveURL(/\/muster\/zeitverlauf$/);
+    await expect(page).toHaveURL(/\/muster\/zeitverlauf\?z=monat$/);
   });
 
   test("the period picker is gone and the meta line says all months", async ({ page }) => {
     await mockApi(page);
-    await page.goto("/muster/zeitverlauf?von=2026-01");
+    await page.goto("/muster/zeitverlauf?von=2026-01&z=monat");
     await expect(chart(page)).toBeVisible();
     await expect(page.getByLabel("Zeitraum von")).toHaveCount(0);
     await expect(page.getByLabel("Zeitraum bis")).toHaveCount(0);
@@ -55,7 +64,7 @@ test.describe("desktop", () => {
 
   test("a station and the category go into the request", async ({ page }) => {
     const all = await mockApi(page);
-    await page.goto("/muster/zeitverlauf?bhf=8000207&g=fern");
+    await page.goto("/muster/zeitverlauf?bhf=8000207&g=fern&z=monat");
     await expect(chart(page)).toBeVisible();
     expect(lastQuery(all)).toEqual({ eva: "8000207", gattung: "fern" });
     await expect(page.getByRole("main")).toContainText("Köln Hbf");
@@ -74,7 +83,8 @@ test.describe("desktop", () => {
     await page.getByRole("button", { name: "Linie entfernen" }).click();
     await expect(page).toHaveURL(/\/muster\/zeitverlauf\?g=fern$/);
     await expect(chip).toHaveCount(0);
-    await expect.poll(() => lastQuery(all)).toEqual({ gattung: "fern" });
+    // Without the line the page is back in the day view.
+    await expect.poll(() => lastQuery(all, "/tagesverlauf")).toEqual({ gattung: "fern" });
   });
 
   test("picking a station while a line is set replaces the line", async ({ page }) => {
@@ -87,7 +97,10 @@ test.describe("desktop", () => {
     await expect(page).toHaveURL(/\/muster\/zeitverlauf\?bhf=8000207$/);
     await expect(page.getByText(/^Linie:/)).toHaveCount(0);
     await expect(page.getByRole("button", { name: /^Bahnhof/ })).toContainText("Köln Hbf");
-    await expect.poll(() => lastQuery(all)).toEqual({ eva: "8000207", gattung: "alle" });
+    // Without the line the page is back in the day view.
+    await expect
+      .poll(() => lastQuery(all, "/tagesverlauf"))
+      .toEqual({ eva: "8000207", gattung: "alle" });
   });
 
   test("a median below zero stays inside the plot", async ({ page }) => {
@@ -97,7 +110,7 @@ test.describe("desktop", () => {
         m.median === null ? m : { ...m, median: -1, p90: 1 + (m.n % 7) };
       return { ...data, monate: data.monate.map(below) };
     });
-    await page.goto("/muster/zeitverlauf?k=median");
+    await page.goto("/muster/zeitverlauf?z=monat&k=median");
     const points = chart(page, "Verspätung pro Monat").getByTestId("point");
     await expect(points).toHaveCount(26);
     const ys = await points.evaluateAll((all) => all.map((p) => Number(p.getAttribute("cy"))));
@@ -107,7 +120,7 @@ test.describe("desktop", () => {
 
   test("a month with too few arrivals follows the low-data rule everywhere", async ({ page }) => {
     await mockApi(page, undefined, undefined, undefined, undefined, undefined, fewArrivals);
-    await page.goto("/muster/zeitverlauf");
+    await page.goto(MONTHLY);
     const svg = chart(page);
     await expect(svg.getByTestId("point")).toHaveCount(26);
     // Hollow: 2025-02, 2025-06 (gap hours) and the new month. Dashed: two segments each.
@@ -142,26 +155,37 @@ test.describe("desktop", () => {
     await expect(page.getByRole("alert")).toHaveCount(0);
     await page.getByRole("button", { name: "Auswahl entfernen" }).click();
     await expect(page).toHaveURL(/\/muster\/zeitverlauf\?g=fern$/);
-    await expect(chart(page)).toBeVisible();
-    expect(lastQuery(all)).toEqual({ gattung: "fern" });
+    await expect(chart(page, DAY)).toBeVisible();
+    expect(lastQuery(all, "/tagesverlauf")).toEqual({ gattung: "fern" });
   });
 
   test("an unknown station has its own state with a way back", async ({ page }) => {
     await mockApi(page, undefined, undefined, undefined, undefined, undefined, (e, l) =>
       e ? NOT_FOUND : zeitverlaufFixture(e, l),
     );
+    await page.goto("/muster/zeitverlauf?bhf=9999999&z=monat");
+    await expect(page.getByText("Diesen Bahnhof kennen wir nicht")).toBeVisible();
+    await page.getByRole("button", { name: "Auswahl entfernen" }).click();
+    await expect(page).toHaveURL(/\/muster\/zeitverlauf\?z=monat$/);
+    await expect(chart(page)).toBeVisible();
+  });
+
+  test("an unknown station in the day view has its own state with a way back", async ({ page }) => {
+    await mockApi(page, undefined, undefined, undefined, undefined, undefined, undefined, (e) =>
+      e ? NOT_FOUND : tagesverlaufFixture(e),
+    );
     await page.goto("/muster/zeitverlauf?bhf=9999999");
     await expect(page.getByText("Diesen Bahnhof kennen wir nicht")).toBeVisible();
     await page.getByRole("button", { name: "Auswahl entfernen" }).click();
     await expect(page).toHaveURL(/\/muster\/zeitverlauf$/);
-    await expect(chart(page)).toBeVisible();
+    await expect(chart(page, DAY)).toBeVisible();
   });
 
   test("one point per month with data, a hole at n = 0, dashes for low n and gaps", async ({
     page,
   }) => {
     await mockApi(page);
-    await page.goto("/muster/zeitverlauf");
+    await page.goto(MONTHLY);
     const svg = chart(page);
     await expect(svg).toBeVisible();
     // 27 months, one of them empty.
@@ -176,7 +200,7 @@ test.describe("desktop", () => {
     page,
   }) => {
     await mockApi(page);
-    await page.goto("/muster/zeitverlauf");
+    await page.goto(MONTHLY);
     const svg = chart(page);
     await expect(svg.getByText("Fahrplanwechsel")).toHaveCount(2);
     await expect(svg.getByText("Datenbasis erweitert")).toHaveCount(1);
@@ -196,7 +220,7 @@ test.describe("desktop", () => {
       const data = zeitverlaufFixture(e, l);
       return { ...data, monate: data.monate.filter((m) => m.monat >= "2025-11") };
     });
-    await page.goto("/muster/zeitverlauf");
+    await page.goto(MONTHLY);
     const svg = chart(page);
     await expect(svg.getByText("Fahrplanwechsel")).toHaveCount(1);
     await expect(svg.getByText("Datenbasis erweitert")).toHaveCount(0);
@@ -205,7 +229,7 @@ test.describe("desktop", () => {
 
   test("the delay metric draws the median line with a band up to P90", async ({ page }) => {
     await mockApi(page);
-    await page.goto("/muster/zeitverlauf");
+    await page.goto(MONTHLY);
     await page.getByRole("button", { name: "Verspätung", exact: true }).click();
     await expect(page).toHaveURL(/[?&]k=median/);
     const svg = chart(page, "Verspätung pro Monat");
@@ -218,7 +242,7 @@ test.describe("desktop", () => {
 
   test("hovering a month shows its value, n and the missing hours", async ({ page }) => {
     await mockApi(page);
-    await page.goto("/muster/zeitverlauf");
+    await page.goto(MONTHLY);
     await expect(chart(page)).toBeVisible();
     await page.getByTestId("zv-2026-03").hover();
     await expect(tip(page)).toHaveText("Mär 26 · 78 % pünktlich · n = 1.240");
@@ -234,7 +258,7 @@ test.describe("desktop", () => {
 
   test("a tap outside clears the tooltip", async ({ page }) => {
     await mockApi(page);
-    await page.goto("/muster/zeitverlauf");
+    await page.goto(MONTHLY);
     await page.getByTestId("zv-2026-03").click();
     await expect(tip(page)).toBeVisible();
     await page.getByRole("heading", { level: 1 }).click();
@@ -243,7 +267,7 @@ test.describe("desktop", () => {
 
   test("the cancellation rate has its own bar chart on the same months", async ({ page }) => {
     await mockApi(page);
-    await page.goto("/muster/zeitverlauf");
+    await page.goto(MONTHLY);
     const bars = chart(page, "Ausfallquote pro Monat");
     await expect(bars).toBeVisible();
     await expect(bars.getByTestId("bar")).toHaveCount(26);
@@ -258,7 +282,7 @@ test.describe("desktop", () => {
 
   test("the table mode lists every month with its values, n and gap hours", async ({ page }) => {
     await mockApi(page);
-    await page.goto("/muster/zeitverlauf");
+    await page.goto(MONTHLY);
     await page.getByRole("button", { name: "Als Tabelle anzeigen" }).click();
     await expect(chart(page)).toHaveCount(0);
     const table = page.getByRole("table");
@@ -287,7 +311,7 @@ test.describe("desktop", () => {
         })),
       };
     });
-    await page.goto("/muster/zeitverlauf?g=fern");
+    await page.goto("/muster/zeitverlauf?g=fern&z=monat");
     await expect(page.getByText("Noch keine Monatsdaten")).toBeVisible();
     await page.getByRole("button", { name: "Filter zurücksetzen" }).click();
     await expect(page).toHaveURL(/\/muster\/zeitverlauf$/);
@@ -305,13 +329,194 @@ test.describe("desktop", () => {
 
   test("a filter change keeps the page mounted", async ({ page }) => {
     await mockApi(page);
-    await page.goto("/muster/zeitverlauf?k=median");
+    await page.goto("/muster/zeitverlauf?z=monat&k=median");
     const title = page.getByRole("heading", { level: 1 });
     await expect(chart(page, "Verspätung pro Monat")).toBeVisible();
     await title.evaluate((el) => (el.dataset.mark = "kept"));
     await page.getByLabel("Gattung:").selectOption("fern");
-    await expect(page).toHaveURL(/\/muster\/zeitverlauf\?g=fern&k=median$/);
+    await expect(page).toHaveURL(/\/muster\/zeitverlauf\?g=fern&z=monat&k=median$/);
     await expect(title).toHaveAttribute("data-mark", "kept");
+  });
+});
+
+const view = (page: Page) => page.getByRole("group", { name: "Auflösung" });
+const trend = (page: Page, name = DAY) => chart(page, name).getByTestId("trend");
+
+test.describe("day view", () => {
+  test.skip(({ isMobile }) => isMobile, "desktop layout");
+
+  test("is the default and requests /tagesverlauf, not /zeitverlauf", async ({ page }) => {
+    const all = await mockApi(page);
+    await page.goto("/muster/zeitverlauf");
+    await expect(chart(page, DAY)).toBeVisible();
+    expect(lastQuery(all, "/tagesverlauf")).toEqual({ gattung: "alle" });
+    expect(requests(all)).toHaveLength(0);
+    await expect(page.getByRole("main")).toContainText("Deutschland gesamt");
+    await expect(page.getByText(/alle Tage/)).toBeVisible();
+    await expect(view(page).getByRole("button", { name: "Tag" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    await expect(page).toHaveURL(/\/muster\/zeitverlauf$/);
+  });
+
+  test("the switch writes z=monat and requests /zeitverlauf, and switching back drops it", async ({
+    page,
+  }) => {
+    const all = await mockApi(page);
+    await page.goto("/muster/zeitverlauf?g=fern");
+    await expect(chart(page, DAY)).toBeVisible();
+    await view(page).getByRole("button", { name: "Monat" }).click();
+    await expect(page).toHaveURL(/\/muster\/zeitverlauf\?g=fern&z=monat$/);
+    await expect(chart(page)).toBeVisible();
+    expect(lastQuery(all)).toEqual({ gattung: "fern" });
+    await expect(view(page).getByRole("button", { name: "Monat" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    await view(page).getByRole("button", { name: "Tag" }).click();
+    await expect(page).toHaveURL(/\/muster\/zeitverlauf\?g=fern$/);
+    await expect(chart(page, DAY)).toBeVisible();
+  });
+
+  test("a line URL has no switch and stays monthly", async ({ page }) => {
+    const all = await mockApi(page);
+    await page.goto(`/muster/zeitverlauf?${LINE}`);
+    await expect(chart(page)).toBeVisible();
+    await expect(view(page)).toHaveCount(0);
+    expect(lastQuery(all)).toEqual({ linie: "RE 1:8000207", gattung: "alle" });
+    expect(requests(all, "/tagesverlauf")).toHaveLength(0);
+  });
+
+  test("a line URL drops the view key", async ({ page }) => {
+    await mockApi(page);
+    await page.goto(`/muster/zeitverlauf?${LINE}&z=monat`);
+    await expect(chart(page)).toBeVisible();
+    await expect(page).toHaveURL(`/muster/zeitverlauf?${LINE}`);
+  });
+
+  test("the station and the category reach the request", async ({ page }) => {
+    const all = await mockApi(page);
+    await page.goto("/muster/zeitverlauf?bhf=8000207&g=fern");
+    await expect(chart(page, DAY)).toBeVisible();
+    expect(lastQuery(all, "/tagesverlauf")).toEqual({ eva: "8000207", gattung: "fern" });
+    await expect(page.getByRole("main")).toContainText("Köln Hbf");
+  });
+
+  test("the trend is drawn as one bold line, the days as thin segments", async ({ page }) => {
+    await mockApi(page);
+    await page.goto("/muster/zeitverlauf");
+    const svg = chart(page, DAY);
+    await expect(svg).toBeVisible();
+    await expect(trend(page)).toHaveCount(1);
+    await expect(trend(page)).toHaveAttribute("stroke-width", "2.5");
+    // 822 days, one without stops: its two neighbours' segments are missing.
+    await expect(svg.getByTestId("segment")).toHaveCount(819);
+    await expect(svg.getByTestId("segment").first()).toHaveAttribute("stroke-width", "1");
+    await expect(svg.getByTestId("point")).toHaveCount(0);
+    // Both timetable changes lie in the 822 days; the axis names months, never days.
+    await expect(svg.getByText("Fahrplanwechsel")).toHaveCount(2);
+    const labels = await svg.locator("text").allTextContents();
+    expect(labels.filter((l) => /^\p{L}{3} \d\d$/u.test(l)).length).toBeGreaterThanOrEqual(8);
+    expect(labels.some((l) => /\d\d\.\d\d\.\d{4}/.test(l))).toBe(false);
+    await expect(svg.getByText("Datenbasis erweitert")).toHaveCount(1);
+  });
+
+  test("the delay view draws the median trend with a band up to the P90 trend", async ({
+    page,
+  }) => {
+    await mockApi(page);
+    await page.goto("/muster/zeitverlauf?k=median");
+    const svg = chart(page, "Verspätung pro Tag");
+    await expect(svg).toBeVisible();
+    await expect(svg.getByTestId("band")).toHaveCount(1);
+    await expect(trend(page, "Verspätung pro Tag")).toHaveCount(1);
+    await expect(chart(page, "Ausfallquote pro Tag")).toBeVisible();
+  });
+
+  test("the day with missing hours and the day with little data are dashed", async ({ page }) => {
+    await mockApi(page);
+    await page.goto("/muster/zeitverlauf");
+    const svg = chart(page, DAY);
+    // Two segments each: the day before and the day after.
+    await expect(svg.locator('[data-testid="segment"][stroke-dasharray]')).toHaveCount(4);
+    await page.getByTestId("zv-2026-03-14").hover();
+    await expect(tip(page)).toContainText("Sa., 14.03.2026");
+    await expect(tip(page)).toContainText("6 h ohne vollständige Daten");
+  });
+
+  test("hovering a day shows its date, value, trend, n and the missing hours", async ({ page }) => {
+    await mockApi(page);
+    await page.goto("/muster/zeitverlauf");
+    await expect(chart(page, DAY)).toBeVisible();
+    await page.getByTestId("zv-2026-03-10").hover();
+    await expect(tip(page)).toHaveText("Di., 10.03.2026 · 78 % pünktlich · Trend 80 % · n = 1.240");
+    await page.getByTestId("zv-2026-03-20").hover();
+    await expect(tip(page)).toContainText("Fr., 20.03.2026");
+    await expect(tip(page)).toContainText("n = 9 · zu wenig Daten");
+    await expect(tip(page)).not.toContainText("pünktlich");
+    await page.getByTestId("zv-2025-01-10").hover();
+    await expect(tip(page)).toContainText("Fr., 10.01.2025 · keine Daten");
+  });
+
+  test("the cancellation chart has its own daily line and trend", async ({ page }) => {
+    await mockApi(page);
+    await page.goto("/muster/zeitverlauf");
+    const svg = chart(page, "Ausfallquote pro Tag");
+    await expect(svg).toBeVisible();
+    await expect(trend(page, "Ausfallquote pro Tag")).toHaveCount(1);
+    await expect(trend(page, "Ausfallquote pro Tag")).toHaveCSS("stroke", CANCEL);
+    await fontsReady(page);
+    await svg.scrollIntoViewIfNeeded();
+    await page.getByTestId("zc-2026-03-10").hover();
+    await expect(tip(page)).toContainText("10.03.2026 · ");
+    await expect(tip(page)).toContainText("ausgefallen");
+  });
+
+  test("the table mode has a row per day", async ({ page }) => {
+    await mockApi(page);
+    await page.goto("/muster/zeitverlauf");
+    await page.getByRole("button", { name: "Als Tabelle anzeigen" }).click();
+    await expect(chart(page, DAY)).toHaveCount(0);
+    const table = page.getByRole("table");
+    await expect(table.locator("tbody tr")).toHaveCount(822);
+    for (const head of ["Tag", "Pünktlichkeit", "Ausfälle", "Stichprobe", "Stunden mit Lücken"])
+      await expect(table.getByRole("columnheader", { name: head })).toBeVisible();
+    const day = table.getByRole("row", { name: /10\.03\.2026/ });
+    for (const text of ["78 %", "1.240"]) await expect(day).toContainText(text);
+    await expect(table.getByRole("row", { name: /14\.03\.2026/ })).toContainText("6");
+    await page.getByRole("button", { name: "Als Tabelle anzeigen" }).click();
+    await expect(chart(page, DAY)).toBeVisible();
+  });
+
+  test("a series without a single stop shows an empty state", async ({ page }) => {
+    await mockApi(page, undefined, undefined, undefined, undefined, undefined, undefined, (e) => ({
+      ...tagesverlaufFixture(e),
+      tage: tagesverlaufFixture(e).tage.map((d) => ({
+        ...d,
+        n: 0,
+        ausfallquote: null,
+        median: null,
+        p90: null,
+        puenktlich: null,
+      })),
+    }));
+    await page.goto("/muster/zeitverlauf?g=fern");
+    await expect(page.getByText("Noch keine Tagesdaten")).toBeVisible();
+    await page.getByRole("button", { name: "Filter zurücksetzen" }).click();
+    await expect(page).toHaveURL(/\/muster\/zeitverlauf$/);
+  });
+
+  test("the error state recovers on retry", async ({ page }) => {
+    let calls = 0;
+    await mockApi(page, undefined, undefined, undefined, undefined, undefined, undefined, (e) =>
+      calls++ === 0 ? null : tagesverlaufFixture(e),
+    );
+    await page.goto("/muster/zeitverlauf?g=fern");
+    await expect(page.getByRole("alert")).toContainText("Daten konnten nicht geladen werden.");
+    await page.getByRole("button", { name: "Erneut versuchen" }).click();
+    await expect(chart(page, DAY)).toBeVisible();
+    await expect(page).toHaveURL(/[?&]g=fern/);
   });
 });
 
@@ -320,7 +525,7 @@ test("the error state keeps the filters and recovers on retry", async ({ page })
   await mockApi(page, undefined, undefined, undefined, undefined, undefined, (e, l) =>
     calls++ === 0 ? null : zeitverlaufFixture(e, l),
   );
-  await page.goto("/muster/zeitverlauf?g=fern");
+  await page.goto("/muster/zeitverlauf?g=fern&z=monat");
   await expect(page.getByRole("alert")).toContainText("Daten konnten nicht geladen werden.");
   await page.getByRole("button", { name: "Erneut versuchen" }).click();
   await expect(chart(page)).toBeVisible();
@@ -344,7 +549,7 @@ test.describe("mobile", () => {
   }) => {
     await page.setViewportSize({ width: 375, height: 812 });
     await mockApi(page);
-    await page.goto("/muster/zeitverlauf");
+    await page.goto(MONTHLY);
     await expect(chart(page)).toBeVisible();
     await expect(chart(page, "Ausfallquote pro Monat")).toBeVisible();
     // The labels are measured one by one; a swap to Inter in between moves the chart down.
@@ -373,9 +578,32 @@ test.describe("mobile", () => {
       }
   });
 
-  test("a tap shows a month and a tap outside clears it", async ({ page }) => {
+  test("the day view fits 375 px without sideways scroll and shows its trend", async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 812 });
     await mockApi(page);
     await page.goto("/muster/zeitverlauf");
+    await expect(chart(page, DAY)).toBeVisible();
+    await expect(chart(page, "Ausfallquote pro Tag")).toBeVisible();
+    await expect(trend(page)).toHaveCount(1);
+    await fontsReady(page);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+      true,
+    );
+    for (const name of [DAY, "Ausfallquote pro Tag"]) {
+      const box = (await chart(page, name).boundingBox())!;
+      expect(box.x + box.width).toBeLessThanOrEqual(375);
+    }
+    const switchBox = (await view(page).boundingBox())!;
+    expect(switchBox.x + switchBox.width).toBeLessThanOrEqual(375);
+    // A tap on the switch changes the view here, too.
+    await view(page).getByRole("button", { name: "Monat" }).tap();
+    await expect(chart(page)).toBeVisible();
+    await expect(page).toHaveURL(/\?z=monat$/);
+  });
+
+  test("a tap shows a month and a tap outside clears it", async ({ page }) => {
+    await mockApi(page);
+    await page.goto(MONTHLY);
     await page.getByTestId("zv-2026-03").tap();
     await expect(tip(page)).toContainText("Mär 26 · 78 % pünktlich");
     await page.getByRole("heading", { level: 1 }).tap();

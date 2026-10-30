@@ -41,7 +41,7 @@ const HOURS = Array.from({ length: 24 }, (_, h) => h);
 export default function HeatmapPage() {
   const [params] = useSearchParams();
   const setParams = useSetParams();
-  const f: FilterKeys = { ...readFilters(params), linie: undefined };
+  const f: FilterKeys = { ...readFilters(params), linie: undefined, z: undefined };
   const q = useQuery({
     queryKey: ["heatmap", f.g, f.bhf, f.von, f.bis],
     queryFn: () =>
