@@ -4,6 +4,8 @@
 
 Day-level history: a daily time series with a 28-day trend in place of the monthly one (months stay as a switch), and a day mode of the map that colours every station by one past day against its normal for that weekday. Both rest on a per-day delay histogram. The planned feature direction is in SPEC §3.4; Bundesländer, a calendar view and marked events come later.
 
+**Coverage.** The day views reach the last complete day, about one to two days back: the days after the last monthly file are built from the source's raw responses and refreshed by `pipeline.update` (mechanics and the completeness rule: [pipeline.md](pipeline.md) §2, "Raw days"). The month views (heatmap, rankings, monthly series, station sparkline) stay on whole months. When a month's file arrives, it replaces that month's raw days.
+
 ## 2 Spec
 
 **Daily time series** (`/muster/zeitverlauf`, nationwide or one station):
@@ -53,8 +55,8 @@ Day-level history: a daily time series with a 28-day trend in place of the month
 ## 4 Architecture and data keys
 
 - `core/holidays.py`: `nationwide_holidays(year)` returns the nine nationwide dates as a `frozenset[date]`: New Year, Good Friday, Easter Monday, 1 May, Ascension, Whit Monday, 3 October and both Christmas days. Easter comes from the anonymous Gregorian algorithm, no library.
-- `pipeline/aggregate.py`: `days` builds the per-day histogram of a month file, `day_gaps` the missing hours per calendar day; both reuse `_hour_counts`, which `meta` uses too. `pipeline/update.py` lists them in `MONTH_FILES`; `combine` writes `data/days.parquet` and `data/tage.parquet` ([pipeline.md](pipeline.md) §2).
-- `data/days.parquet`: `day`, `gruppe`, `eva`, `bucket`, `n`, sorted by day, EVA, group and bucket (NULL bucket = cancelled stop, never 0 minutes), written in row groups of `DAYS_ROW_GROUP` = 50,000 rows ([pipeline.md](pipeline.md) §2). `data/tage.parquet`: `day`, `missing_hours`, one row per calendar day.
+- `pipeline/aggregate.py`: `days` builds the per-day histogram of a month file, `day_gaps` the missing hours per calendar day; both reuse `_hour_counts`, which `meta` uses too and which calls `hour_table`, the one gap rule that the raw days use as well ([pipeline.md](pipeline.md) §3). `pipeline/update.py` lists them in `MONTH_FILES`; `combine` writes `data/days.parquet` and `data/tage.parquet` ([pipeline.md](pipeline.md) §2).
+- `data/days.parquet`: `day`, `gruppe`, `eva`, `bucket`, `n`, sorted by day, EVA, group and bucket (NULL bucket = cancelled stop, never 0 minutes), written in row groups of `DAYS_ROW_GROUP` = 50,000 rows ([pipeline.md](pipeline.md) §2). `data/tage.parquet`: `day`, `missing_hours`, one row per calendar day up to the last complete day. Both include the raw days after the last monthly file.
 - `backend/main.py`: `GET /tagesverlauf` (`eva`, `gattung`) returns `titel` and `tage` (`tag`, `n`, the four statistics, `fehlende_stunden`, `trend`); `trends` computes the centred median with `rolling_median_by`, and `tage_for` caches per selection and file modification times. `/datenstand` carries `erster_tag`, `letzter_tag` and `fehlende_stunden_tage`. The paths are `DAYS_PATH` and `TAGE_PATH`, both in the deploy download list ([patterns.md](patterns.md) §2 and §4, [deployment.md](deployment.md)).
 - `core/normal.py` (pure, no framework imports): `reference_days(day, first, last, gap_days)` lists the same weekday of the previous 12 weeks, nearest first, without days outside the data, gap days and nationwide holidays. `normal(values)` is the median, `None` below 8 values. `weather(value, references, higher_is_better)` is the rank 1 (much better) to 5 (much worse): the share of references the value beats, ties counting half, cut into fifths, with integer arithmetic so no float edge case decides a step; `None` without a value or 8 references. An exact fifth boundary above the middle steps one toward 3, like the one below it, so the rank is symmetric.
   - `spread(values, floor)` is 1.4826 times the median absolute deviation from the median, at least `floor`, `None` below 8 values. `deviation_class(value, references, higher_is_better, floor)` is the step 1 to 5 from z (`USUAL_Z` 2, `MUCH_Z` 4); `None` without a value or a normal. `FLOORS` is the one table of the floors per metric, in the metric's own unit. `core/rankings.py` has `higher_is_better(metric)`, the one place that says only punctuality counts higher as better.
@@ -122,6 +124,7 @@ Day-level history: a daily time series with a 28-day trend in place of the month
 
 ## 6 Platform checks
 
+- [ ] The first manual refresh of the deployed site with fresh days: `uv run python -m pipeline.update`, then `uv run python scripts/azure.py data` ([deployment.md](deployment.md) §4). After the replica restarts, `/datenstand` on the site names the new last day, the day map opens on it, and the daily series reaches it.
 - [ ] Redeploy with the larger data: the size of the data files and the cold start against the earlier 20.9 s ([deployment.md](deployment.md) §6).
 - [ ] Memory on Linux in the API image with 1 GiB: about 30 distinct days through `/tageskarte` plus one `/karte`, watching the resident set size. The numbers in §5 are Windows (mimalloc); Linux uses jemalloc and may hold more or less.
 - [ ] Typing into the date field on a phone. The e2e test skips the mobile project, where the emulated field is a picker.
@@ -141,4 +144,5 @@ None.
 - No test reads the row groups: neither Polars nor an installed library exposes them. A test with a hand-written footer reader was dropped; the evidence is the memory measurement in §5. If pyarrow becomes a dependency, a test of `pq.ParquetFile(...).metadata` is short.
 - Nothing cross-checks that the API gives no class where the UI would call the value low: the API's `shown(...)` and the UI's `show()` are two implementations of the same rule, and the day map no longer asks `show()` before colouring. They agree while both keep that rule.
 - On a screen about 720 px high the Germany card and the open legend cover a few dots at the western edge. A taller screen is fine; the period map's legend alone nearly did that already.
+- At the end of the series the centred window shrinks to a trailing one over the last 14 days and still needs 14 values, so the trend reaches the newest day only while the last 14 days all feed it; every gap or thin day among them cuts one day off its tail. With the raw days and no gap in October it reaches the newest day. Allowing half the minimum in the windows that run past the last day would keep it there, at the price of a lagging trailing median.
 - The trend is the median of the days that pass the low-data rule, per metric. A station whose days all have little data therefore has no trend line, although its days are still drawn.

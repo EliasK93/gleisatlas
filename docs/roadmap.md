@@ -52,12 +52,18 @@ Details in [day-history.md](day-history.md). Built on a per-day delay histogram 
 - [x] Day map: the map coloured by one past day against each station's normal for that weekday (noise-aware classes), with a weather symbol for Germany (re-check: `uv run pytest -q`, `tests/core/test_normal.py`, `tests/api/test_tageskarte_api.py`; `npm --prefix frontend run test:e2e`, `frontend/e2e/daymap.spec.ts`)
 - [ ] Bundesländer level of the day map, with weather symbols
 
-## M7 Line detail page (v0.3)
+## M7 Fresh days (v0.3)
+Details in [pipeline.md](pipeline.md) (raw days) and [day-history.md](day-history.md) (coverage); the live source is decided in [adr/0002-live-source.md](adr/0002-live-source.md).
+- [x] Fresh days from raw data: the day map and the daily series reach the last complete day, about one to two days back; the month views stay on whole months (re-check: `uv run pytest -q`, `tests/pipeline/test_raw.py`, `tests/pipeline/test_update.py`, `test_complete_raw_days_after_the_last_month_reach_the_day_tables`, `test_combine_sums_a_raw_day_with_the_same_day_from_a_monthly_file`; on the real data `/datenstand` names the last complete day)
+- [x] Data refresh of the deployed site: `scripts/azure.py data` uploads the data files to Blob (re-check: `uv run pytest -q`, `tests/scripts/test_azure.py`; the first refresh of the live site is a platform check in [day-history.md](day-history.md) §6)
+- [ ] Live source for "today" (ADR, proposed): where the live state comes from, how it is collected and where it runs (re-check: [adr/0002-live-source.md](adr/0002-live-source.md) is accepted or replaced)
+
+## M8 Line detail page (v0.3)
 - [ ] Line detail page with the line's stations and statistics
 - [ ] Zeitfresser: the sections between stations coloured by where trains lose or make up time
 - [ ] Bildfahrplan: the graphic timetable of the line for one day, planned against actual. Needs data per run (about 82 MB per month with all stations, compact): decide where it lives first
 
-## M8+ Planner (v1.0)
+## M9+ Planner (v1.0)
 - [ ] Connection-source spike (ADR)
 - [ ] Replay engine
 - [ ] Planner and transfer UI

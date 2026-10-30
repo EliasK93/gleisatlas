@@ -141,9 +141,9 @@ In VS Code, the launch configurations "Azure: deploy" and "Azure: teardown" run 
 
 The frontend build reads `frontend/.env.production.local` (gitignored) for the Impressum: the keys `VITE_IMPRESSUM_NAME`, `VITE_IMPRESSUM_STREET`, `VITE_IMPRESSUM_CITY` and `VITE_IMPRESSUM_EMAIL` are the provider's full name, street and house number, postcode and city, and a contact e-mail address, exactly as they should appear on `/impressum`. The script never writes this file; `VITE_API_URL` comes from its own environment, which wins over the file. Leave the Impressum keys out and the page reads "Angaben folgen." instead. Save the file as UTF-8 without a BOM, which Vite needs.
 
-Running `deploy` again repeats every step and is safe: the same commit gives the same image tag, and the budget keeps its start date. So a change to `infra/main.bicep`, the API, the web app or the data goes live by committing and running `deploy` again.
+Running `deploy` again repeats every step and is safe: the same commit gives the same image tag, and the budget keeps its start date. So a change to `infra/main.bicep`, the API or the web app goes live by committing and running `deploy` again; new data alone needs only `data`.
 
-- **Data update:** `uv run python -m pipeline.update`, then `deploy` again. A running replica keeps the old data until it restarts; the next cold start fetches the new files. To switch at once:
+- **Data update** (touches Azure: overwrites the files in the deployed storage account): `uv run python -m pipeline.update`, then `uv run python scripts/azure.py data`. It checks that the seven data files exist, prints the subscription, reads the storage account from the deployment outputs and uploads only those files, without a build or a deployment. A running replica keeps the old data until it restarts; the next cold start fetches the new files. To switch at once:
 
   ```powershell
   # Restart the active revision, so the container downloads the data again.

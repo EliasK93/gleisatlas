@@ -84,12 +84,12 @@ On the daily time series (v0.3): a smoothed trend line, a calendar view, marked 
 - Source: HuggingFace dataset `piebro/deutsche-bahn-data` (code: github.com/piebro/deutsche-bahn-data). License **CC BY 4.0 (Deutsche Bahn)** → attribution in UI and README is mandatory.
 - Basis: DB Timetables API (IRIS), polled 4× daily.
 - Coverage: about 135 large stations from 2024-07, **all stations from 2025-11-02**.
-- Freshness: monthly Parquet files (`monthly_processed_data/data-YYYY-MM.parquet`, up to the end of the previous month) + raw data with ~6 h lag.
+- Freshness: monthly Parquet files (`monthly_processed_data/data-YYYY-MM.parquet`, up to the end of the previous month) + raw data (`raw_data/`: the raw Timetables responses, four collection runs a day) with ~6 h lag.
 - Relevant columns: `eva`, `station_name`, `train_type`, `train_number`, `line_number` (null for long-distance), `train_line_ride_id`, `train_line_station_num`, `arrival_planned_time`, `arrival_change_time`, `departure_planned_time`, `departure_change_time`, `arrival_is_canceled`, `departure_is_canceled`, `delay_in_min`. The files contain more columns (e.g. `time`, `xml_station_name`, `id`, `is_additional_stop`); see [docs/pipeline.md](docs/pipeline.md) for the findings.
 - Known problems: missing hours 2025-11 to 2026-07 (among others 102 h in July 2026); schema changes in 2026-05 and 2026-08 (make the pipeline robust against schema changes, validate the schema on import).
 - Time zone: Europe/Berlin, no conversion in the dataset.
 
-**v1 decision:** monthly files as the basis. Fetching raw data for the current month is optional.
+**v1 decision:** monthly files are the basis for everything. The raw data is the source for the current month's day views (daily series and day map), up to the last complete day, one to two days back; month views stay on whole months. Details: [docs/pipeline.md](docs/pipeline.md) §2, "Raw days".
 
 ### 4.2 Connection / timetable source (for v1.0) – **open, spike needed**
 
