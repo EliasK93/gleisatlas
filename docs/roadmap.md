@@ -49,7 +49,8 @@ Details and the runbook in [deployment.md](deployment.md).
 ## M6 Daily history and the day map (v0.3)
 Details in [day-history.md](day-history.md). Built on a per-day delay histogram (about 36 MB over 27 months, measured on 2025-06 and 2026-09).
 - [x] Daily time series with a 28-day trend as the default; the monthly view stays as a switch (re-check: `uv run pytest -q`, `tests/api/test_tagesverlauf_api.py`, `tests/core/test_holidays.py`; `npm --prefix frontend run test:e2e`, the "day view" tests in `frontend/e2e/zeitverlauf.spec.ts`)
-- [ ] Day map: the map coloured by one past day against the normal for that weekday, drawn as a weather map (Germany, then the Bundesländer, then the stations)
+- [x] Day map: the map coloured by one past day against each station's normal for that weekday (noise-aware classes), with a weather symbol for Germany (re-check: `uv run pytest -q`, `tests/core/test_normal.py`, `tests/api/test_tageskarte_api.py`; `npm --prefix frontend run test:e2e`, `frontend/e2e/daymap.spec.ts`)
+- [ ] Bundesländer level of the day map, with weather symbols
 
 ## M7 Line detail page (v0.3)
 - [ ] Line detail page with the line's stations and statistics

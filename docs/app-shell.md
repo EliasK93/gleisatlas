@@ -26,13 +26,14 @@ The frame around every page: sidebar, filter bar, mobile top bar and tab bar, fo
 | `g` | `regional`, `fern` | all categories |
 | `bhf` | EVA number | all stations |
 | `von`, `bis` | `YYYY-MM` | `von`: first month with full coverage; `bis`: last month |
+| `tag` | `YYYY-MM-DD` (map only) | the period map; a day switches the map to day mode, drops `von` and `bis` and is clamped to the days of the data |
 | `k` | `median`, `p90`, `ausfall` | punctuality |
 | `typ` | `linien` (rankings only) | `bahnhoefe` |
 | `min` | `100`, `1000`, `5000` (rankings only) | `500` |
 | `linie` | a line id (time series only) | no line |
 | `z` | `monat` (time series only) | the day view |
 
-Unknown or invalid values fall back to the default and are removed from the URL once. Keys are always written in one fixed order: `g`, `bhf`, `von`, `bis`, `linie`, `z`, `k`, then `typ` and `min`. Sidebar and tab-bar links carry the current query string, so filters persist across pages. A page drops the keys it has no meaning for: `bhf` on the rankings and on the time series when a `linie` is set, `linie` and `z` on every page but the time series. What `bhf` means on the map and on the station page is described in [map.md](map.md).
+Unknown or invalid values fall back to the default and are removed from the URL once. Keys are always written in one fixed order: `g`, `bhf`, `von`, `bis`, `tag`, `linie`, `z`, `k`, then `typ` and `min`. Sidebar and tab-bar links carry the current query string, so filters persist across pages. A page drops the keys it has no meaning for: `bhf` on the rankings and on the time series when a `linie` is set, `linie` and `z` on every page but the time series, `tag` on every page but the map. The day mode is described in [day-history.md](day-history.md) §2. What `bhf` means on the map and on the station page is described in [map.md](map.md).
 
 **Sidebar** (from 768 px): logo, the station search field (see [map.md](map.md)), then the groups "Entdecken" (Karte, Wochentag × Uhrzeit, Rankings, Zeitverlauf), "Planen" (Verbindung planen, Umstieg prüfen) and "Bald" (Live-Lage heute, Verspätungsketten, Gespeicherte Fahrten), then "So liest man die Zahlen". Karte, Wochentag × Uhrzeit, Rankings and Zeitverlauf are links. Every other item is dimmed with a "bald" tag and is not a link; it becomes a link when its page ships. Above the footer sit the Darstellung (theme) and Sprache (language) switches, described in [theme-and-language.md](theme-and-language.md). The footer shows "Datenstand: {month} · {n} Bahnhöfe" and "Kein Angebot der Deutschen Bahn." The page footer with the disclaimer, that sentence and the source with the CC BY 4.0 link is hidden on the map, which fills the viewport.
 

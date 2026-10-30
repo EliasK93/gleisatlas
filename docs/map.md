@@ -35,6 +35,10 @@ The filter keys `g`, `von`, `bis` and `k` are the ones of the shell (see [app-sh
 - A `bhf` without map data (unknown or no coordinates) shows the panel with "EVA …" as title and a note, plus the real name when `/stationen/{eva}` knows it.
 - States: loading text in the legend, empty card with "Filter zurücksetzen", error banner with "Erneut versuchen" that keeps the filters.
 
+**Day mode**
+
+- With `tag=YYYY-MM-DD` the map shows one past day against its normal instead of a period: the "Zeitraum | Tag" switch and the date field in the filter bar, the dots coloured by the API's step of the deviation from the normal, a card for Germany with a weather symbol above the legend, and the normal in the tooltip and the panel. It asks `GET /tageskarte` instead of `/karte`. The rules, the steps and the data are in [day-history.md](day-history.md) §2 and §4.
+
 **Station detail page**
 
 - Header: breadcrumb "Karte › name", h1, "EVA … · federal state", "Teilen"; "Verbindung ab hier" and "Umstiege hier" are tagged "bald". Filter bar without the Bahnhof chip.

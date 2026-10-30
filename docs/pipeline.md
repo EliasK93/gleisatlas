@@ -39,7 +39,7 @@ After a change to the per-month logic (cleaning, line names, coverage rule) the 
 | `lines.parquet` | `linie`, `eva`, `gruppe`, `month`, `bucket`, `n`: the delay histogram per line and station. |
 | `linien.parquet` | `linie`, `name`, `label`, `typ`: one row per line. |
 | `monate.parquet` | `month`, `missing_hours`, `stations`: one row per month. The API requires it. |
-| `days.parquet` | `day`, `gruppe`, `eva`, `bucket`, `n`: the month files summed per key (an edge day can sit in two of them), sorted by day, EVA, group and bucket. |
+| `days.parquet` | `day`, `gruppe`, `eva`, `bucket`, `n`: the month files summed per key (an edge day can sit in two of them), sorted by day, EVA, group and bucket, in row groups of `DAYS_ROW_GROUP` = 50,000 rows (about one day), so the API's one-day filter skips the others ([day-history.md](day-history.md) §3). |
 | `tage.parquet` | `day`, `missing_hours`: every calendar day from the first to the last month, sorted. |
 
 ## 3 Decisions
@@ -69,7 +69,7 @@ After a change to the per-month logic (cleaning, line names, coverage rule) the 
 - **Missing hours are also counted per day** (`day_gaps`), with the same rule and the same hour counts (`_hour_counts`) as the month figure, so the days of a month add up to its `missing_hours`. Reason: the daily series and the day map must know which days are incomplete. The day is the calendar day of the poll time, while the delay histogram's day is the planned arrival (see [day-history.md](day-history.md) §3).
 - **Timetable changes are marked, not split.** `core.periods.timetable_changes` returns the Sunday after the second Saturday of December (2024-12-15, 2025-12-14, 2026-12-13). The API lists those inside the data range and trains keep one key across years. Reason: product owner's choice (SPEC O6); splitting statistics per timetable period comes with the planner, where train numbers matter.
 - **Full coverage starts where the station count jumps.** `core.periods.full_coverage_start` returns the first month with at least half as many stations as the largest month. The source has about 135 stations per month until 2025-10 and about 5,2xx from 2025-11, so it returns 2025-11. Reason: views default to the period where "nationwide" is true.
-- **Output size over 27 months:** `aggregate.parquet` 60.8 MB, `lines.parquet` 10.9 MB, `linien.parquet` 0.2 MB, `stations.parquet` 0.1 MB, `monate.parquet` under 0.1 MB. The per-day histogram adds about 36 MB over 27 months (measured on 2025-06 and 2026-09); the size of the real file of `days.parquet` is recorded in [day-history.md](day-history.md) §6. The 2 GB limit of AC-3 is far away, so no watchlist fallback is needed.
+- **Output size over 27 months:** `aggregate.parquet` 60.8 MB, `lines.parquet` 10.9 MB, `linien.parquet` 0.2 MB, `stations.parquet` 0.1 MB, `monate.parquet` under 0.1 MB. The per-day histogram adds about 36 MB over 27 months (measured on 2025-06 and 2026-09); the real file is 36.7 MB, 0.3 % more with the row groups ([day-history.md](day-history.md) §5). The 2 GB limit of AC-3 is far away, so no watchlist fallback is needed.
 
 ## 4 Architecture and data keys
 

@@ -75,7 +75,7 @@ Grid: 12 columns, content width max. 1200 px (map full-bleed), gutter 24 px desk
 ### 2.1 Map (start page)
 **Desktop:** The map fills the whole content area to the right of the sidebar. Floating elements (cards on `surface` with a light shadow, 12 px from the edge):
 - top left: metric switch (segments: *Pünktlichkeit · Typische Verspätung (Median) · Schlechte Tage (P90) · Ausfälle*) + filter chips.
-- bottom left: **legend** (5-step scale with class limits as text, plus "◌ hohl = wenig Daten", "Punktgröße = Anzahl Halte").
+- bottom left: **legend** (5-step scale with class limits as text, plus "◌ hohl = wenig Daten", "Punktgröße = Anzahl Halte"). In day mode (see [day-history.md](day-history.md) §2) the scale carries the five step names instead of class limits, a sentence says what "wie üblich" means (no numbers: the limits differ per station), and the Germany card stands above it in the same 300 px column.
 - right: **station panel** (360 px) appears after a click: name, identifier, 4 mini tiles, a sentence ("8 von 10 Ankünften sind pünktlich"), button "Alle Details". The map stays visible and usable.
 - bottom right: zoom, attribution. "My position" is left out (not needed before the trip).
 
