@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-from core.rankings import rank
+from core.rankings import higher_is_better, rank
 from core.stats import CellStats
 
 
@@ -63,3 +63,8 @@ def test_k_cuts_both_lists():
     worst, best = rank(entries, "p90", min_n=1, k=10)
     assert names(worst) == [f"s{i:02}" for i in range(24, 14, -1)]
     assert names(best) == [f"s{i:02}" for i in range(10)]
+
+
+def test_higher_is_better_only_for_punctuality():
+    assert higher_is_better("punctual_share")
+    assert not any(higher_is_better(m) for m in ("median", "p90", "cancellation_rate"))

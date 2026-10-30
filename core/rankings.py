@@ -15,6 +15,11 @@ class Ranked(Protocol):
     def stats(self) -> CellStats: ...
 
 
+def higher_is_better(metric: Metric) -> bool:
+    """Only the punctual share is better when higher; every other metric is a delay or a rate."""
+    return metric == "punctual_share"
+
+
 def counted(stats: CellStats, metric: Metric) -> int:
     """The stops a statistic rests on: arrived stops for delays, all stops for cancellations."""
     return (
@@ -28,7 +33,7 @@ def rank[T: Ranked](
     """(worst, best): worst-first and best-first, at most k each. Entries below min_n or without
     a value are left out; ties go to the larger n, then the name. min_n counts arrived stops for
     the delay metrics and all stops for the cancellation rate."""
-    sign = 1 if metric == "punctual_share" else -1  # higher is better only for punctuality
+    sign = 1 if higher_is_better(metric) else -1
     scored: list[tuple[float, T]] = []
     for e in entries:
         value: float | None = getattr(e.stats, metric)

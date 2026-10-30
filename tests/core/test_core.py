@@ -1,3 +1,4 @@
+import random
 from datetime import datetime as dt
 from datetime import timedelta
 
@@ -7,7 +8,7 @@ import pytest
 from core.categories import category_expr
 from core.delay import arrival_delay_expr, plausible_expr
 from core.stations import ibnr_expr
-from core.stats import cell_stats, delay_bins, quantile
+from core.stats import cell_stats, cell_stats_frame, delay_bins, quantile
 
 
 def test_ibnr_strips_leading_zeros():
@@ -71,6 +72,51 @@ def test_cell_stats_all_cancelled():
     s = cell_stats([(None, 3)])
     assert (s.n, s.cancellation_rate) == (3, 1.0)
     assert s.median is None and s.p90 is None and s.punctual_share is None
+
+
+def random_cells() -> dict[tuple[int, int], list[tuple[int | None, int]]]:
+    """A few hundred (day, station) cells of (bucket, n) pairs, buckets unique within a cell:
+    negative and large buckets, single-bucket and cancelled-only cells, cumulative sums exactly
+    on 0.5 and 0.9 of the arrived total."""
+    rng = random.Random(15)
+    cells: dict[tuple[int, int], list[tuple[int | None, int]]] = {
+        (0, 0): [(None, 4)],  # cancelled only
+        (0, 1): [(-3, 7)],  # single bucket
+        (0, 2): [(0, 5), (3, 5)],  # median exactly on the cumulative sum
+        (0, 3): [(0, 9), (5, 1), (None, 2)],  # p90 exactly on the cumulative sum
+        (0, 4): [(5, 1), (6, 1), (None, 1)],  # the punctual edge
+    }
+    for i in range(400):
+        buckets = rng.sample([*range(-20, 15), 200, 1440], rng.randint(1, 8))
+        cell: list[tuple[int | None, int]] = [(b, rng.randint(1, 60)) for b in buckets]
+        if rng.random() < 0.3:
+            cell.append((None, rng.randint(1, 60)))
+        if rng.random() < 0.3:  # a total whose halves and tenths are whole
+            cell = [(b, 10 * (n // 10 + 1)) for b, n in cell]
+        rng.shuffle(cell)
+        cells[(1, i)] = cell
+    return cells
+
+
+def test_cell_stats_frame_equals_cell_stats():
+    cells = random_cells()
+    rows = [(d, e, b, n) for (d, e), pairs in cells.items() for b, n in pairs]
+    frame = pl.LazyFrame(rows, schema=["day", "eva", "bucket", "n"], orient="row")
+    got = {
+        (r["day"], r["eva"]): r
+        for r in cell_stats_frame(frame, ["day", "eva"]).collect().to_dicts()
+    }
+    assert got.keys() == cells.keys()
+    for key, pairs in cells.items():
+        want, r = cell_stats(pairs), got[key]
+        # the same float64 operations in the same order, so equality is exact
+        assert (r["n"], r["cancellation_rate"], r["median"], r["p90"], r["punctual_share"]) == (
+            want.n,
+            want.cancellation_rate,
+            want.median,
+            want.p90,
+            want.punctual_share,
+        ), key
 
 
 def test_delay_bins_edges_negatives_and_cancelled():
