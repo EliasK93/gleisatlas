@@ -13,6 +13,9 @@ type Zeitverlauf = components["schemas"]["Zeitverlauf"];
 type Monat = components["schemas"]["Monat"];
 type Tagesverlauf = components["schemas"]["Tagesverlauf"];
 type Tag = components["schemas"]["Tag"];
+type Tageskarte = components["schemas"]["Tageskarte"];
+type Normal = components["schemas"]["Normal"];
+type Klasse = components["schemas"]["Klasse"];
 
 /** The dummies of frontend/.env.development, which only the dev server reads; the e2e build has none. */
 export const IMPRESSUM = {
@@ -24,7 +27,7 @@ export const IMPRESSUM = {
 
 // Routed by path, so a set VITE_API_URL can never send a test to a real server.
 const API_PATH =
-  /^\/(heatmap|datenstand|stationen|karte|rankings|zeitverlauf|tagesverlauf)(?:\/([^/]+)(\/statistik|\/linien)?)?$/;
+  /^\/(heatmap|datenstand|stationen|karte|tageskarte|rankings|zeitverlauf|tagesverlauf)(?:\/([^/]+)(\/statistik|\/linien)?)?$/;
 const CORS = { "access-control-allow-origin": "*" };
 
 /** Stand in for the OpenFreeMap styles (light and dark), so map tests never touch the network.
@@ -405,12 +408,116 @@ export function tagesverlaufFixture(eva: string | null): Tagesverlauf {
   return { titel: STATIONS.find((s) => s.eva === eva)?.name ?? null, tage };
 }
 
+const NO_NORMAL: Normal = { puenktlich: null, ausfallquote: null, median: null, p90: null };
+const USUAL: Normal = { puenktlich: 0.8, ausfallquote: 0.03, median: 3, p90: 12 };
+const NO_CLASS: Klasse = { puenktlich: null, ausfallquote: null, median: null, p90: null };
+
+/**
+ * The day map of `tag`, against the usual 80 % punctuality, 3 % cancellations, 3 min median and
+ * 12 min P90. Six stations with the classes the API would give (1 much better … 5 much worse):
+ * Köln in the worse classes, Frankfurt in the better ones, Problemhausen worse again, Üblingen as
+ * usual, Ohnevergleich without a normal and Kleinstadt with 9 stops, both without a class.
+ * Germany reads 78.9 % against 83.3 %. Special days: 2026-03-14 has 6 missing hours and so no
+ * weather symbol, 2026-03-01 has no stops at all and 2026-04-04 too few reference days for any
+ * normal or class.
+ */
+export function tageskarteFixture(tag: string): Tageskarte {
+  const gap = { "2026-03-14": 6, "2026-03-01": 24 }[tag] ?? 0;
+  const week = 7 * 86400000;
+  const refs = Array.from({ length: 12 }, (_, i) =>
+    new Date(Date.parse(`${tag}T00:00:00Z`) - (i + 1) * week).toISOString().slice(0, 10),
+  );
+  if (tag === "2026-03-01")
+    return {
+      tag,
+      referenztage: [],
+      fehlende_stunden: gap,
+      deutschland: null,
+      n: 0,
+      ohne_koordinaten: 0,
+      stationen: [],
+    };
+  const normal = tag === "2026-04-04" ? NO_NORMAL : USUAL;
+  const station = (
+    eva: string,
+    name: string,
+    lat: number,
+    lon: number,
+    n: number,
+    puenktlich: number,
+    ausfallquote: number,
+    median: number,
+    p90: number,
+    // Punctuality, cancellations, median, P90; none for a station without a normal or a value.
+    cls?: [number, number, number, number],
+    own: Normal = normal,
+  ) => ({
+    eva,
+    name,
+    lat,
+    lon,
+    n,
+    puenktlich,
+    ausfallquote,
+    median,
+    p90,
+    normal: own,
+    klasse:
+      cls && tag !== "2026-04-04"
+        ? { puenktlich: cls[0], ausfallquote: cls[1], median: cls[2], p90: cls[3] }
+        : NO_CLASS,
+  });
+  return {
+    tag,
+    referenztage: tag === "2026-04-04" ? refs.slice(0, 5) : refs,
+    fehlende_stunden: gap,
+    deutschland: {
+      n: 120000,
+      puenktlich: 0.789,
+      ausfallquote: 0.059,
+      median: 1,
+      p90: 11,
+      normal:
+        tag === "2026-04-04"
+          ? NO_NORMAL
+          : { puenktlich: 0.833, ausfallquote: 0.042, median: 1, p90: 9 },
+      // Germany has no symbol without a normal or on a day with missing hours.
+      wetter:
+        tag === "2026-04-04" || gap > 0
+          ? { puenktlich: null, ausfallquote: null, median: null, p90: null }
+          : { puenktlich: 5, ausfallquote: 5, median: 3, p90: 5 },
+    },
+    n: 120000,
+    ohne_koordinaten: 2,
+    stationen: [
+      station("8000207", "Köln Hbf", 50.943, 6.959, 3000, 0.5, 0.035, 4, 12, [5, 3, 4, 3]),
+      station(
+        "8000105",
+        "Frankfurt (Main) Hbf",
+        50.107,
+        8.663,
+        2500,
+        0.9,
+        0.01,
+        1,
+        4,
+        [1, 2, 2, 1],
+      ),
+      station("8000555", "Problemhausen", 53.0, 12.0, 1500, 0.74, 0.08, 3, 20, [4, 5, 3, 5]),
+      station("8000600", "Üblingen", 51.5, 9.5, 1200, 0.81, 0.03, 3, 12, [3, 3, 3, 3]),
+      station("8000700", "Ohnevergleich", 49.0, 11.0, 900, 0.7, 0.03, 3, 12, undefined, NO_NORMAL),
+      station("8000999", "Kleinstadt", 52.0, 10.0, 9, 0.89, 0, 1, 3),
+    ],
+  };
+}
+
 /** What a `zeitverlauf` or `tagesverlauf` callback returns for an unknown selection (a 404). */
 export const NOT_FOUND = "not-found";
 
 /** Serves the API and the base map style from fixtures. `heatmap`, `karte`, `statistik`,
- * `rankings`, `linien`, `zeitverlauf` and `tagesverlauf` return the body, or null for a server
- * error; an unknown EVA is a 404, and so is `NOT_FOUND` from `zeitverlauf` or `tagesverlauf`.
+ * `rankings`, `linien`, `zeitverlauf`, `tagesverlauf` and `tageskarte` return the body, or null
+ * for a server error; an unknown EVA is a 404, and so is `NOT_FOUND` from `zeitverlauf`,
+ * `tagesverlauf` or `tageskarte`.
  * Returns the list of requested API URLs.
  */
 export async function mockApi(
@@ -429,6 +536,10 @@ export async function mockApi(
     eva: string | null,
     gattung: string,
   ) => Tagesverlauf | typeof NOT_FOUND | null = tagesverlaufFixture,
+  tageskarte: (
+    tag: string,
+    gattung: string,
+  ) => Tageskarte | typeof NOT_FOUND | null = tageskarteFixture,
 ): Promise<URL[]> {
   const requests: URL[] = [];
   await page.route("https://tiles.openfreemap.org/**", (route) =>
@@ -448,7 +559,10 @@ export async function mockApi(
       let body: unknown;
       if (name === "heatmap") body = heatmap();
       else if (name === "karte") body = karte();
-      else if (name === "datenstand") body = DATENSTAND;
+      else if (name === "tageskarte") {
+        const q = url.searchParams;
+        body = tageskarte(q.get("tag") ?? "", q.get("gattung") ?? "alle");
+      } else if (name === "datenstand") body = DATENSTAND;
       else if (name === "rankings") {
         const q = url.searchParams;
         body = rankings(q.get("typ") ?? "", q.get("metrik") ?? "", Number(q.get("min_n")));

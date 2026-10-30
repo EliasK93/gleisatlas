@@ -165,7 +165,7 @@ export function useOpenStation() {
   return (eva: string) =>
     navigate({
       pathname: stationPath(eva),
-      search: writeFilters({ ...readFilters(params), bhf: undefined }).toString(),
+      search: writeFilters({ ...readFilters(params), bhf: undefined, tag: undefined }).toString(),
     });
 }
 

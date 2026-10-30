@@ -11,13 +11,16 @@ import workerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url";
 import { useEffect, useEffectEvent, useMemo, useRef, useState, type RefObject } from "react";
 import { Link, Navigate, useLocation, useSearchParams } from "react-router";
 import { clearParams, useSetParams } from "./useSetParams";
-import { api, must } from "./api";
+import { api, must, useDatenstand } from "./api";
+import { WeatherCard } from "./DayWeather";
 import { Filters } from "./Filters";
 import { t, tx } from "./i18n";
 import { Icon } from "./Icon";
 import {
   classOf,
   DEFS,
+  deviation,
+  formatDay,
   formatPeriod,
   int,
   legend,
@@ -25,7 +28,9 @@ import {
   APPROX_N,
   LOW_N,
   readFilters,
+  REFERENCE_WEEKS,
   tenths,
+  weekdayOf,
   withParam,
   writeFilters,
   type Filters as FilterKeys,
@@ -46,8 +51,10 @@ import {
   useNarrow,
 } from "./ui";
 
-type Karte = components["schemas"]["Karte"];
 type KartenStation = components["schemas"]["KartenStation"];
+/** A station of either map; only the day map knows its normal and its class. */
+type Entry = KartenStation &
+  Partial<Pick<components["schemas"]["TageskartenStation"], "normal" | "klasse">>;
 type Tip = { text: string; x: number; y: number } | null;
 
 // Bundled worker per the MapLibre v6 docs for Vite.
@@ -78,26 +85,39 @@ const SCALE_TOKENS = ["r", "c"].flatMap((scale) => [1, 2, 3, 4, 5].map((i) => `$
 
 /**
  * One point per station with everything the layers need. Colours are the tokens of `theme`, so a
- * theme switch only has to rebuild this.
+ * theme switch only has to rebuild this. The day map (`day`) colours by the deviation from the
+ * API's class (`klasse`) on the `r` scale and draws a station with nothing to compare in the
+ * neutral grey `c3`.
  * ponytail: a metric switch rebuilds and re-sends all ~5k points; move to feature-state if it stutters
  */
-function toFeatures(data: Karte, metric: Metric, theme: Theme) {
+function toFeatures(stations: Entry[], metric: Metric, theme: Theme, day: boolean) {
   // <html data-theme> already is `theme` when this runs; the tokens are read once per theme.
   const colours = (palette[theme] ??= Object.fromEntries(
     ["surface", "cancel", ...SCALE_TOKENS].map((n) => [n, token(n)]),
   ));
   const surface = colours.surface;
-  const most = data.stationen.reduce((a, s) => Math.max(a, s.n), 1);
+  const most = stations.reduce((a, s) => Math.max(a, s.n), 1);
   return {
     type: "FeatureCollection" as const,
-    features: data.stationen.map((s) => {
+    features: stations.map((s) => {
       const shown = show(metric, s, s.name);
       const v = DEFS[metric].value(s);
-      const cls = v === null ? null : classOf(metric, v);
-      const fill = colours[cls ? `${DEFS[metric].scale}${cls}` : "cancel"];
+      const dev = day ? deviation(metric, s) : null;
+      let cls: number | null = null;
+      if (day) cls = dev?.cls ?? null;
+      else if (v !== null) cls = classOf(metric, v);
+      const fill = colours[cls ? `${day ? "r" : DEFS[metric].scale}${cls}` : day ? "c3" : "cancel"];
       let value = shown.text;
       if (shown.low) value = t("map.lowShort");
       else if (v === null) value = t("hm.onlyCancelledLegend");
+      else if (day)
+        value = dev
+          ? t("map.day.tip", {
+              value: shown.text,
+              normal: dev.normal,
+              class: t(`map.day.class.${dev.cls}`),
+            })
+          : t("map.day.tipNone", { value: shown.text });
       // The "~" tier of `show` is pale, the tier without a value very pale.
       const faint = shown.low || shown.approx;
       const alpha = shown.low ? VERY_PALE : faint ? PALE : 1;
@@ -115,7 +135,7 @@ function toFeatures(data: Karte, metric: Metric, theme: Theme) {
           alpha,
           // Dots with enough data draw above the faint ones; within a group worse classes are on
           // top, so problem spots are never hidden.
-          sort: (faint ? 0 : 10) + (cls ?? 5),
+          sort: (faint ? 0 : 10) + (cls ?? (day ? 0 : 5)),
         },
       };
     }),
@@ -130,17 +150,53 @@ export default function MapPage() {
   const setParams = useSetParams();
   const root = useRef<HTMLDivElement>(null);
   const card = useRef<HTMLDivElement>(null);
-  const f: FilterKeys = { ...readFilters(params), linie: undefined, z: undefined };
-  const q = useQuery({
+  const status = useDatenstand();
+  const datenstand = status.data;
+  const read = readFilters(params);
+  // With a day the map is in day mode: the day replaces the period, and a day outside the data
+  // moves to its nearest edge (the middle of three ISO dates in order is the clamped one).
+  const tag =
+    read.tag && datenstand
+      ? [datenstand.erster_tag, read.tag, datenstand.letzter_tag].sort()[1]
+      : read.tag;
+  const f: FilterKeys = {
+    ...read,
+    tag,
+    von: tag ? undefined : read.von,
+    bis: tag ? undefined : read.bis,
+    linie: undefined,
+    z: undefined,
+  };
+  const periodMap = useQuery({
     queryKey: ["karte", f.g, f.von, f.bis],
     queryFn: () =>
       api
         .GET("/karte", { params: { query: { gattung: f.g ?? "alle", von: f.von, bis: f.bis } } })
         .then(must),
+    enabled: !f.tag,
     placeholderData: keepPreviousData,
   });
-  const data = q.data;
-  const period = data?.n ? formatPeriod(data.von, data.bis) : undefined;
+  const dayMap = useQuery({
+    queryKey: ["tageskarte", f.g, f.tag],
+    queryFn: () =>
+      api
+        .GET("/tageskarte", { params: { query: { tag: f.tag!, gattung: f.g ?? "alle" } } })
+        .then(must),
+    // The day is clamped to the data first, so the request never names a day outside it.
+    enabled: !!f.tag && !!datenstand,
+    placeholderData: keepPreviousData,
+  });
+  const q = f.tag ? dayMap : periodMap;
+  const data = f.tag ? dayMap.data : periodMap.data;
+  // Labels name the day the data on screen is for, which lags behind the URL while a day loads.
+  const shownDay = dayMap.data?.tag ?? f.tag;
+  // The day map also needs /datenstand to clamp the day, so its failure is the map's error too.
+  const failed = q.isError || (!!f.tag && status.isError);
+  const period = f.tag
+    ? formatDay(shownDay!)
+    : periodMap.data?.n
+      ? formatPeriod(periodMap.data.von, periodMap.data.bis)
+      : undefined;
   const station = f.bhf ? data?.stationen.find((s) => s.eva === f.bhf) : undefined;
 
   // Drop invalid or unknown keys once, so a shared link only carries what the page shows.
@@ -148,7 +204,7 @@ export default function MapPage() {
   if (clean !== params.toString()) return <Navigate to={{ search: clean }} replace />;
 
   let meta = "";
-  if (q.isPending) meta = t("map.loading");
+  if (q.isPending && !failed) meta = t("map.loading");
   else if (data)
     meta =
       t("map.meta", {
@@ -161,7 +217,8 @@ export default function MapPage() {
     <div ref={root} className="absolute inset-0 overflow-hidden">
       <StationMap
         card={card}
-        data={data}
+        stations={data?.stationen}
+        day={!!f.tag}
         metric={f.k}
         selected={station}
         onPick={(eva) => setParams(withParam("bhf", eva))}
@@ -185,11 +242,29 @@ export default function MapPage() {
           className="-mx-2.5 -my-2 px-2.5 py-2 md:m-0 md:p-0"
         />
         <div className="-mb-2.5">
-          <Filters stationName={data ? station?.name : null} />
+          <Filters dayMap stationName={data ? station?.name : null} />
         </div>
       </div>
 
-      <Legend metric={f.k} meta={meta} />
+      <div className="absolute bottom-4 left-2.5 z-10 flex flex-col gap-2.5 md:bottom-6 md:left-3 md:w-[300px]">
+        {f.tag && dayMap.data && (
+          <WeatherCard
+            tag={dayMap.data.tag}
+            metric={f.k}
+            germany={dayMap.data.deutschland}
+            gap={dayMap.data.fehlende_stunden}
+          />
+        )}
+        <Legend
+          metric={f.k}
+          meta={meta}
+          day={
+            f.tag
+              ? { weekday: weekdayOf(shownDay!), refs: dayMap.data?.referenztage.length }
+              : undefined
+          }
+        />
+      </div>
 
       {data && data.stationen.length === 0 && (
         <EmptyCard
@@ -199,9 +274,9 @@ export default function MapPage() {
         />
       )}
 
-      {q.isError && (
+      {failed && (
         <div className="absolute bottom-6 left-1/2 z-30 w-[min(520px,calc(100%-32px))] -translate-x-1/2 rounded-xl bg-surface shadow-card">
-          <ErrorBanner onRetry={() => q.refetch()} />
+          <ErrorBanner onRetry={() => (q.isError ? q : status).refetch()} />
         </div>
       )}
 
@@ -210,6 +285,7 @@ export default function MapPage() {
           eva={f.bhf}
           station={station}
           loaded={!!data}
+          day={!!f.tag}
           category={categoryName(f.g)}
           period={period}
           onClose={() => {
@@ -225,14 +301,17 @@ export default function MapPage() {
 
 function StationMap({
   card,
-  data,
+  stations,
+  day,
   metric,
   selected,
   onPick,
 }: {
   /** The floating filter card, which the start view keeps clear of. */
   card: RefObject<HTMLElement | null>;
-  data?: Karte;
+  stations?: Entry[];
+  /** True for the day map, which colours by the deviation from the normal. */
+  day: boolean;
   metric: Metric;
   selected?: KartenStation;
   onPick: (eva: string) => void;
@@ -244,8 +323,8 @@ function StationMap({
   // The theme of the base style the map shows or is loading.
   const styled = useRef(resolved);
   const features = useMemo(
-    () => data && toFeatures(data, metric, resolved),
-    [data, metric, resolved],
+    () => stations && toFeatures(stations, metric, resolved, day),
+    [stations, metric, resolved, day],
   );
   // What a freshly loaded base style needs to draw the stations again.
   const current = useEffectEvent(() => ({
@@ -438,14 +517,25 @@ function StationMap({
   );
 }
 
-function Legend({ metric, meta }: { metric: Metric; meta: string }) {
+const CLASSES = [1, 2, 3, 4, 5] as const;
+
+/** `day` is set on the day map: its steps are the deviation classes, not the metric's limits. */
+function Legend({
+  metric,
+  meta,
+  day,
+}: {
+  metric: Metric;
+  meta: string;
+  day?: { weekday: string; refs?: number };
+}) {
   const isNarrow = useNarrow();
   const [open, setOpen] = useState(!isNarrow);
-  const scale = DEFS[metric].scale;
+  const scale = day ? "r" : DEFS[metric].scale;
   return (
     <section
       aria-label={t("map.legend")}
-      className="absolute bottom-4 left-2.5 z-10 rounded-xl border border-border bg-surface px-3 py-2 shadow-card md:bottom-6 md:left-3 md:w-[300px] md:px-3.5 md:py-3"
+      className="rounded-xl border border-border bg-surface px-3 py-2 shadow-card md:w-[300px] md:px-3.5 md:py-3"
     >
       <button
         type="button"
@@ -459,23 +549,33 @@ function Legend({ metric, meta }: { metric: Metric; meta: string }) {
       <div className={open ? "mt-1.5 md:mt-0" : "hidden md:block"}>
         <p className="text-[13px] font-semibold">
           {t(`metric.${metric}`)}{" "}
-          <span className="text-xs font-normal text-text-3">· {t(`map.help.${metric}`)}</span>
+          <span className="text-xs font-normal text-text-3">
+            · {t(day ? "map.day.help" : `map.help.${metric}`)}
+          </span>
         </p>
         <div aria-hidden="true" className="mt-2 mb-1 grid grid-cols-5 gap-0.5">
           {FILL[scale].map((c) => (
             <i key={c} className={`block h-2.5 first:rounded-l-[5px] last:rounded-r-[5px] ${c}`} />
           ))}
         </div>
-        <div className="grid grid-cols-5 text-center text-[11px] text-text-3 tabular-nums">
-          {legend(metric).map((l) => (
+        <div className="grid grid-cols-5 gap-x-1 text-center text-[11px] text-text-3 tabular-nums">
+          {(day ? CLASSES.map((i) => t(`map.day.class.${i}`)) : legend(metric)).map((l) => (
             <span key={l}>{l}</span>
           ))}
         </div>
-        <div className="mt-1 flex justify-between text-[11.5px] font-[550] text-text-2">
-          <span>{t(`map.good.${metric}`)}</span>
-          <span>{t(`map.bad.${metric}`)}</span>
-        </div>
+        {!day && (
+          <div className="mt-1 flex justify-between text-[11.5px] font-[550] text-text-2">
+            <span>{t(`map.good.${metric}`)}</span>
+            <span>{t(`map.bad.${metric}`)}</span>
+          </div>
+        )}
         <div className="mt-2.5 flex flex-wrap gap-x-3.5 gap-y-1 text-[11.5px] text-text-2">
+          {day && (
+            <span className="inline-flex items-center gap-1.5">
+              <i className="size-2.5 rounded-full bg-c3" />
+              {t("map.day.noCompare")}
+            </span>
+          )}
           <span className="inline-flex items-center gap-1.5">
             <i
               className="size-2.5 rounded-full border-[1.5px] border-text-3"
@@ -493,6 +593,12 @@ function Legend({ metric, meta }: { metric: Metric; meta: string }) {
             {t("map.sizeKey")}
           </span>
         </div>
+        {day && <p className="mt-2 text-xs text-text-2">{t("map.day.rule")}</p>}
+        {day?.refs !== undefined && (
+          <p className="mt-1 text-xs text-text-2">
+            {t("map.day.refs", { n: day.refs, weekday: day.weekday, weeks: REFERENCE_WEEKS })}
+          </p>
+        )}
         <p className="mt-2 text-xs text-text-3">{meta}</p>
       </div>
     </section>
@@ -510,13 +616,16 @@ function StationPanel({
   eva,
   station,
   loaded,
+  day,
   category,
   period,
   onClose,
 }: {
   eva: string;
-  station?: KartenStation;
+  station?: Entry;
   loaded: boolean;
+  /** True on the day map: each tile also shows its normal. */
+  day: boolean;
   category: string;
   period?: string;
   onClose: () => void;
@@ -572,23 +681,36 @@ function StationPanel({
             </p>
           )}
           <div className="mt-3 mb-3.5 grid grid-cols-2 gap-2">
-            {tiles.map((x) => (
-              <div
-                key={x.m}
-                className="relative overflow-hidden rounded-[10px] bg-surface-2 py-2.5 pr-3 pl-4"
-              >
-                <i aria-hidden="true" className={`absolute inset-y-0 left-0 w-[3px] ${x.fill}`} />
-                <div className="text-[11.5px] text-text-2">
-                  {x.m === "ausfall" && (
-                    <span aria-hidden="true" className="font-semibold text-cancel">
-                      ✕{" "}
-                    </span>
+            {tiles.map((x) => {
+              // The day map: the stripe is the deviation class, and the normal stands below the value.
+              const dev = day ? deviation(x.m, station) : null;
+              let fill = x.fill;
+              if (day) fill = dev ? FILL.r[dev.cls - 1] : x.low ? x.fill : "bg-c3";
+              return (
+                <div
+                  key={x.m}
+                  className="relative overflow-hidden rounded-[10px] bg-surface-2 py-2.5 pr-3 pl-4"
+                >
+                  <i aria-hidden="true" className={`absolute inset-y-0 left-0 w-[3px] ${fill}`} />
+                  <div className="text-[11.5px] text-text-2">
+                    {x.m === "ausfall" && (
+                      <span aria-hidden="true" className="font-semibold text-cancel">
+                        ✕{" "}
+                      </span>
+                    )}
+                    {t(x.title)}
+                  </div>
+                  <div className="text-[19px] font-[650] tabular-nums">{x.text}</div>
+                  {day && (
+                    <div className="text-[11.5px] text-text-3">
+                      {dev
+                        ? `${t("map.day.usual", { v: dev.normal })} · ${t(`map.day.class.${dev.cls}`)}`
+                        : t("map.day.noCompare")}
+                    </div>
                   )}
-                  {t(x.title)}
                 </div>
-                <div className="text-[19px] font-[650] tabular-nums">{x.text}</div>
-              </div>
-            ))}
+              );
+            })}
           </div>
           <p className="mb-3.5 text-xs text-text-3">
             {t("hm.meta", { n: int(station.n), period: period ?? "" })}

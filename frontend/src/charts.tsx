@@ -1,7 +1,16 @@
 /** The time series' plain SVG charts: one row per month or per day, drawn on the same pieces. */
 import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { LOCALE, t } from "./i18n";
-import { DEFS, formatDay, formatMonth, int, withUnit, type Metric } from "./metrics";
+import {
+  API_FIELD,
+  DEFS,
+  display,
+  formatDay,
+  formatMonth,
+  int,
+  withUnit,
+  type Metric,
+} from "./metrics";
 import type { components } from "./schema";
 import { show } from "./ui";
 
@@ -44,25 +53,16 @@ export const cancelRate = (r: Row) => (r.ausfallquote === null ? null : r.ausfal
 export const median = (r: Row) => r.median;
 export const p90 = (r: Row) => r.p90;
 
-const TREND = {
-  puenktlich: "puenktlich",
-  median: "median",
-  p90: "p90",
-  ausfall: "ausfallquote",
-} as const;
-
 /** A day's trend of `metric` in chart units (percent or minutes), or null. */
 export function trendValue(r: Row, metric: Metric) {
-  const v = r.trend?.[TREND[metric]] ?? null;
+  const v = r.trend?.[API_FIELD[metric]] ?? null;
   return v !== null && (metric === "puenktlich" || metric === "ausfall") ? v * 100 : v;
 }
 
 /** The trend as the metric's own text ("78 %", "3 min"), or null when the day has none. */
 function trendText(r: Row, metric: Metric) {
-  const tr = r.trend;
-  if (!tr || tr[TREND[metric]] === null) return null;
-  const s = { ...tr, n: 0, ausfallquote: tr.ausfallquote ?? 0 };
-  return DEFS[metric].format(DEFS[metric].value(s)!);
+  const v = r.trend?.[API_FIELD[metric]] ?? null;
+  return v === null ? null : DEFS[metric].format(display(metric, v)!);
 }
 
 /** Little data by the rule of `show()` (arrived stops for delays), or missing hours: dashed. */

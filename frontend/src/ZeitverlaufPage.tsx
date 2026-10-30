@@ -120,6 +120,7 @@ export default function ZeitverlaufPage() {
   // A line wins over a station and only exists per month, so it has no view switch either.
   const f: FilterKeys = {
     ...read,
+    tag: undefined,
     bhf: read.linie ? undefined : read.bhf,
     z: read.linie ? undefined : read.z,
     k: seriesMetric(read.k),

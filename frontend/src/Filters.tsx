@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { Fragment, useRef } from "react";
+import { Fragment, useEffect, useRef } from "react";
 import { useSearchParams } from "react-router";
 import { clearParams, useSetParams } from "./useSetParams";
 import { api, must, useDatenstand } from "./api";
@@ -7,6 +7,7 @@ import { t } from "./i18n";
 import { Icon } from "./Icon";
 import { formatPeriod, readFilters, withParam, withPeriod } from "./metrics";
 import { StationSearch } from "./StationSearch";
+import { Segmented } from "./ui";
 
 const chip = (on: boolean) =>
   `chip ${on ? "border-transparent bg-accent-soft text-accent" : "border-border bg-surface text-text-2"}`;
@@ -15,16 +16,19 @@ const chip = (on: boolean) =>
  * Global filter bar of the Discover area. All state lives in the URL. `noStation` leaves out the
  * Bahnhof chip and `noPeriod` the Zeitraum chip. `stationName` is the selected station's name when
  * the page already has it: a string uses it, `null` waits for the page's data, `undefined` looks
- * the station up. With a `linie` in the URL, a removable chip shows `lineTitle`.
+ * the station up. With a `linie` in the URL, a removable chip shows `lineTitle`. `dayMap` (the map)
+ * adds the Zeitraum | Tag switch; with a `tag` in the URL a day field replaces the period chip.
  */
 export function Filters({
   noStation,
   noPeriod,
+  dayMap,
   stationName,
   lineTitle,
 }: {
   noStation?: boolean;
   noPeriod?: boolean;
+  dayMap?: boolean;
   stationName?: string | null;
   lineTitle?: string;
 }) {
@@ -38,10 +42,64 @@ export function Filters({
     von: f.von ?? datenstand.data?.vollabdeckung_ab ?? "",
     bis: f.bis ?? months.at(-1) ?? "",
   };
+  const day = !!dayMap && !!f.tag;
+  const first = datenstand.data?.erster_tag;
+  const last = datenstand.data?.letzter_tag;
+  // Uncontrolled: React would put the URL's day back after every key of a half-typed year. The
+  // field follows the URL only when the URL's day changes by other means (a clamped link).
+  const dayField = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (dayField.current && f.tag && dayField.current.value !== f.tag)
+      dayField.current.value = f.tag;
+  }, [f.tag]);
   return (
     // The vertical padding keeps the mobile tap areas of the chips inside the scroll box.
     <div className="-mx-4 -mt-1.5 mb-2.5 flex gap-2 overflow-x-auto px-4 pt-1.5 pb-2 [scrollbar-width:none] md:mx-0 md:flex-wrap md:overflow-visible md:px-0">
-      {!noPeriod && (
+      {dayMap && (
+        <Segmented
+          label={t("map.mode.label")}
+          options={[
+            { value: "zeitraum", label: t("map.mode.period") },
+            { value: "tag", label: t("map.mode.day") },
+          ]}
+          value={day ? "tag" : "zeitraum"}
+          onChange={(v) => {
+            if ((v === "tag") === day) return;
+            if (v === "zeitraum") setParams(withParam("tag", ""));
+            // The newest day to start with; a day replaces the period, so the period goes.
+            else if (last)
+              setParams((p) => {
+                p.delete("von");
+                p.delete("bis");
+                return withParam("tag", last)(p);
+              });
+          }}
+          className="max-md:-my-2 max-md:py-2 shrink-0 self-center"
+        />
+      )}
+      {day && (
+        <span className={chip(true)}>
+          {t("filter.chip", { label: t("map.mode.day") })}
+          <label className="hit">
+            <input
+              type="date"
+              aria-label={t("map.day.pick")}
+              ref={dayField}
+              defaultValue={f.tag}
+              min={first}
+              max={last}
+              onChange={(e) => {
+                // Only a complete day inside the data: while a year is typed the field passes
+                // through values like 0002-09-15, which must neither move the map nor query.
+                const v = e.target.value;
+                if (first && last && v >= first && v <= last) setParams(withParam("tag", v));
+              }}
+              className="cursor-pointer bg-transparent px-1 font-semibold"
+            />
+          </label>
+        </span>
+      )}
+      {!noPeriod && !day && (
         <span className={chip(!!(f.von || f.bis))}>
           {t("filter.chip", { label: t("filter.period") })}
           {(["von", "bis"] as const).map((edge, i) => (

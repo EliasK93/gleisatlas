@@ -65,7 +65,13 @@ export default function StationPage() {
   const [params] = useSearchParams();
   const setParams = useSetParams();
   // The station is the page, so a bhf key has no meaning here, nor has a line.
-  const f: FilterKeys = { ...readFilters(params), bhf: undefined, linie: undefined, z: undefined };
+  const f: FilterKeys = {
+    ...readFilters(params),
+    bhf: undefined,
+    tag: undefined,
+    linie: undefined,
+    z: undefined,
+  };
   const q = useQuery({
     queryKey: ["statistik", eva, f.g, f.von, f.bis],
     queryFn: async () => {

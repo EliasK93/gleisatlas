@@ -6,6 +6,7 @@ import { api, must } from "./api";
 import { Filters } from "./Filters";
 import { t, type MessageKey } from "./i18n";
 import {
+  API_FIELD,
   formatPeriod,
   int,
   MIN_NS,
@@ -40,14 +41,6 @@ import {
 type Rangliste = components["schemas"]["Rangliste"];
 type Eintrag = components["schemas"]["RanglistenEintrag"];
 
-/** The API's name for each metric. */
-const METRIK = {
-  puenktlich: "puenktlich",
-  median: "median",
-  p90: "p90",
-  ausfall: "ausfallquote",
-} as const;
-
 const TYPES = (["linien", "bahnhoefe"] as const).map((v) => ({
   value: v,
   label: t(`rk.typ.${v}`),
@@ -63,7 +56,13 @@ export default function RankingsPage() {
   const [params] = useSearchParams();
   const setParams = useSetParams();
   // The rankings cover every station, so a bhf key has no meaning here, nor has a line.
-  const f: FilterKeys = { ...readFilters(params), bhf: undefined, linie: undefined, z: undefined };
+  const f: FilterKeys = {
+    ...readFilters(params),
+    bhf: undefined,
+    tag: undefined,
+    linie: undefined,
+    z: undefined,
+  };
   const rank = readRank(params);
   const q = useQuery({
     queryKey: ["rankings", rank.typ, f.k, rank.min, f.g, f.von, f.bis],
@@ -73,7 +72,7 @@ export default function RankingsPage() {
           params: {
             query: {
               typ: rank.typ,
-              metrik: METRIK[f.k],
+              metrik: API_FIELD[f.k],
               min_n: rank.min,
               gattung: f.g ?? "alle",
               von: f.von,

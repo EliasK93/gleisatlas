@@ -3,6 +3,7 @@ import { LOCALE, t } from "./i18n";
 import type { components } from "./schema";
 
 type Stats = components["schemas"]["Stats"];
+type Normal = components["schemas"]["Normal"];
 
 export const METRICS = ["puenktlich", "median", "p90", "ausfall"] as const;
 export type Metric = (typeof METRICS)[number];
@@ -69,6 +70,46 @@ export const DEFS: Record<Metric, Def> = {
   },
 };
 
+/** The API's field for each metric (in `Normal`, `Wetter`, `Klasse`, `Trend`, the rankings' `metrik`). */
+export const API_FIELD = {
+  puenktlich: "puenktlich",
+  median: "median",
+  p90: "p90",
+  ausfall: "ausfallquote",
+} as const satisfies Record<Metric, keyof Normal>;
+
+/** A raw API value of the metric (a share as 0–1, minutes as they are) in display units, rounded as shown. */
+// DEFS' `value` reads only the field of its own metric, so the value goes into all of them.
+export const display = (m: Metric, v: number) =>
+  DEFS[m].value({ n: 0, puenktlich: v, ausfallquote: v, median: v, p90: v });
+
+/** How many weeks before a day its reference days reach. */
+export const REFERENCE_WEEKS = 12;
+
+/** Class 1 (much better than usual) … 5 (much worse), 3 = as usual. */
+export type Class = 1 | 2 | 3 | 4 | 5;
+
+/** A normal or a day figure as text: punctuality with one decimal, the rest as the scale shows it. */
+export function figureText(m: Metric, v: number): string {
+  return m === "puenktlich"
+    ? withUnit(oneDecimal.format(v * 100), "unit.pct")
+    : DEFS[m].format(display(m, v) ?? v);
+}
+
+/**
+ * A station's day against its usual: the API's class (it knows the station's own variation) and
+ * the normal as text. Null where there is nothing to compare: no class, or no normal.
+ */
+export function deviation(
+  m: Metric,
+  s: { normal?: Normal; klasse?: components["schemas"]["Klasse"] },
+) {
+  const cls = s.klasse?.[API_FIELD[m]] ?? null;
+  const raw = s.normal?.[API_FIELD[m]] ?? null;
+  if (cls === null || raw === null) return null;
+  return { cls: cls as Class, normal: DEFS[m].format(display(m, raw)!) };
+}
+
 /** A share of all stops in whole percent; a non-zero share below 0.5 % reads "< 1 %", never "0 %". */
 export const share = (pct: number) => withUnit(pct > 0 && pct < 0.5 ? "< 1" : int(pct), "unit.pct");
 
@@ -82,11 +123,11 @@ export const binLabel = (i: number) =>
       ? `≥ ${BIN_FROM[i]}`
       : `${BIN_FROM[i]}–${BIN_FROM[i + 1]}`;
 
-/** Class 1 (very reliable) … 5 (very unreliable). */
-export function classOf(m: Metric, v: number): 1 | 2 | 3 | 4 | 5 {
+/** Class 1 (very reliable) … 5 (very unreliable) on the period map. */
+export function classOf(m: Metric, v: number): Class {
   const { bounds, higherIsBetter } = DEFS[m];
   const i = bounds.findIndex((b) => (higherIsBetter ? v >= b : v < b));
-  return (i < 0 ? 5 : i + 1) as 1 | 2 | 3 | 4 | 5;
+  return (i < 0 ? 5 : i + 1) as Class;
 }
 
 /** True when `a` is less reliable than `b`. */
@@ -136,16 +177,27 @@ export const formatDay = (ymd: string) => dayFormat.format(new Date(`${ymd}T00:0
 const dayDate = (d: number) => new Date(Date.UTC(2024, 0, 1 + d));
 const dayLong = new Intl.DateTimeFormat(LOCALE, { weekday: "long", timeZone: "UTC" });
 const dayShort = new Intl.DateTimeFormat(LOCALE, { weekday: "short", timeZone: "UTC" });
+/** "2026-03-10" → "Dienstag" (en: "Tuesday"). */
+export const weekdayOf = (ymd: string) => dayLong.format(new Date(`${ymd}T00:00:00Z`));
 export const dayName = (d: number, short = false) =>
   (short ? dayShort : dayLong).format(dayDate(d));
 
 const MONTH = /^\d{4}-(0[1-9]|1[0-2])$/;
+
+/** A real calendar day as YYYY-MM-DD; "2026-02-31" is not one. */
+function validDay(s: string | null): s is string {
+  if (!s || !/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
+  const date = new Date(`${s}T00:00:00Z`);
+  return !Number.isNaN(date.getTime()) && date.toISOString().startsWith(s);
+}
 
 export type Filters = {
   g?: "regional" | "fern";
   bhf?: string;
   von?: string;
   bis?: string;
+  /** One past day; only the map uses it (day mode), which drops `von` and `bis`. */
+  tag?: string;
   /** A line id; only the time series page uses it, and it wins over `bhf` there. Lines are monthly. */
   linie?: string;
   /** The time series' resolution: only "monat" is written, the day view is the default. */
@@ -160,6 +212,7 @@ export function readFilters(p: URLSearchParams): Filters {
   const bhf = p.get("bhf");
   const von = p.get("von");
   const bis = p.get("bis");
+  const tag = p.get("tag");
   const linie = p.get("linie");
   const z = p.get("z");
   return {
@@ -167,6 +220,7 @@ export function readFilters(p: URLSearchParams): Filters {
     bhf: bhf && /^\d+$/.test(bhf) ? bhf : undefined,
     von: von && MONTH.test(von) ? von : undefined,
     bis: bis && MONTH.test(bis) ? bis : undefined,
+    tag: validDay(tag) ? tag : undefined,
     linie: linie && linie.length <= 200 ? linie : undefined,
     z: z === "monat" ? z : undefined,
     k: METRICS.find((m) => m === k) ?? "puenktlich",
@@ -174,9 +228,9 @@ export function readFilters(p: URLSearchParams): Filters {
 }
 
 /** The URL keys for `f`, without defaults: what readFilters accepted, nothing else. */
-export function writeFilters({ g, bhf, von, bis, linie, z, k }: Filters): URLSearchParams {
+export function writeFilters({ g, bhf, von, bis, tag, linie, z, k }: Filters): URLSearchParams {
   // The order is fixed, so a link built here equals the URL the page would write itself.
-  const keys = { g, bhf, von, bis, linie, z, k: k === "puenktlich" ? undefined : k };
+  const keys = { g, bhf, von, bis, tag, linie, z, k: k === "puenktlich" ? undefined : k };
   return new URLSearchParams(Object.entries(keys).filter((e): e is [string, string] => !!e[1]));
 }
 
