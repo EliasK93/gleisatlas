@@ -157,6 +157,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/tageskarte": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Tageskarte */
+        get: operations["getTageskarte"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/datenstand": {
         parameters: {
             query?: never;
@@ -233,6 +250,21 @@ export interface components {
             /** Weekday */
             weekday: number;
         };
+        /** Deutschland */
+        Deutschland: {
+            /** N */
+            n: number;
+            /** Ausfallquote */
+            ausfallquote: number;
+            /** Median */
+            median: number | null;
+            /** P90 */
+            p90: number | null;
+            /** Puenktlich */
+            puenktlich: number | null;
+            normal: components["schemas"]["Normal"];
+            wetter: components["schemas"]["Wetter"];
+        };
         /** Gruppe */
         Gruppe: {
             /** N */
@@ -300,6 +332,21 @@ export interface components {
             /** Lon */
             lon: number;
         };
+        /**
+         * Klasse
+         * @description How far a station's day is from its normal, in the usual variation of its reference days:
+         *     1 (much better), 2, 3 (as usual), 4, 5 (much worse). None without a shown value or a normal.
+         */
+        Klasse: {
+            /** Puenktlich */
+            puenktlich: number | null;
+            /** Ausfallquote */
+            ausfallquote: number | null;
+            /** Median */
+            median: number | null;
+            /** P90 */
+            p90: number | null;
+        };
         /** Monat */
         Monat: {
             /** Monat */
@@ -314,6 +361,20 @@ export interface components {
             p90: number | null;
             /** Puenktlich */
             puenktlich: number | null;
+        };
+        /**
+         * Normal
+         * @description The median of a metric over the reference days; None with fewer than 8 valid days.
+         */
+        Normal: {
+            /** Puenktlich */
+            puenktlich: number | null;
+            /** Ausfallquote */
+            ausfallquote: number | null;
+            /** Median */
+            median: number | null;
+            /** P90 */
+            p90: number | null;
         };
         /** Rangliste */
         Rangliste: {
@@ -440,6 +501,45 @@ export interface components {
             fehlende_stunden: number;
             trend: components["schemas"]["Trend"];
         };
+        /** Tageskarte */
+        Tageskarte: {
+            /** Tag */
+            tag: string;
+            /** Referenztage */
+            referenztage: string[];
+            /** Fehlende Stunden */
+            fehlende_stunden: number;
+            deutschland: components["schemas"]["Deutschland"] | null;
+            /** N */
+            n: number;
+            /** Ohne Koordinaten */
+            ohne_koordinaten: number;
+            /** Stationen */
+            stationen: components["schemas"]["TageskartenStation"][];
+        };
+        /** TageskartenStation */
+        TageskartenStation: {
+            /** N */
+            n: number;
+            /** Ausfallquote */
+            ausfallquote: number;
+            /** Median */
+            median: number | null;
+            /** P90 */
+            p90: number | null;
+            /** Puenktlich */
+            puenktlich: number | null;
+            /** Eva */
+            eva: string;
+            /** Name */
+            name: string;
+            /** Lat */
+            lat: number;
+            /** Lon */
+            lon: number;
+            normal: components["schemas"]["Normal"];
+            klasse: components["schemas"]["Klasse"];
+        };
         /** Tagesverlauf */
         Tagesverlauf: {
             /** Titel */
@@ -473,6 +573,21 @@ export interface components {
             input?: unknown;
             /** Context */
             ctx?: Record<string, never>;
+        };
+        /**
+         * Wetter
+         * @description Rank of the day among the reference days: 1 (much better than usual) to 5 (much worse);
+         *     None where the day or the references give no value.
+         */
+        Wetter: {
+            /** Puenktlich */
+            puenktlich: number | null;
+            /** Ausfallquote */
+            ausfallquote: number | null;
+            /** Median */
+            median: number | null;
+            /** P90 */
+            p90: number | null;
         };
         /** Zeitverlauf */
         Zeitverlauf: {
@@ -778,6 +893,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Tagesverlauf"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    getTageskarte: {
+        parameters: {
+            query: {
+                tag: string;
+                gattung?: "alle" | "regional" | "fern";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Tageskarte"];
                 };
             };
             /** @description Validation Error */

@@ -717,6 +717,61 @@
     }
    }
   },
+  "/tageskarte": {
+   "get": {
+    "summary": "Tageskarte",
+    "operationId": "getTageskarte",
+    "parameters": [
+     {
+      "name": "tag",
+      "in": "query",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$",
+       "title": "Tag"
+      }
+     },
+     {
+      "name": "gattung",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "enum": [
+        "alle",
+        "regional",
+        "fern"
+       ],
+       "type": "string",
+       "default": "alle",
+       "title": "Gattung"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Tageskarte"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/datenstand": {
    "get": {
     "summary": "Datenstand",
@@ -920,6 +975,68 @@
      "weekday"
     ],
     "title": "Day"
+   },
+   "Deutschland": {
+    "properties": {
+     "n": {
+      "type": "integer",
+      "title": "N"
+     },
+     "ausfallquote": {
+      "type": "number",
+      "title": "Ausfallquote"
+     },
+     "median": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Median"
+     },
+     "p90": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "P90"
+     },
+     "puenktlich": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Puenktlich"
+     },
+     "normal": {
+      "$ref": "#/components/schemas/Normal"
+     },
+     "wetter": {
+      "$ref": "#/components/schemas/Wetter"
+     }
+    },
+    "type": "object",
+    "required": [
+     "n",
+     "ausfallquote",
+     "median",
+     "p90",
+     "puenktlich",
+     "normal",
+     "wetter"
+    ],
+    "title": "Deutschland"
    },
    "Gruppe": {
     "properties": {
@@ -1142,6 +1259,63 @@
     ],
     "title": "KartenStation"
    },
+   "Klasse": {
+    "properties": {
+     "puenktlich": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Puenktlich"
+     },
+     "ausfallquote": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Ausfallquote"
+     },
+     "median": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Median"
+     },
+     "p90": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "P90"
+     }
+    },
+    "type": "object",
+    "required": [
+     "puenktlich",
+     "ausfallquote",
+     "median",
+     "p90"
+    ],
+    "title": "Klasse",
+    "description": "How far a station's day is from its normal, in the usual variation of its reference days:\n1 (much better), 2, 3 (as usual), 4, 5 (much worse). None without a shown value or a normal."
+   },
    "Monat": {
     "properties": {
      "monat": {
@@ -1207,6 +1381,63 @@
      "puenktlich"
     ],
     "title": "Monat"
+   },
+   "Normal": {
+    "properties": {
+     "puenktlich": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Puenktlich"
+     },
+     "ausfallquote": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Ausfallquote"
+     },
+     "median": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Median"
+     },
+     "p90": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "P90"
+     }
+    },
+    "type": "object",
+    "required": [
+     "puenktlich",
+     "ausfallquote",
+     "median",
+     "p90"
+    ],
+    "title": "Normal",
+    "description": "The median of a metric over the reference days; None with fewer than 8 valid days."
    },
    "Rangliste": {
     "properties": {
@@ -1641,6 +1872,143 @@
     ],
     "title": "Tag"
    },
+   "Tageskarte": {
+    "properties": {
+     "tag": {
+      "type": "string",
+      "title": "Tag"
+     },
+     "referenztage": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Referenztage"
+     },
+     "fehlende_stunden": {
+      "type": "integer",
+      "title": "Fehlende Stunden"
+     },
+     "deutschland": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/Deutschland"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "n": {
+      "type": "integer",
+      "title": "N"
+     },
+     "ohne_koordinaten": {
+      "type": "integer",
+      "title": "Ohne Koordinaten"
+     },
+     "stationen": {
+      "items": {
+       "$ref": "#/components/schemas/TageskartenStation"
+      },
+      "type": "array",
+      "title": "Stationen"
+     }
+    },
+    "type": "object",
+    "required": [
+     "tag",
+     "referenztage",
+     "fehlende_stunden",
+     "deutschland",
+     "n",
+     "ohne_koordinaten",
+     "stationen"
+    ],
+    "title": "Tageskarte"
+   },
+   "TageskartenStation": {
+    "properties": {
+     "n": {
+      "type": "integer",
+      "title": "N"
+     },
+     "ausfallquote": {
+      "type": "number",
+      "title": "Ausfallquote"
+     },
+     "median": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Median"
+     },
+     "p90": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "P90"
+     },
+     "puenktlich": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Puenktlich"
+     },
+     "eva": {
+      "type": "string",
+      "title": "Eva"
+     },
+     "name": {
+      "type": "string",
+      "title": "Name"
+     },
+     "lat": {
+      "type": "number",
+      "title": "Lat"
+     },
+     "lon": {
+      "type": "number",
+      "title": "Lon"
+     },
+     "normal": {
+      "$ref": "#/components/schemas/Normal"
+     },
+     "klasse": {
+      "$ref": "#/components/schemas/Klasse"
+     }
+    },
+    "type": "object",
+    "required": [
+     "n",
+     "ausfallquote",
+     "median",
+     "p90",
+     "puenktlich",
+     "eva",
+     "name",
+     "lat",
+     "lon",
+     "normal",
+     "klasse"
+    ],
+    "title": "TageskartenStation"
+   },
    "Tagesverlauf": {
     "properties": {
      "titel": {
@@ -1765,6 +2133,63 @@
      "type"
     ],
     "title": "ValidationError"
+   },
+   "Wetter": {
+    "properties": {
+     "puenktlich": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Puenktlich"
+     },
+     "ausfallquote": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Ausfallquote"
+     },
+     "median": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Median"
+     },
+     "p90": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "P90"
+     }
+    },
+    "type": "object",
+    "required": [
+     "puenktlich",
+     "ausfallquote",
+     "median",
+     "p90"
+    ],
+    "title": "Wetter",
+    "description": "Rank of the day among the reference days: 1 (much better than usual) to 5 (much worse);\nNone where the day or the references give no value."
    },
    "Zeitverlauf": {
     "properties": {

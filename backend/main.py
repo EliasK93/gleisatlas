@@ -7,6 +7,8 @@ import sys
 import threading
 import time
 import uuid
+from collections import defaultdict
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import date, timedelta
 from functools import lru_cache
@@ -19,9 +21,10 @@ from fastapi.middleware.gzip import GZipMiddleware
 from pydantic import BaseModel, Field
 
 from core.categories import FERN, REGIONAL
+from core.normal import FLOORS, deviation_class, normal, reference_days, weather
 from core.periods import full_coverage_start, timetable_changes
-from core.rankings import Metric, counted, rank
-from core.stats import CellStats, cell_stats, delay_bins
+from core.rankings import Metric, counted, higher_is_better, rank
+from core.stats import CellStats, cell_stats, cell_stats_frame, delay_bins
 
 AGG_PATH = os.environ.get("AGGREGATE_PATH", "data/aggregate.parquet")
 STATIONS_PATH = os.environ.get("STATIONS_PATH", "data/stations.parquet")
@@ -135,6 +138,55 @@ class Karte(BaseModel):
     n: int  # all stops in the selection, also at stations that are not listed
     ohne_koordinaten: int  # named stations with stops in the selection but no coordinates
     stationen: list[KartenStation]
+
+
+class Normal(BaseModel):
+    """The median of a metric over the reference days; None with fewer than 8 valid days."""
+
+    puenktlich: float | None
+    ausfallquote: float | None
+    median: float | None
+    p90: float | None
+
+
+class Wetter(BaseModel):
+    """Rank of the day among the reference days: 1 (much better than usual) to 5 (much worse);
+    None where the day or the references give no value."""
+
+    puenktlich: int | None
+    ausfallquote: int | None
+    median: int | None
+    p90: int | None
+
+
+class Klasse(BaseModel):
+    """How far a station's day is from its normal, in the usual variation of its reference days:
+    1 (much better), 2, 3 (as usual), 4, 5 (much worse). None without a shown value or a normal."""
+
+    puenktlich: int | None
+    ausfallquote: int | None
+    median: int | None
+    p90: int | None
+
+
+class TageskartenStation(KartenStation):
+    normal: Normal
+    klasse: Klasse
+
+
+class Deutschland(Stats):
+    normal: Normal
+    wetter: Wetter
+
+
+class Tageskarte(BaseModel):
+    tag: str  # 'YYYY-MM-DD', the planned arrival day
+    referenztage: list[str]  # the days the normal rests on, nearest first
+    fehlende_stunden: int  # hours of the day with incomplete data
+    deutschland: Deutschland | None  # None when the selection has no stops that day
+    n: int  # all stops of the day, also at stations that are not listed
+    ohne_koordinaten: int  # named stations with stops that day but no coordinates
+    stationen: list[TageskartenStation]
 
 
 class Gruppe(Stats):
@@ -400,26 +452,39 @@ def karte_for(
     found, per_station = station_stats_for(agg, mtimes[0], gattung, von, bis)
     if found is None:
         return Karte(von="", bis="", n=0, ohne_koordinaten=0, stationen=[])
-    named = named_stations().filter(pl.col("eva").is_in(pl.Series(list(per_station)).implode()))
-    located = named.drop_nulls("lat")
-    stations = {r["eva"]: r for r in located.iter_rows(named=True)}
+    unlocated, stations = located(per_station)
     return Karte(
         von=found[0],
         bis=found[1],
         n=found[2],
-        ohne_koordinaten=named.height - located.height,
+        ohne_koordinaten=unlocated,
         stationen=[
-            KartenStation(
-                eva=eva,
-                name=stations[eva]["name"],
-                lat=stations[eva]["lat"],
-                lon=stations[eva]["lon"],
-                **to_stats(s).model_dump(),
-            )
+            KartenStation(**station_fields(stations[eva], s))
             for eva, s in per_station.items()  # sorted by EVA
             if eva in stations
         ],
     )
+
+
+def located(evas: Iterable[str]) -> tuple[int, dict[str, dict]]:
+    """For the named stations among `evas`: how many have no coordinates, and the rows of those
+    that have, by EVA."""
+    named = named_stations().filter(pl.col("eva").is_in(pl.Series(list(evas)).implode()))
+    with_coords = named.drop_nulls("lat")
+    return named.height - with_coords.height, {
+        r["eva"]: r for r in with_coords.iter_rows(named=True)
+    }
+
+
+def station_fields(row: dict, s: CellStats) -> dict:
+    """The fields of a KartenStation: a station row of `located` and its statistics."""
+    return {
+        "eva": row["eva"],
+        "name": row["name"],
+        "lat": row["lat"],
+        "lon": row["lon"],
+        **to_stats(s).model_dump(),
+    }
 
 
 @lru_cache(maxsize=16)
@@ -633,6 +698,12 @@ def zeitverlauf(
     )
 
 
+def shown(s: CellStats, metric: str) -> bool:
+    """True when the UI shows the metric's value: for the cancellation rate the stop count decides,
+    for the delay metrics `thin`."""
+    return s.n >= LOW_N if metric == "ausfallquote" else not thin(s)
+
+
 TREND_DAYS = 28  # the trend window; it is centred, so it reaches TREND_DAYS // 2 days ahead
 TREND_MIN = 14  # values the window needs
 TREND_METRICS = ("puenktlich", "ausfallquote", "median", "p90")
@@ -681,11 +752,9 @@ def tage_for(
     gap_hours = dict(zip(table["day"], table["missing_hours"], strict=True))
 
     # Only a value the UI shows feeds the trend: days with a gap in the data or too little data
-    # (`thin`; for the cancellation rate only the stop count) show their values but are left out.
+    # show their values but are left out.
     def feeds(d: date, metric: str) -> bool:
-        if d not in cells or gap_hours[d]:
-            return False
-        return cells[d].n >= LOW_N if metric == "ausfallquote" else not thin(cells[d])
+        return d in cells and not gap_hours[d] and shown(cells[d], metric)
 
     feed = pl.DataFrame(
         {
@@ -720,6 +789,146 @@ def tagesverlauf(
     titel = known_station(eva).name if eva else None
     mtimes = (os.stat(DAYS_PATH).st_mtime_ns, os.stat(TAGE_PATH).st_mtime_ns)
     return Tagesverlauf(titel=titel, tage=tage_for(DAYS_PATH, TAGE_PATH, mtimes, gattung, eva))
+
+
+@app.get("/tageskarte", response_model=Tageskarte, operation_id="getTageskarte")
+def tageskarte(
+    tag: Annotated[str, Query(pattern=r"^[0-9]{4}-[0-9]{2}-[0-9]{2}$")],
+    gattung: Gattung = "alle",
+) -> Tageskarte:
+    try:
+        day = date.fromisoformat(tag)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Not a calendar day") from None
+    days = tage()["day"]
+    if not days[0] <= day <= days[-1]:
+        raise HTTPException(status_code=404, detail="No data for that day")
+    mtimes = tuple(
+        os.stat(p).st_mtime_ns for p in (DAYS_PATH, TAGE_PATH, STATIONS_PATH, MONATE_PATH)
+    )
+    return tageskarte_for(DAYS_PATH, mtimes, gattung, day)
+
+
+def counting(cells: Iterable[CellStats], m: str) -> list[float | None]:
+    """Metric `m` of the cells whose value the UI shows."""
+    return [getattr(c, METRICS[m]) for c in cells if shown(c, m)]
+
+
+def references_of(cells: Iterable[CellStats]) -> dict[str, list[float | None]]:
+    """The values the UI shows in the reference cells, per metric: counted once, used for the
+    normal and the class."""
+    cells = list(cells)
+    return {m: counting(cells, m) for m in METRICS}
+
+
+def normal_of(references: dict[str, list[float | None]]) -> Normal:
+    return Normal(**{m: normal(references[m]) for m in METRICS})
+
+
+def klasse_of(day: CellStats, references: dict[str, list[float | None]]) -> Klasse:
+    return Klasse(
+        **{
+            m: deviation_class(
+                getattr(day, a) if shown(day, m) else None,
+                references[m],
+                higher_is_better(a),
+                FLOORS[a],
+            )
+            for m, a in METRICS.items()
+        }
+    )
+
+
+def cells_of(frame: pl.LazyFrame, keys: list[str]) -> list[tuple[tuple, CellStats]]:
+    """The statistics of every key combination of a (keys, bucket, n) frame, in key order."""
+    out = collect(cell_stats_frame(frame, keys).sort(keys))
+    return [(row[: len(keys)], CellStats(*row[len(keys) :])) for row in out.iter_rows()]
+
+
+# ponytail: per-process cache like karte_for, one model per station (about 10 MB of Python objects
+# per entry), so only 4 entries. Measured on Windows with one Polars thread and days.parquet in
+# row groups of 50,000 rows: 20 distinct days settle at a working set of about 420 MB (peak 580
+# MB), one /karte on top peaks at 685 MB; cold about 2.4 s (the scan 0.3 s, the statistics in
+# Polars 0.9 s, mostly the sort of the 890k rows, the rest in Python). Revisit if memory or time
+# grows.
+@lru_cache(maxsize=4)
+def tageskarte_for(
+    days_path: str,
+    mtimes: tuple[int, ...],  # days, tage, stations, monate: part of the key, so no stale data
+    gattung: str,
+    day: date,
+) -> Tageskarte:
+    table = tage()
+    gap_hours = dict(zip(table["day"], table["missing_hours"], strict=True))
+    first = table["day"][0]
+    if cov := coverage_start():
+        # Before full coverage far fewer stations report: those days say nothing about a day after.
+        if day >= (start := date.fromisoformat(f"{cov}-01")):
+            first = max(first, start)
+    refs = reference_days(day, first, table["day"][-1], {d for d, h in gap_hours.items() if h})
+    wanted = [day, *refs]
+    grouped = collect(
+        selection(pl.scan_parquet(days_path), gattung)
+        .filter(pl.col("day").is_between(min(wanted), max(wanted)))  # lets Polars skip row groups
+        .filter(pl.col("day").is_in(pl.Series(wanted).implode()))
+        .group_by("day", "eva", "bucket")
+        .agg(n=pl.col("n").sum())
+    )
+    nation = {
+        d: s
+        for (d,), s in cells_of(
+            grouped.lazy().group_by("day", "bucket").agg(n=pl.col("n").sum()), ["day"]
+        )
+    }
+    head = {
+        "tag": day.isoformat(),
+        "referenztage": [d.isoformat() for d in refs],
+        "fehlende_stunden": gap_hours[day],
+    }
+    if day not in nation:
+        return Tageskarte(**head, deutschland=None, n=0, ohne_koordinaten=0, stationen=[])
+
+    today: dict[str, CellStats] = {}
+    earlier: defaultdict[str, list[CellStats]] = defaultdict(list)
+    for (d, eva), cell in cells_of(grouped.lazy(), ["day", "eva"]):
+        if d == day:
+            today[eva] = cell
+        else:
+            earlier[eva].append(cell)
+    nation_refs = references_of(nation[d] for d in refs if d in nation)
+    unlocated, stations = located(today)
+    return Tageskarte(
+        **head,
+        deutschland=Deutschland(
+            **to_stats(nation[day]).model_dump(),
+            normal=normal_of(nation_refs),
+            # a day with missing hours is not ranked: the gap, not the railway, may be the reason
+            wetter=Wetter(
+                **{
+                    m: None
+                    if gap_hours[day]
+                    else weather(
+                        getattr(nation[day], a) if shown(nation[day], m) else None,
+                        nation_refs[m],
+                        higher_is_better(a),
+                    )
+                    for m, a in METRICS.items()
+                }
+            ),
+        ),
+        n=nation[day].n,
+        ohne_koordinaten=unlocated,
+        stationen=[
+            TageskartenStation(
+                **station_fields(stations[eva], s),
+                normal=normal_of(references),
+                klasse=klasse_of(s, references),
+            )
+            for eva, s in today.items()  # sorted by EVA
+            if eva in stations
+            for references in [references_of(earlier[eva])]
+        ],
+    )
 
 
 @app.get("/datenstand", response_model=Datenstand, operation_id="getDatenstand")
