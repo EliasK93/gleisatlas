@@ -159,6 +159,56 @@ def stations(lf: pl.LazyFrame) -> pl.DataFrame:
     )
 
 
+def days(lf: pl.LazyFrame) -> pl.DataFrame:
+    """Delay histogram per planned arrival day: (day, gruppe, eva, bucket, n); bucket NULL =
+    cancelled. A file holds stops planned on the neighbouring month's edge day, so days of two
+    files can overlap and are summed when the months are combined."""
+    keys = ["day", "eva", "gruppe", "bucket"]
+    return (
+        _arrivals(lf)
+        .select(day=_planned.dt.date(), gruppe=_gruppe, eva=pl.col("eva"), bucket=_bucket)
+        .group_by(keys)
+        .agg(n=pl.len())
+        .select("day", "gruppe", "eva", "bucket", "n")
+        .sort(keys, nulls_last=True)
+        .collect()
+    )
+
+
+def _hour_counts(month_rows: pl.LazyFrame, month: str) -> pl.DataFrame:
+    """One row per local hour of the real month (naive `hour`) with its `rows`, the usual level of
+    its hour of day and `thin`, whether it is missing."""
+    start = datetime.strptime(month, "%Y-%m")
+    end = datetime(start.year + start.month // 12, start.month % 12 + 1, 1)
+    hours = pl.datetime_range(start, end, "1h", closed="left", time_zone="Europe/Berlin")
+    per_hour = (
+        month_rows.group_by(hour=pl.col("time").dt.truncate("1h")).agg(rows=pl.len()).collect()
+    )
+    every_hour = pl.select(hour=hours.dt.replace_time_zone(None).unique()).with_columns(
+        pl.col("hour").cast(per_hour.schema["hour"])
+    )
+    return (
+        every_hour.join(per_hour, on="hour", how="left")
+        .with_columns(pl.col("rows").fill_null(0))
+        .with_columns(weekday=pl.col("hour").dt.weekday(), hour_of_day=pl.col("hour").dt.hour())
+        .with_columns(usual=pl.col("rows").median().over("weekday", "hour_of_day"))
+        .with_columns(usual=pl.col("usual").min().over("hour_of_day"))
+        .with_columns(thin=pl.col("rows") < GAP_SHARE * pl.col("usual"))
+    )
+
+
+def day_gaps(lf: pl.LazyFrame, month: str) -> pl.DataFrame:
+    """(day, missing_hours): `meta`'s missing hours counted per calendar day of the month, days
+    without a gap included."""
+    month_rows = clean(lf).filter(_month == month)
+    return (
+        _hour_counts(month_rows, month)
+        .group_by(day=pl.col("hour").dt.date())
+        .agg(missing_hours=pl.col("thin").sum().cast(pl.Int32))
+        .sort("day")
+    )
+
+
 def meta(lf: pl.LazyFrame, month: str) -> pl.DataFrame:
     """(month, missing_hours, stations). The usual level of an hour of day is the lowest, over the
     seven weekdays, of the median row count of that (weekday, hour) in the month; so quiet Sunday
@@ -166,24 +216,8 @@ def meta(lf: pl.LazyFrame, month: str) -> pl.DataFrame:
     (no rows at all counts). Hours count against the real month in local time: the skipped hour
     of the March clock change is not missing, the doubled October hour (both hours land in one)
     is not either."""
-    start = datetime.strptime(month, "%Y-%m")
-    end = datetime(start.year + start.month // 12, start.month % 12 + 1, 1)
-    hours = pl.datetime_range(start, end, "1h", closed="left", time_zone="Europe/Berlin")
     month_rows = clean(lf).filter(_month == month)
-    per_hour = (
-        month_rows.group_by(hour=pl.col("time").dt.truncate("1h")).agg(rows=pl.len()).collect()
-    )
-    every_hour = pl.select(hour=hours.dt.replace_time_zone(None).unique()).with_columns(
-        pl.col("hour").cast(per_hour.schema["hour"])
-    )
-    counts = (
-        every_hour.join(per_hour, on="hour", how="left")
-        .with_columns(pl.col("rows").fill_null(0))
-        .with_columns(weekday=pl.col("hour").dt.weekday(), hour_of_day=pl.col("hour").dt.hour())
-        .with_columns(usual=pl.col("rows").median().over("weekday", "hour_of_day"))
-        .with_columns(usual=pl.col("usual").min().over("hour_of_day"))
-    )
-    thin = counts.filter(pl.col("rows") < GAP_SHARE * pl.col("usual")).height
+    thin = _hour_counts(month_rows, month)["thin"].sum()
     stations = month_rows.select(pl.col("eva").filter(_arrival).n_unique()).collect().item()
     return pl.DataFrame(
         {"month": [month], "missing_hours": [thin], "stations": [stations]},

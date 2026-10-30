@@ -1,11 +1,21 @@
 from collections.abc import Callable
+from datetime import date, timedelta
 from datetime import datetime as dt
-from datetime import timedelta
 
 import polars as pl
 import pytest
 
-from pipeline.aggregate import aggregate, clean, dropped, lines, meta, stations, with_coords
+from pipeline.aggregate import (
+    aggregate,
+    clean,
+    day_gaps,
+    days,
+    dropped,
+    lines,
+    meta,
+    stations,
+    with_coords,
+)
 from tests.conftest import complete
 
 
@@ -210,3 +220,54 @@ def test_meta_counts_missing_hours_against_the_real_month():
     # Clocks skip 02:00 on the last Sunday of March: that hour is not missing.
     march = hourly(dt(2026, 3, 1), dt(2026, 4, 1), {dt(2026, 3, 29, 2)})
     assert meta(march.lazy(), "2026-03")["missing_hours"].item() == 0
+
+
+def test_days_sum_back_to_the_aggregate(source: pl.DataFrame):
+    keys = ["eva", "gruppe", "bucket"]
+
+    def per_key(df: pl.DataFrame) -> pl.DataFrame:
+        return df.group_by(keys).agg(pl.col("n").sum()).sort(keys, nulls_last=True)
+
+    assert per_key(days(source.lazy())).equals(per_key(aggregate(source.lazy())))
+
+
+def test_days_take_the_planned_arrival_and_keep_cancelled_null(source: pl.DataFrame):
+    out = days(source.lazy())
+    assert out.columns == ["day", "gruppe", "eva", "bucket", "n"]
+    assert out.schema["day"] == pl.Date
+    # the Beta stop is recorded on 2026-10-05 but planned on the 7th of September
+    assert out["day"].unique().to_list() == [date(2026, 9, 7)]
+    cancelled = out.filter(pl.col("bucket").is_null())
+    assert cancelled.select("eva", "n").rows() == [("1", 1)]
+
+
+def test_days_are_sorted_with_nulls_last(source: pl.DataFrame):
+    out = days(source.lazy())
+    assert out.equals(out.sort("day", "eva", "gruppe", "bucket", nulls_last=True))
+    assert out.filter(pl.col("eva") == "1")["bucket"].to_list()[-1] is None
+
+
+def test_day_gaps_has_one_row_per_day_and_adds_up_to_meta():
+    def with_gaps(h: dt) -> int:
+        return {dt(2026, 9, 9, 12): 2, dt(2026, 9, 9, 13): 0, dt(2026, 9, 10, 14): 0}.get(h, 20)
+
+    month = weighted(dt(2026, 9, 1), dt(2026, 10, 1), with_gaps).lazy()
+    gaps = day_gaps(month, "2026-09")
+    assert gaps.columns == ["day", "missing_hours"]
+    assert gaps.schema == pl.Schema({"day": pl.Date, "missing_hours": pl.Int32})
+    assert gaps["day"].to_list() == [date(2026, 9, d) for d in range(1, 31)]
+    assert dict(gaps.filter(pl.col("missing_hours") > 0).iter_rows()) == {
+        date(2026, 9, 9): 2,
+        date(2026, 9, 10): 1,
+    }
+    assert gaps["missing_hours"].sum() == meta(month, "2026-09")["missing_hours"].item() == 3
+
+
+def test_day_gaps_follow_the_real_clock_changes():
+    # March: the skipped 02:00 is no gap; the doubled October hour is no gap either.
+    march = hourly(dt(2026, 3, 1), dt(2026, 4, 1), {dt(2026, 3, 29, 2)}).lazy()
+    gaps = day_gaps(march, "2026-03")
+    assert gaps.height == 31
+    assert gaps["missing_hours"].sum() == 0
+    october = weighted(dt(2026, 10, 1), dt(2026, 11, 1), lambda h: 40 if h.hour == 2 else 20)
+    assert day_gaps(october.lazy(), "2026-10")["missing_hours"].sum() == 0

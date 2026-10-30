@@ -223,6 +223,53 @@ def test_lines_sum_back_to_the_aggregate(data_dir, fetch):
     assert per_key("lines").equals(per_key("aggregate"))
 
 
+def test_month_without_the_day_tables_is_reprocessed(data_dir, fetch, fetched):
+    run(data_dir, fetch)
+    (data_dir / "months" / "2026-10" / "days.parquet").unlink()
+    run(data_dir, fetch)
+    assert fetched == ["2026-09", "2026-10", "2026-10"]
+    assert (data_dir / "months" / "2026-10" / "days.parquet").exists()
+    assert (data_dir / "months" / "2026-10" / "day_gaps.parquet").exists()
+
+
+def test_days_sum_back_to_the_aggregate_and_tage_to_monate(data_dir, fetch):
+    run(data_dir, fetch)
+    keys = ["eva", "gruppe", "bucket"]
+
+    def per_key(name: str) -> pl.DataFrame:
+        df = pl.read_parquet(data_dir / f"{name}.parquet")
+        return df.group_by(keys).agg(pl.col("n").sum()).sort(keys, nulls_last=True)
+
+    days = pl.read_parquet(data_dir / "days.parquet")
+    assert days.columns == ["day", "gruppe", "eva", "bucket", "n"]
+    assert per_key("days").equals(per_key("aggregate"))
+    tage = pl.read_parquet(data_dir / "tage.parquet")
+    assert tage.columns == ["day", "missing_hours"]
+    assert tage["day"].is_sorted()
+    assert tage.height == 30 + 31  # every calendar day of both months
+    month = tage["day"].dt.strftime("%Y-%m")
+    by_month = tage.group_by(month.alias("month")).agg(pl.col("missing_hours").sum())
+    monate = pl.read_parquet(data_dir / "monate.parquet")
+    assert dict(by_month.iter_rows()) == dict(monate.select("month", "missing_hours").iter_rows())
+
+
+def test_an_edge_day_split_over_two_months_is_summed(data_dir, tmp_path):
+    edge: Row = ("1", "Alpha", "ICE", None, "125", "e1", "2026-10-01 00:05", "Beta")
+    other: Row = ("1", "Alpha", "ICE", None, "126", "e2", "2026-10-01 00:20", "Beta")
+    sep_time = dt(2026, 9, 30, 23, 59)  # recorded in September, planned on the 1st of October
+    sep = src(SEP + [edge]).with_columns(
+        time=pl.when(pl.col("time") >= dt(2026, 10, 1)).then(sep_time).otherwise(pl.col("time"))
+    )
+    paths = {"2026-09": tmp_path / "sep.parquet", "2026-10": tmp_path / "oct.parquet"}
+    sep.write_parquet(paths["2026-09"])
+    src(OCT + [other]).write_parquet(paths["2026-10"])
+    update(data_dir, lambda: list(paths), lambda month: paths[month])
+    days = pl.read_parquet(data_dir / "days.parquet")
+    one = days.filter((pl.col("day") == dt(2026, 10, 1).date()) & (pl.col("eva") == "1"))
+    assert one.select("bucket", "n").rows() == [(0, 2)]  # one row: both files summed
+    assert days["n"].sum() == 11  # the nine of the fixtures plus the two edge stops
+
+
 def test_monate(data_dir, fetch):
     run(data_dir, fetch)
     monate = pl.read_parquet(data_dir / "monate.parquet")

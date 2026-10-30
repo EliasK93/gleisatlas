@@ -13,6 +13,8 @@ from core.lines import line_ids, line_table, networks
 from pipeline.aggregate import (
     aggregate,
     coverage_report,
+    day_gaps,
+    days,
     dropped,
     ends,
     lines,
@@ -23,8 +25,9 @@ from pipeline.aggregate import (
 )
 from pipeline.download import REPO, download
 
-MONTH_FILES = ("aggregate", "lines", "ends", "networks", "stations", "meta")
+MONTH_FILES = ("aggregate", "lines", "ends", "networks", "stations", "meta", "days", "day_gaps")
 AGGREGATE_ORDER = ("month", "eva", "weekday", "hour", "gruppe", "bucket")
+DAYS_ORDER = ("day", "eva", "gruppe", "bucket")
 
 
 def _complete(month_dir: Path) -> bool:
@@ -32,7 +35,7 @@ def _complete(month_dir: Path) -> bool:
 
 
 def process(src: Path, month: str, out: Path) -> str:
-    """Write the month's six tables to `out` via a temporary sibling, renamed only when all are
+    """Write the month's tables to `out` via a temporary sibling, renamed only when all are
     written, so a crash never leaves a half-complete month. Returns the cleaning summary."""
     lf = pl.scan_parquet(src)
     dups, bad = dropped(lf)
@@ -46,6 +49,8 @@ def process(src: Path, month: str, out: Path) -> str:
         "networks": month_networks(lf),
         "stations": stations(lf),
         "meta": meta(lf, month),
+        "days": days(lf),
+        "day_gaps": day_gaps(lf, month),
     }
     for name, df in tables.items():
         df.write_parquet(tmp / f"{name}.parquet")
@@ -69,6 +74,19 @@ def combine(data_dir: Path) -> None:
     aggregates = [d / "aggregate.parquet" for d in dirs]
     pl.scan_parquet(aggregates).sort(*AGGREGATE_ORDER, nulls_last=True).sink_parquet(
         data_dir / "aggregate.parquet"
+    )
+
+    # An edge day can sit in two month files: sum it per key.
+    (
+        pl.scan_parquet([d / "days.parquet" for d in dirs])
+        .group_by(DAYS_ORDER)
+        .agg(pl.col("n").sum())
+        .select("day", "gruppe", "eva", "bucket", "n")
+        .sort(DAYS_ORDER, nulls_last=True)
+        .sink_parquet(data_dir / "days.parquet")
+    )
+    pl.concat(pl.read_parquet(d / "day_gaps.parquet") for d in dirs).sort("day").write_parquet(
+        data_dir / "tage.parquet"
     )
 
     per_month = _read(dirs, "stations")
