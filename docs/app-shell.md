@@ -14,7 +14,7 @@ The frame around every page: sidebar, filter bar, mobile top bar and tab bar, fo
 | `/bahnhof/{eva}` | Station detail page (see [map.md](map.md)) |
 | `/muster/heatmap` | Heatmap "Wann ist es am schlimmsten?" |
 | `/muster/rankings` | Rankings of stations or lines |
-| `/muster/zeitverlauf` | Time series by month |
+| `/muster/zeitverlauf` | Time series by day (default) and by month |
 | `/muster` | Redirect to `/muster/heatmap`, query string kept |
 | `/mehr` | Mobile list of the remaining items, the Darstellung and Sprache switches, data status and the "not a DB service" note |
 | `/` and any unknown path | Redirect to `/karte`, query string kept |
@@ -30,8 +30,9 @@ The frame around every page: sidebar, filter bar, mobile top bar and tab bar, fo
 | `typ` | `linien` (rankings only) | `bahnhoefe` |
 | `min` | `100`, `1000`, `5000` (rankings only) | `500` |
 | `linie` | a line id (time series only) | no line |
+| `z` | `monat` (time series only) | the day view |
 
-Unknown or invalid values fall back to the default and are removed from the URL once. Keys are always written in one fixed order: `g`, `bhf`, `von`, `bis`, `linie`, `k`, then `typ` and `min`. Sidebar and tab-bar links carry the current query string, so filters persist across pages. A page drops the keys it has no meaning for: `bhf` on the rankings and on the time series when a `linie` is set, `linie` on every page but the time series. What `bhf` means on the map and on the station page is described in [map.md](map.md).
+Unknown or invalid values fall back to the default and are removed from the URL once. Keys are always written in one fixed order: `g`, `bhf`, `von`, `bis`, `linie`, `z`, `k`, then `typ` and `min`. Sidebar and tab-bar links carry the current query string, so filters persist across pages. A page drops the keys it has no meaning for: `bhf` on the rankings and on the time series when a `linie` is set, `linie` and `z` on every page but the time series. What `bhf` means on the map and on the station page is described in [map.md](map.md).
 
 **Sidebar** (from 768 px): logo, the station search field (see [map.md](map.md)), then the groups "Entdecken" (Karte, Wochentag × Uhrzeit, Rankings, Zeitverlauf), "Planen" (Verbindung planen, Umstieg prüfen) and "Bald" (Live-Lage heute, Verspätungsketten, Gespeicherte Fahrten), then "So liest man die Zahlen". Karte, Wochentag × Uhrzeit, Rankings and Zeitverlauf are links. Every other item is dimmed with a "bald" tag and is not a link; it becomes a link when its page ships. Above the footer sit the Darstellung (theme) and Sprache (language) switches, described in [theme-and-language.md](theme-and-language.md). The footer shows "Datenstand: {month} · {n} Bahnhöfe" and "Kein Angebot der Deutschen Bahn." The page footer with the disclaimer, that sentence and the source with the CC BY 4.0 link is hidden on the map, which fills the viewport.
 
@@ -64,9 +65,11 @@ Unknown or invalid values fall back to the default and are removed from the URL 
 **Time series page**
 
 - Header as on the heatmap, "Teilen" included. The filter bar has no Zeitraum chip; with a `linie` it shows the line chip.
-- The selection is nationwide, one station (`bhf`) or one line (`linie`); a line wins over a station, and picking a station in the Bahnhof chip drops the line. The title under the chart heading names it ("Deutschland gesamt", the station or the line label), and the meta line reads "n = … Halte · alle Monate (period)".
+- The selection is nationwide, one station (`bhf`) or one line (`linie`); a line wins over a station, and picking a station in the Bahnhof chip drops the line. The title under the chart heading names it ("Deutschland gesamt", the station or the line label), and the meta line reads "n = … Halte · alle Tage (period)" in the day view and "n = … Halte · alle Monate (period)" in the month view.
 - A switch with two views, Pünktlichkeit (`k` absent) and Verspätung (`k=median`). `k=p90` reads as `median` and `k=ausfall` as punctuality, and the page rewrites the URL to that. Ausfälle has its own chart instead.
-- Chart one is a hand-drawn SVG line over every month: the punctuality share, or the median with a band up to P90. Chart two is a bar chart of the cancellation rate on the same months.
+- A second switch, "Auflösung", picks Tag or Monat. Days are the default (no key); Monat writes `z=monat`. With a `linie` the switch is hidden and the page stays monthly, because the day data has no line key. The rules and decisions of the day view are in [day-history.md](day-history.md); this page describes the shell around it.
+- Day view: chart one draws the daily values as a faint line with the trend as a bold line over it, either the punctuality share or, in the delay view, the median with a band from the median trend to the P90 trend. Chart two draws the cancellation rate by day with its trend. Days that the low-data rule thins or that have missing hours are dashed, by the same rule as the months. The tooltip names the weekday and date, the value, the trend, n and the missing hours; "Als Tabelle anzeigen" lists a row per day. The message texts are in `zv.*` of the catalogs.
+- Month view: chart one is a hand-drawn SVG line over every month: the punctuality share, or the median with a band up to P90. Chart two is a bar chart of the cancellation rate on the same months.
 - A month with little data, by the rule of the heatmap (fewer than 15 stops, for the delay view fewer than 15 arrived stops), or with hours missing in the source, is drawn dashed with a hollow point (bars lighter); a month without stops is a hole in the line. A legend line says so. The delay scale includes the medians, which can be below zero.
 - Dotted markers above chart one: "Fahrplanwechsel" at each mid-December change from `/datenstand` and "Datenbasis erweitert" at the start of full coverage. The coverage marker is left out when the first month shown already is that month. When it is shown, the note under the chart explains it with the months from `/datenstand` ("Bis Okt 25 nur rund 130 große Bahnhöfe, ab Nov 25 alle.").
 - Hover or tap on a month shows a tooltip, for example "Mär 26 · 78 % pünktlich · n = 1.240", with " · 12 h ohne vollständige Daten" for gaps. A month with little data shows no value: "Feb 25 · n = 9 · zu wenig Daten", like the table. The tooltip is the one of the heatmap (shared in `ui.tsx`).
@@ -87,7 +90,7 @@ Unknown or invalid values fall back to the default and are removed from the URL 
 - `GET /stationen/{eva}` resolves `bhf` to a name after a reload; 404 for an unknown EVA.
 - `GET /stationen?q=&limit=` feeds the station combobox and the search field.
 - `GET /heatmap` feeds the page (see [patterns.md](patterns.md)).
-- `GET /rankings` feeds the rankings page; `GET /zeitverlauf` and `GET /datenstand` (`fehlende_stunden`, `fahrplanwechsel`, `vollabdeckung_ab`) feed the time series.
+- `GET /rankings` feeds the rankings page; `GET /zeitverlauf` (months), `GET /tagesverlauf` (days) and `GET /datenstand` (`fehlende_stunden`, `fahrplanwechsel`, `vollabdeckung_ab`) feed the time series.
 
 ## 3 Decisions
 
@@ -128,7 +131,8 @@ Unknown or invalid values fall back to the default and are removed from the URL 
 - `frontend/src/App.tsx`: routes, `Shell` (sidebar, mobile top bar, tab bar, footer), `/mehr`, data note.
 - `frontend/src/HeatmapPage.tsx`: the page, grid, legend, tooltip, insights and states.
 - `frontend/src/RankingsPage.tsx`: the rankings page, its two lists and rows.
-- `frontend/src/ZeitverlaufPage.tsx`: the time series page, the SVG `Plot`, `Line`, `Band` and `Markers`, the table mode, and the exported `Sparkline` that the station page uses.
+- `frontend/src/ZeitverlaufPage.tsx`: the time series page (the resolution switch, month and day rows, the table mode) and the exported `Sparkline` that the station page uses.
+- `frontend/src/charts.tsx`: the chart pieces shared by both resolutions: `Plot`, `Line`, `TrendLine`, `Band`, `Markers`, `Sized`, `tipOf` and `niceTicks`.
 - `frontend/src/Filters.tsx`: filter bar, the station chip and the line chip.
 - `frontend/src/ui.tsx`: also `Segmented`, `MusterSwitch`, the shared tooltip (`useTip`, `tipAt`, `TipBox`), `Badge`, `MiniBar` and `Cancelled`.
 - `frontend/src/metrics.ts`: pure functions, no React: metric definitions with class limits, `classOf`, number and date formats (`formatMonth`), `readFilters` and `writeFilters` for the URL keys, `readRank` and `writeRank` for `typ` and `min`.
@@ -144,7 +148,7 @@ Unknown or invalid values fall back to the default and are removed from the URL 
 - [x] Zeitraum picker. Re-check: `npm --prefix frontend run test:e2e`, `frontend/e2e/period.spec.ts` (12 months offered with the defaults selected, a pick writes `von` and `bis` and the next request carries both, crossing edges, map and station page, reset, mobile without sideways scroll and with 44 px hit areas).
 
 - [x] Rankings page. Re-check: `npm --prefix frontend run test:e2e`, `frontend/e2e/rankings.spec.ts` (two columns of ten with rank, name, value, n and cancellation rate; meta line; the request carries the defaults only; the URL drives the request and the controls; the switches write the URL; invalid values and `bhf` dropped; station and line rows link on with the filters; sidebar and filter bar; empty and error states; Teilen; mobile tabs and 44 px hit areas).
-- [x] Time series page. Re-check: `frontend/e2e/zeitverlauf.spec.ts` (nationwide request and title; no period picker; a station and the category in the request; a line wins over a station and its chip is removable, picking a station replaces the line, an unknown line or station has its own state; holes, dashes for low n and gaps; markers and the omitted coverage marker; the median band; tooltip with value, n and missing hours, no value for a month with few arrivals (dashes, hollow points, tooltip), a median below zero stays in the plot; the cancellation bars; table mode; empty and error states; sidebar link; a filter change keeps the page mounted; mobile without sideways scroll and without overlapping marker labels, tap tooltip).
+- [x] Time series page. Re-check: `frontend/e2e/zeitverlauf.spec.ts` (nationwide request and title; no period picker; a station and the category in the request; a line wins over a station and its chip is removable, picking a station replaces the line, an unknown line or station has its own state; holes, dashes for low n and gaps; markers and the omitted coverage marker; the median band; tooltip with value, n and missing hours, no value for a month with few arrivals (dashes, hollow points, tooltip), a median below zero stays in the plot; the cancellation bars; table mode; empty and error states; sidebar link; a filter change keeps the page mounted; mobile without sideways scroll and without overlapping marker labels, tap tooltip). The day view is in the `day view` block of the same file: it is the default and requests `/tagesverlauf`, the switch writes and drops `z=monat`, a line URL has no switch and stays monthly, the station and category reach the request, one bold trend line over thin day segments, the median trend with a band up to the P90 trend, dashes for the day with gaps and the day with little data, the tooltip with date, value, trend, n and missing hours, the cancellation chart, the table by day, the empty, unknown-station and error states, and 375 px without sideways scroll.
 - [x] Muster navigation. Re-check: `frontend/e2e/shell.spec.ts` ("the Muster switch moves between Heatmap, Rankings and Zeitverlauf", "the Muster tab leads to the heatmap and keeps the filters", the sidebar test).
 
 ## 6 Platform checks

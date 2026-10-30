@@ -47,8 +47,8 @@ Details and the runbook in [deployment.md](deployment.md).
 - [x] Local request log: with `LOG_FILE` set, the API also writes its request lines, timestamped, to a plain-text file, so they outlive the terminal window (re-check: `uv run pytest -q`, `test_the_log_file_gets_timestamped_lines_and_is_detached_again`)
 
 ## M6 Daily history and the day map (v0.3)
-Built on a per-day table (counts per day, station and category; about 9 MB over 27 months, measured on 2025-06 and 2026-09).
-- [ ] Daily time series in place of the monthly one
+Details in [day-history.md](day-history.md). Built on a per-day delay histogram (about 36 MB over 27 months, measured on 2025-06 and 2026-09).
+- [x] Daily time series with a 28-day trend as the default; the monthly view stays as a switch (re-check: `uv run pytest -q`, `tests/api/test_tagesverlauf_api.py`, `tests/core/test_holidays.py`; `npm --prefix frontend run test:e2e`, the "day view" tests in `frontend/e2e/zeitverlauf.spec.ts`)
 - [ ] Day map: the map coloured by one past day against the normal for that weekday, drawn as a weather map (Germany, then the Bundesländer, then the stations)
 
 ## M7 Line detail page (v0.3)

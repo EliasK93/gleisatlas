@@ -2,7 +2,7 @@
 
 ## 1 Overview
 
-Turns the monthly source files from `piebro/deutsche-bahn-data` into compact tables: a delay histogram (weekday × hour × category × station × month), a station table with names, stop counts and coordinates, line histograms per month, a line table and a month table with coverage figures. Each month is processed once into its own folder; a combine step then writes the files the API reads. Raw data stays local.
+Turns the monthly source files from `piebro/deutsche-bahn-data` into compact tables: a delay histogram (weekday × hour × category × station × month), a station table with names, stop counts and coordinates, line histograms per month, a delay histogram per day, a line table, a month table with coverage figures and a day table with the hours missing per day. Each month is processed once into its own folder; a combine step then writes the files the API reads. Raw data stays local.
 
 ## 2 Spec
 
@@ -17,7 +17,7 @@ After a change to the per-month logic (cleaning, line names, coverage rule) the 
 
 **Source schema.** The source must carry exactly the 23 known columns (`COLUMNS` in `pipeline/aggregate.py`). A missing or a new column aborts the run with a message that names it (AC-2).
 
-**Month folder** `data/months/YYYY-MM/`, written to a temporary sibling and renamed only when all six files exist, so a crash never leaves a half-complete month:
+**Month folder** `data/months/YYYY-MM/`, written to a temporary sibling and renamed only when all eight files exist, so a crash never leaves a half-complete month (a folder from before the day tables lacks two of them and is processed again by the next run):
 
 | File | Keys |
 |---|---|
@@ -27,6 +27,8 @@ After a change to the per-month logic (cleaning, line names, coverage rule) the 
 | `networks.parquet` | `name`, `eva`, `net` (the line networks within the month) |
 | `stations.parquet` | `eva`, `name`, `n` |
 | `meta.parquet` | `month`, `missing_hours`, `stations` |
+| `days.parquet` | `day`, `gruppe`, `eva`, `bucket`, `n` (the delay histogram per planned arrival day) |
+| `day_gaps.parquet` | `day`, `missing_hours`: one row per calendar day of the month, days without a gap included |
 
 **Combined files** in `data/`, the only ones the API reads:
 
@@ -37,6 +39,8 @@ After a change to the per-month logic (cleaning, line names, coverage rule) the 
 | `lines.parquet` | `linie`, `eva`, `gruppe`, `month`, `bucket`, `n`: the delay histogram per line and station. |
 | `linien.parquet` | `linie`, `name`, `label`, `typ`: one row per line. |
 | `monate.parquet` | `month`, `missing_hours`, `stations`: one row per month. The API requires it. |
+| `days.parquet` | `day`, `gruppe`, `eva`, `bucket`, `n`: the month files summed per key (an edge day can sit in two of them), sorted by day, EVA, group and bucket. |
+| `tage.parquet` | `day`, `missing_hours`: every calendar day from the first to the last month, sorted. |
 
 ## 3 Decisions
 
@@ -62,15 +66,16 @@ After a change to the per-month logic (cleaning, line names, coverage rule) the 
   - **End stations** come from `final_destination_station`; `destination_expr` fixes the spelling ("Schwerte(Ruhr)" becomes "Schwerte (Ruhr)", "Langenhagen - Kaltenweide" becomes "Langenhagen-Kaltenweide"). Null or blank destinations are left out. Reason: the column has 4,647 spellings, and the fix leaves only 32 duplicate groups.
   - A network that only has stops without an arrival (no delay data) is not a line: `linien.parquet` lists only networks with stops, so no row has an empty label or typ. Most lines are single long-distance train numbers. Rankings filter by minimum sample.
 - **Missing hours are recorded per month, not repaired.** The usual level of an hour of the day is the lowest, over the seven weekdays, of the median row count of that (weekday, hour) in the month. An hour counts as a gap when it has fewer than `GAP_SHARE` (half) of that level in `pipeline/aggregate.py`; an hour with no rows at all counts too. Reason: the source is quiet at night and on Sunday mornings, so a fixed threshold, or the median over all days, would flag normal hours, while a relative rule also catches a half-empty hour. The hours are counted against the real local month, so the skipped hour of the March clock change is not a gap and the doubled October hour is not one either. The months after the station jump (2025-11) stay flagged for the days before 2025-11-02. Over the 27 months this flags 50 h in 2025-11, 4–12 h in 2024-11 and in six months between 2026-02 and 2026-08 (2026-07: 8 h), 1 h in 2025-06 and 2025-07, and none elsewhere. SPEC §4.1 names 102 h for July 2026; the way it counts is not known, so the figures can differ.
+- **Missing hours are also counted per day** (`day_gaps`), with the same rule and the same hour counts (`_hour_counts`) as the month figure, so the days of a month add up to its `missing_hours`. Reason: the daily series and the day map must know which days are incomplete. The day is the calendar day of the poll time, while the delay histogram's day is the planned arrival (see [day-history.md](day-history.md) §3).
 - **Timetable changes are marked, not split.** `core.periods.timetable_changes` returns the Sunday after the second Saturday of December (2024-12-15, 2025-12-14, 2026-12-13). The API lists those inside the data range and trains keep one key across years. Reason: product owner's choice (SPEC O6); splitting statistics per timetable period comes with the planner, where train numbers matter.
 - **Full coverage starts where the station count jumps.** `core.periods.full_coverage_start` returns the first month with at least half as many stations as the largest month. The source has about 135 stations per month until 2025-10 and about 5,2xx from 2025-11, so it returns 2025-11. Reason: views default to the period where "nationwide" is true.
-- **Output size over 27 months:** `aggregate.parquet` 60.8 MB, `lines.parquet` 10.9 MB, `linien.parquet` 0.2 MB, `stations.parquet` 0.1 MB, `monate.parquet` under 0.1 MB. The 2 GB limit of AC-3 is far away, so no watchlist fallback is needed.
+- **Output size over 27 months:** `aggregate.parquet` 60.8 MB, `lines.parquet` 10.9 MB, `linien.parquet` 0.2 MB, `stations.parquet` 0.1 MB, `monate.parquet` under 0.1 MB. The per-day histogram adds about 36 MB over 27 months (measured on 2025-06 and 2026-09); the size of the real file of `days.parquet` is recorded in [day-history.md](day-history.md) §6. The 2 GB limit of AC-3 is far away, so no watchlist fallback is needed.
 
 ## 4 Architecture and data keys
 
-- `pipeline/aggregate.py`: per-month tables from one source file, read lazily with Polars. `check_schema` validates, `clean` applies the cleaning, and `aggregate`, `lines`, `ends`, `month_networks`, `stations` and `meta` build the six month tables. `with_coords` and `coverage_report` serve the combine step.
-- `pipeline/update.py`: `update` walks the remote months and calls `process` for each incomplete one, then `combine`. The downloader and the list of remote months are passed in, so tests run it with a fake that counts its calls. `combine` writes the five combined files.
-- `core/lines.py`, `core/periods.py`, `core/delay.py`: the pure parts (line names, end-station spelling and networks, timetable changes and coverage start, the delay and plausibility rules).
+- `pipeline/aggregate.py`: per-month tables from one source file, read lazily with Polars. `check_schema` validates, `clean` applies the cleaning, and `aggregate`, `lines`, `ends`, `month_networks`, `stations`, `meta`, `days` and `day_gaps` build the eight month tables. `with_coords` and `coverage_report` serve the combine step.
+- `pipeline/update.py`: `update` walks the remote months and calls `process` for each incomplete one, then `combine`. The downloader and the list of remote months are passed in, so tests run it with a fake that counts its calls. `combine` writes the seven combined files; `MONTH_FILES` lists the month tables, so a month folder without one of them counts as incomplete.
+- `core/lines.py`, `core/periods.py`, `core/delay.py`, `core/holidays.py`: the pure parts (line names, end-station spelling and networks, timetable changes and coverage start, the delay and plausibility rules, the nationwide public holidays: fixed dates plus the Easter-based ones, no library; regional holidays are not included).
 - `data/coords.parquet`: `ibnr`, `lat`, `lon`, `land`, one row per IBNR for the whole of Wikidata (not only Germany). The join strips the leading zero of our EVA (`08000207` to `8000207`) with `core.stations.ibnr_expr`. An EVA without a match takes the coordinates of the one located station with exactly the same name (secondary EVAs such as S-Bahn platforms). Details and the source decision: [adr/0001-station-coordinates.md](adr/0001-station-coordinates.md).
 - `data/stations.parquet`: `n` is all stops of the EVA in the source, arrival stops with cancelled ones included; it ranks search results and sizes map dots. `lat`, `lon` and `land` are NULL where Wikidata has no match or no state.
 - Coverage report, printed by the combine step: named stations with coordinates (number and share), the share of stops that belong to them, and the unmatched named stations with the most stops. Over 27 months: 5,418 of 5,419 named stations (100.0 %, as the report rounds it). Unmatched: Trebitz (b Könnern), one stop, no Wikidata item.
@@ -92,6 +97,12 @@ After a change to the per-month logic (cleaning, line names, coverage rule) the 
   - `tests/core/test_lines.py` (`test_line_name_puts_the_train_type_before_a_bare_number`, `test_destination_spelling_is_unified`, `test_line_table_labels_name_the_two_most_frequent_ends`, `test_line_table_train_number_names_show_an_arrow_to_the_top_end`)
   - `tests/pipeline/test_update.py` (`test_bare_number_and_prefixed_name_become_one_line` for "57" in one month and "RE57" in the next, `test_bare_numbers_of_different_train_types_stay_apart` for S1 and RE1 at a shared station, `test_blank_destination_is_not_an_end`, `test_combine_lines_networks_and_labels`)
   - the real run over all 27 months, before and after: stations showing a line name more than once 4,118 of 5,430 and 0; regional stops on bare-number names 27.7 % and 0; Winterberg (Westf) lists RE57 twice and once; lines 19,379 and 18,971.
+
+- [x] Day tables – a delay histogram and the missing hours per day. Re-check: `uv run pytest -q`, in particular
+  - `tests/core/test_holidays.py` (`test_easter_2025_and_its_neighbours`, `test_easter_2026_moves_the_other_holidays`, `test_nine_fixed_and_movable_days`)
+  - `tests/pipeline/test_aggregate.py` (`test_days_sum_back_to_the_aggregate`, `test_days_take_the_planned_arrival_and_keep_cancelled_null`, `test_days_are_sorted_with_nulls_last`, `test_day_gaps_has_one_row_per_day_and_adds_up_to_meta`, `test_day_gaps_follow_the_real_clock_changes`)
+  - `tests/pipeline/test_update.py` (`test_month_without_the_day_tables_is_reprocessed`, `test_days_sum_back_to_the_aggregate_and_tage_to_monate`, `test_an_edge_day_split_over_two_months_is_summed`)
+  - the real run: `uv run python -m pipeline.update` over all 27 months writes `data/days.parquet` and `data/tage.parquet`.
 
 ## 6 Platform checks
 

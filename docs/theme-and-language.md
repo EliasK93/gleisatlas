@@ -12,7 +12,7 @@ The viewer chooses the look (System, Hell, Dunkel) and the UI language (Deutsch,
 - The switch "Darstellung" is a `Segmented` in the sidebar footer (from 768 px) and a card on `/mehr`, which is the only place on mobile.
 - `<html data-theme="light|dark">` always holds the resolved theme, never `system`. `theme.css` has one `:root[data-theme="dark"]` block with every colour token and `color-scheme: dark`; spacing, radii and fonts do not change.
 - Text meets 4.5:1 for `--text`, `--text-2` and `--text-3` on `--bg`, `--surface` and `--surface-2`, in both themes.
-- The map uses the OpenFreeMap "positron" style in light and "dark" in dark. The station dots, their outline and the selection ring take the colours of the tokens of the current theme.
+- The map uses the OpenFreeMap "positron" style in light and "dark" in dark. The station dots, their outline and the selection ring take the colours of the tokens of the current theme. The zoom buttons follow the tokens too: the surface token as background, and their icons inverted in the dark theme (`theme.spec.ts`, "the zoom buttons take the surface token and invert their icons in the dark theme").
 
 **Language**
 

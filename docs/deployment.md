@@ -8,11 +8,11 @@ Gleisatlas v0.2 runs on Azure: the web app on Static Web Apps, the API on Contai
 
 - One resource group in Sweden Central holds every resource; the Static Web App resource sits in East US 2 and serves its files worldwide. Names come from `uniqueString(resourceGroup().id)` where they must be globally unique (storage account, registry).
 - The web app is the production build of `frontend/` on Static Web Apps Free, under its default `*.azurestaticapps.net` hostname. Every path route falls back to `index.html`; `/assets/*` is cached as immutable; every response carries the CSP and the other headers of `frontend/public/staticwebapp.config.json`.
-- The API is the image from `Dockerfile` on Container Apps with external HTTPS ingress, 0.5 vCPU and 1 GiB, scaling from 0 to 1 replica. At start it downloads the five data files from the blob container `data` (`backend/fetch.py`), then serves on port 8000. Only the web app's origin passes CORS.
+- The API is the image from `Dockerfile` on Container Apps with external HTTPS ingress, 0.5 vCPU and 1 GiB, scaling from 0 to 1 replica. At start it downloads the seven data files from the blob container `data` (`backend/fetch.py`), then serves on port 8000. Only the web app's origin passes CORS.
 - The aggregates are public CC BY data: anyone can read a blob by its URL, nobody can list the container.
 - The API writes one start and one end line per request to stdout, without client addresses. Container Apps sends them to a Log Analytics workspace that keeps 30 days.
 - A monthly budget on the resource group mails at 50 % and 90 % actual and at 100 % forecast; its amount is a deploy parameter.
-- AC-3: the deployed aggregates stay under 2 GB (about 72 MB today). AC-16: a budget with alerts is set up and its alert e-mail tested.
+- AC-3: the deployed aggregates stay under 2 GB (75 MB at the first deploy, before the day tables; measured again at the next deploy). AC-16: a budget with alerts is set up and its alert e-mail tested.
 
 ## 3 Decisions
 
@@ -82,14 +82,14 @@ Parameters: `budgetEmail`, `budgetStartDate` and `budgetAmount` (all required), 
 | `CORS_ORIGINS` | API, set by Bicep | `https://<web hostname>`; comma-separated; default `http://localhost:5317` |
 | `POLARS_MAX_THREADS` | API, set by Bicep | `1` |
 | `LOG_FILE` | API, local only | a path for a timestamped copy of the request lines; unset on Azure |
-| `AGGREGATE_PATH`, `STATIONS_PATH`, `MONATE_PATH`, `LINES_PATH`, `LINIEN_PATH` | API | default `data/<name>.parquet`; `backend.fetch` downloads to the same paths |
+| `AGGREGATE_PATH`, `STATIONS_PATH`, `MONATE_PATH`, `LINES_PATH`, `LINIEN_PATH`, `DAYS_PATH`, `TAGE_PATH` | API | default `data/<name>.parquet`; `backend.fetch` downloads to the same paths |
 | `VITE_API_URL` | frontend build | the `apiUrl` output, set by the deploy script |
 | `VITE_IMPRESSUM_NAME`, `…_STREET`, `…_CITY`, `…_EMAIL` | frontend build | the provider's details; while one is empty, `/impressum` reads "Angaben folgen." |
 
 **Data flow**
 
 1. `pipeline.update` builds `data/*.parquet` locally ([pipeline.md](pipeline.md)).
-2. The deploy script uploads the five files the API reads (`aggregate`, `stations`, `monate`, `lines`, `linien`) to the container `data`. `coords.parquet`, `raw/` and `months/` stay local.
+2. The deploy script uploads the seven files the API reads (`aggregate`, `stations`, `monate`, `lines`, `linien`, `days`, `tage`) to the container `data`. `coords.parquet`, `raw/` and `months/` stay local.
 3. At container start `python -m backend.fetch` downloads `DATA_URL + <file name>` for each file, then uvicorn starts with `--no-access-log`.
 4. The browser loads the web app from Static Web Apps, calls the API at `VITE_API_URL` (CORS allows the web app's origin) and loads tiles, style and fonts from `tiles.openfreemap.org`.
 
@@ -103,7 +103,7 @@ Parameters: `budgetEmail`, `budgetStartDate` and `budgetAmount` (all required), 
 | Container Apps, requests | per million requests | [Container Apps billing](https://learn.microsoft.com/en-us/azure/container-apps/billing) |
 | Container Apps free grant | 180,000 vCPU-s, 360,000 GiB-s, 2 million requests per subscription and month; nothing while scaled to zero | [Container Apps billing](https://learn.microsoft.com/en-us/azure/container-apps/billing) |
 | Log Analytics | first 5 GB per month free, then per GB; 31 days retention included | [cost-logs](https://learn.microsoft.com/en-us/azure/azure-monitor/logs/cost-logs) |
-| Blob Storage Hot LRS | per GB-month and per 10,000 reads; negligible for 72 MB | [pricing page](https://azure.microsoft.com/en-us/pricing/details/storage/blobs/) |
+| Blob Storage Hot LRS | per GB-month and per 10,000 reads; negligible for the data size | [pricing page](https://azure.microsoft.com/en-us/pricing/details/storage/blobs/) |
 | Static Web Apps Free | free; 100 GB bandwidth per subscription and month, no overage | [quotas](https://learn.microsoft.com/en-us/azure/static-web-apps/quotas) |
 
 Expected: the registry is the main fixed cost, and the rest stays near zero as long as the API is awake less than the free grant covers. One wake-up of 6 minutes at 0.5 vCPU / 1 GiB uses 0.5 × 360 = 180 vCPU-s and 1 × 360 = 360 GiB-s, so the grant covers 180,000 / 180 = 1,000 such wake-ups a month (about 100 active hours) at no charge. Worst case: see §8.
@@ -124,12 +124,12 @@ In VS Code, the launch configurations "Azure: deploy" and "Azure: teardown" run 
 
 `deploy` prints a numbered header per step, streams the long steps (image build, deployments, frontend build, upload) and stops at the first failure with the step, the command (never a secret) and the error output, exit code 1. Steps that start or add cost print a `COST:` line first.
 
-1. Preflight: `az`, `git`, `npm` and `npx` on PATH; signed in (the subscription and user are printed); a clean working tree, because the image tag names the commit; the five data files exist; the two personal values.
+1. Preflight: `az`, `git`, `npm` and `npx` on PATH; signed in (the subscription and user are printed); a clean working tree, because the image tag names the commit; the seven data files exist; the two personal values.
 2. Register the seven resource providers.
 3. Create the resource group `gleisatlas` in Sweden Central.
 4. Phase 1, everything except the Container App. **COST:** from here the container registry is billed per day until teardown. The budget starts on the first of the current month, or keeps the start date of an earlier deployment (Azure rejects a change).
 5. Read the deployment outputs.
-6. Upload exactly the five files the API reads, with the signed-in user's account key.
+6. Upload exactly the seven files the API reads, with the signed-in user's account key.
 7. Check the blob access: a file answers 200 by URL, the container listing answers 404.
 8. Build the image `api:<short commit>` in the registry.
 9. Phase 2, the same deployment plus the image, which adds the Container App. **COST:** billed only while a replica runs.
@@ -268,7 +268,7 @@ Not in this log: page views of the web app (Static Web Apps Free has no access l
 - [x] The container downloads the data and starts: the live log stream shows uvicorn's start-up and the first `start`/`end` lines, the system log no pull or crash error.
 - [x] Cold start after idle, measured: the first `/datenstand` after the replica stopped took 20.9 s (container start and data download); warm 46 ms.
 - [x] `/karte` cold and warm on Azure, measured (map.md §6 refers here): 42 s cold, started together with the cold `/datenstand`, so about 20 s of start-up and 20 s of computation; warm 275 ms. Accepted while under a minute.
-- [x] AC-3: the deployed data is under 2 GB (75 MB) (`az storage blob list --account-name $storage --container-name data --auth-mode key --query '[].properties.contentLength'`).
+- [x] AC-3: the deployed data is under 2 GB (75 MB at the first deploy, before the day tables, which are measured in [day-history.md](day-history.md) §6) (`az storage blob list --account-name $storage --container-name data --auth-mode key --query '[].properties.contentLength'`).
 - [ ] AC-16: the budget alert e-mail arrives, tested with a temporary budget of 1 that is deleted afterwards; the first full month stays within the configured budget.
 - [ ] The first day in Cost Management shows no "Environment Management Hour" charge.
 - [x] No CSP violation in the browser console on the deployed site ([theme-and-language.md](theme-and-language.md) §6 refers here).
@@ -285,11 +285,11 @@ Not in this log: page views of the web app (Static Web Apps Free has no access l
 
 - **The committed CSP allows any Container App in Sweden Central** (`https://*.swedencentral.azurecontainerapps.io`), because the API's host is assigned when the Container App is created and differs on every fresh deploy. The deploy script narrows the built copy to the exact host, so the deployed site is tight; a build uploaded without the script is not. A custom domain would keep the host stable and the wildcard could go.
 - **The blob container is public for reading** (`// ponytail:` in `infra/main.bicep`). Anyone with a file's URL can download the aggregates, which are CC BY anyway; listing is off. Every download counts as internet egress; beyond the free 100 GB a month it is billed per GB to the storage account, which the budget covers. If a policy forbids public access, switch to a managed-identity token in `backend/fetch.py`.
-- **The per-process caches are lost on every scale to zero.** The first `/karte` after a wake-up recomputes (3.6–4.0 s locally on one thread), on top of the container start and the 72 MB download. Revisit with min 1 replica (costs idle time) or a precomputed map file.
+- **The per-process caches are lost on every scale to zero.** The first `/karte` after a wake-up recomputes (3.6–4.0 s locally on one thread), on top of the container start and the data download. Revisit with min 1 replica (costs idle time) or a precomputed map file.
 - **The alerts do not stop anything.** Scale to zero does not cap the cost: a request at least every two minutes (the 120 s cooldown) keeps the replica active around the clock, so compute at 0.5 vCPU / 1 GiB is billed all month, far above the free grant and the fixed costs. The alert mails and the emergency stop in §4 are the protection.
 - **Image tags come from the commit**; the script refuses a dirty tree, because `az acr build` uploads uncommitted changes too. Old images stay in the registry until deleted by hand (10 GB included).
 - **The deploy script cannot resume.** A rerun repeats every step (all are safe to repeat), and a failure in step 8 or later costs the earlier steps again. Its budget-date lookup counts any failure as "no earlier deployment"; a wrong date makes Azure reject the budget deployment, which stops the script.
-- **`backend.fetch` downloads all five files at every container start**, without a checksum or ETag; a failed download leaves a `.part` file in a container that is thrown away anyway. It imports `backend.main` for the path list, which loads FastAPI and Polars before the download (a second or two).
+- **`backend.fetch` downloads all seven files at every container start**, without a checksum or ETag; a failed download leaves a `.part` file in a container that is thrown away anyway. It imports `backend.main` for the path list, which loads FastAPI and Polars before the download (a second or two).
 - **The daily log cap of 0.1 GB drops lines.** Under a request flood, ingestion stops for the rest of the day, which is when the unfinished-requests query matters most. Raise the cap (`dailyQuotaGb`) if that happens.
 - **The stdout lines carry no timestamp** (Log Analytics adds `TimeGenerated`); the 8-hex id pairs a start with its end line but is not unique forever.
 - **The licence file lists the bundled JavaScript packages and the font, not Tailwind.** Vite's `build.license` (in `frontend/vite.config.ts`) only sees modules, while Tailwind's base styles (MIT) arrive through the CSS pipeline, and the minified CSS drops their notice. Add Tailwind's licence by hand to the file if a licence review asks for it.

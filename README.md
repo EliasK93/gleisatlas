@@ -14,7 +14,7 @@ Web app that shows the punctuality, typical delay, bad days and cancellations of
 <td align="center" valign="top" width="50%"><p><b>Weekday × hour</b></p><img src="docs/images/heatmap.png" width="100%" alt="Heatmap of punctuality by weekday and hour at Köln Hbf"><br>When it is worst, for one station or all of them.</td>
 </tr>
 <tr>
-<td align="center" valign="top" width="50%"><p><b>Over time</b></p><img src="docs/images/zeitverlauf.png" width="100%" alt="Monthly punctuality and cancellation rate of the RE1"><br>Month by month for a line or a station, timetable changes marked.</td>
+<td align="center" valign="top" width="50%"><p><b>Over time</b></p><img src="docs/images/zeitverlauf.png" width="100%" alt="Monthly punctuality and cancellation rate of the RE1"><br>Day by day with a trend, or month by month as a switch, for the whole network, a station or (monthly) a line; timetable changes marked.</td>
 <td align="center" valign="top" width="50%"><p><b>Rankings</b></p><img src="docs/images/rankings.png" width="100%" alt="Rankings of the least and most reliable stations"><br>The least and most reliable stations or lines, with a minimum sample.</td>
 </tr>
 </table>
@@ -25,7 +25,7 @@ Web app that shows the punctuality, typical delay, bad days and cancellations of
 - **Station page**: key figures, the delay distribution, the weekday × hour pattern, the split by train category, the lines at the station and a sparkline by month.
 - **Weekday × hour heatmap**: when trains are least and most punctual, with a short summary.
 - **Rankings**: stations or lines, worst and best, with a minimum sample so that chance doesn't win.
-- **Time series**: every month for a line or a station; timetable changes and gaps in the data are marked.
+- **Time series**: day by day, with a trend; monthly as a switch (lines are monthly); timetable changes and gaps in the data are marked.
 - **Filters in the URL**: period, category (regional or long-distance) and station live in the link, so a shared link opens the same view.
 - **Station search**: Ctrl+K jumps to the search field.
 - **German or English, light or dark**: the language follows the browser on the first visit; the theme follows the system or a fixed choice.
@@ -85,6 +85,7 @@ Documentation:
 - [docs/patterns.md](docs/patterns.md): pattern analysis
 - [docs/app-shell.md](docs/app-shell.md): app shell and heatmap
 - [docs/map.md](docs/map.md): map, station page and search
+- [docs/day-history.md](docs/day-history.md): daily time series and day map
 - [docs/theme-and-language.md](docs/theme-and-language.md): dark theme and English UI
 - [docs/deployment.md](docs/deployment.md): Azure resources, costs and runbook
 - [docs/adr/](docs/adr/): architecture decisions
