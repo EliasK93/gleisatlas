@@ -1,18 +1,31 @@
 from fastapi.testclient import TestClient
 
-from tests.conftest import write_monate
+from tests.conftest import write_monate, write_tage
 
 # The `client` fixture covers 2026-09 and 2026-10 with 2 stations each; 2026-10 misses 3 hours.
 
 
 def test_datenstand_carries_coverage_gaps_and_timetable_changes(client: TestClient):
-    assert client.get("/datenstand").json() == {
+    body = client.get("/datenstand").json()
+    body.pop("fehlende_stunden_tage")  # the pipeline's mini source: see the next test
+    assert body == {
         "monate": ["2026-09", "2026-10"],
         "bahnhoefe": 2,
         "vollabdeckung_ab": "2026-09",
         "fehlende_stunden": {"2026-10": 3},
         "fahrplanwechsel": [],
+        "erster_tag": "2026-09-01",
+        "letzter_tag": "2026-10-31",
     }
+
+
+def test_datenstand_carries_the_day_range_and_only_the_days_with_gaps(
+    client: TestClient, tmp_path, monkeypatch
+):
+    write_tage(tmp_path / "tage.parquet", monkeypatch, [("2026-09-29", 0), ("2026-09-30", 5)])
+    body = client.get("/datenstand").json()
+    assert (body["erster_tag"], body["letzter_tag"]) == ("2026-09-29", "2026-09-30")
+    assert body["fehlende_stunden_tage"] == {"2026-09-30": 5}
 
 
 def test_timetable_change_inside_the_data_range(client: TestClient, tmp_path, monkeypatch):

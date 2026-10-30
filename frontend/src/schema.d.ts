@@ -140,6 +140,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/tagesverlauf": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Tagesverlauf */
+        get: operations["getTagesverlauf"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/datenstand": {
         parameters: {
             query?: never;
@@ -192,6 +209,14 @@ export interface components {
             };
             /** Fahrplanwechsel */
             fahrplanwechsel: string[];
+            /** Erster Tag */
+            erster_tag: string;
+            /** Letzter Tag */
+            letzter_tag: string;
+            /** Fehlende Stunden Tage */
+            fehlende_stunden_tage: {
+                [key: string]: number;
+            };
         };
         /** Day */
         Day: {
@@ -396,6 +421,45 @@ export interface components {
             p90: number | null;
             /** Puenktlich */
             puenktlich: number | null;
+        };
+        /** Tag */
+        Tag: {
+            /** Tag */
+            tag: string;
+            /** N */
+            n: number;
+            /** Ausfallquote */
+            ausfallquote: number | null;
+            /** Median */
+            median: number | null;
+            /** P90 */
+            p90: number | null;
+            /** Puenktlich */
+            puenktlich: number | null;
+            /** Fehlende Stunden */
+            fehlende_stunden: number;
+            trend: components["schemas"]["Trend"];
+        };
+        /** Tagesverlauf */
+        Tagesverlauf: {
+            /** Titel */
+            titel: string | null;
+            /** Tage */
+            tage: components["schemas"]["Tag"][];
+        };
+        /**
+         * Trend
+         * @description Centred 28-day rolling median of the daily values; None with fewer than 14 values.
+         */
+        Trend: {
+            /** Puenktlich */
+            puenktlich: number | null;
+            /** Ausfallquote */
+            ausfallquote: number | null;
+            /** Median */
+            median: number | null;
+            /** P90 */
+            p90: number | null;
         };
         /** ValidationError */
         ValidationError: {
@@ -682,6 +746,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Zeitverlauf"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    getTagesverlauf: {
+        parameters: {
+            query?: {
+                eva?: string | null;
+                gattung?: "alle" | "regional" | "fern";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Tagesverlauf"];
                 };
             };
             /** @description Validation Error */

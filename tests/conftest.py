@@ -1,3 +1,4 @@
+from datetime import date
 from datetime import datetime as dt
 from pathlib import Path
 
@@ -83,6 +84,8 @@ def client(
     data = write_line_tables(source, coords, tmp_path / "pipeline")
     monkeypatch.setattr(main, "LINES_PATH", str(data / "lines.parquet"))
     monkeypatch.setattr(main, "LINIEN_PATH", str(data / "linien.parquet"))
+    monkeypatch.setattr(main, "DAYS_PATH", str(data / "days.parquet"))
+    monkeypatch.setattr(main, "TAGE_PATH", str(data / "tage.parquet"))
     write_monate(tmp_path / "monate.parquet", monkeypatch, [("2026-09", 0, 2), ("2026-10", 3, 2)])
     return TestClient(main.app)
 
@@ -110,3 +113,13 @@ def write_monate(path, monkeypatch, rows: list[tuple[str, int, int]]) -> None:
         orient="row",
     ).write_parquet(path)
     monkeypatch.setattr(main, "MONATE_PATH", str(path))
+
+
+def write_tage(path, monkeypatch, rows: list[tuple[str, int]]) -> None:
+    """Point the API at a day table: rows are (ISO day, missing_hours)."""
+    pl.DataFrame(
+        [(date.fromisoformat(d), h) for d, h in rows],
+        schema={"day": pl.Date, "missing_hours": pl.Int32},
+        orient="row",
+    ).write_parquet(path)
+    monkeypatch.setattr(main, "TAGE_PATH", str(path))

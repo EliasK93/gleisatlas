@@ -655,6 +655,68 @@
     }
    }
   },
+  "/tagesverlauf": {
+   "get": {
+    "summary": "Tagesverlauf",
+    "operationId": "getTagesverlauf",
+    "parameters": [
+     {
+      "name": "eva",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string",
+         "pattern": "^[0-9]+$"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Eva"
+      }
+     },
+     {
+      "name": "gattung",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "enum": [
+        "alle",
+        "regional",
+        "fern"
+       ],
+       "type": "string",
+       "default": "alle",
+       "title": "Gattung"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Tagesverlauf"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/datenstand": {
    "get": {
     "summary": "Datenstand",
@@ -770,6 +832,21 @@
       },
       "type": "array",
       "title": "Fahrplanwechsel"
+     },
+     "erster_tag": {
+      "type": "string",
+      "title": "Erster Tag"
+     },
+     "letzter_tag": {
+      "type": "string",
+      "title": "Letzter Tag"
+     },
+     "fehlende_stunden_tage": {
+      "additionalProperties": {
+       "type": "integer"
+      },
+      "type": "object",
+      "title": "Fehlende Stunden Tage"
      }
     },
     "type": "object",
@@ -778,7 +855,10 @@
      "bahnhoefe",
      "vollabdeckung_ab",
      "fehlende_stunden",
-     "fahrplanwechsel"
+     "fahrplanwechsel",
+     "erster_tag",
+     "letzter_tag",
+     "fehlende_stunden_tage"
     ],
     "title": "Datenstand"
    },
@@ -1485,6 +1565,166 @@
      "puenktlich"
     ],
     "title": "Stats"
+   },
+   "Tag": {
+    "properties": {
+     "tag": {
+      "type": "string",
+      "title": "Tag"
+     },
+     "n": {
+      "type": "integer",
+      "title": "N"
+     },
+     "ausfallquote": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Ausfallquote"
+     },
+     "median": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Median"
+     },
+     "p90": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "P90"
+     },
+     "puenktlich": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Puenktlich"
+     },
+     "fehlende_stunden": {
+      "type": "integer",
+      "title": "Fehlende Stunden"
+     },
+     "trend": {
+      "$ref": "#/components/schemas/Trend"
+     }
+    },
+    "type": "object",
+    "required": [
+     "tag",
+     "n",
+     "ausfallquote",
+     "median",
+     "p90",
+     "puenktlich",
+     "fehlende_stunden",
+     "trend"
+    ],
+    "title": "Tag"
+   },
+   "Tagesverlauf": {
+    "properties": {
+     "titel": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Titel"
+     },
+     "tage": {
+      "items": {
+       "$ref": "#/components/schemas/Tag"
+      },
+      "type": "array",
+      "title": "Tage"
+     }
+    },
+    "type": "object",
+    "required": [
+     "titel",
+     "tage"
+    ],
+    "title": "Tagesverlauf"
+   },
+   "Trend": {
+    "properties": {
+     "puenktlich": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Puenktlich"
+     },
+     "ausfallquote": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Ausfallquote"
+     },
+     "median": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Median"
+     },
+     "p90": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "P90"
+     }
+    },
+    "type": "object",
+    "required": [
+     "puenktlich",
+     "ausfallquote",
+     "median",
+     "p90"
+    ],
+    "title": "Trend",
+    "description": "Centred 28-day rolling median of the daily values; None with fewer than 14 values."
    },
    "ValidationError": {
     "properties": {

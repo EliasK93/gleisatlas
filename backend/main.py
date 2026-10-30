@@ -8,7 +8,7 @@ import threading
 import time
 import uuid
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from functools import lru_cache
 from typing import Annotated, Literal
 
@@ -28,7 +28,17 @@ STATIONS_PATH = os.environ.get("STATIONS_PATH", "data/stations.parquet")
 MONATE_PATH = os.environ.get("MONATE_PATH", "data/monate.parquet")
 LINES_PATH = os.environ.get("LINES_PATH", "data/lines.parquet")
 LINIEN_PATH = os.environ.get("LINIEN_PATH", "data/linien.parquet")
-DATA_FILES = (AGG_PATH, STATIONS_PATH, MONATE_PATH, LINES_PATH, LINIEN_PATH)  # see backend/fetch.py
+DAYS_PATH = os.environ.get("DAYS_PATH", "data/days.parquet")
+TAGE_PATH = os.environ.get("TAGE_PATH", "data/tage.parquet")
+DATA_FILES = (  # see backend/fetch.py
+    AGG_PATH,
+    STATIONS_PATH,
+    MONATE_PATH,
+    LINES_PATH,
+    LINIEN_PATH,
+    DAYS_PATH,
+    TAGE_PATH,
+)
 
 # Our own lines go to stdout: uvicorn configures only its own loggers, and its access log is off.
 log = logging.getLogger("gleisatlas")
@@ -183,12 +193,40 @@ class Zeitverlauf(BaseModel):
     monate: list[Monat]  # every month of the data, ascending
 
 
+class Trend(BaseModel):
+    """Centred 28-day rolling median of the daily values; None with fewer than 14 values."""
+
+    puenktlich: float | None
+    ausfallquote: float | None
+    median: float | None
+    p90: float | None
+
+
+class Tag(BaseModel):
+    tag: str  # 'YYYY-MM-DD', the planned arrival day
+    n: int  # 0 when the selection has no stops that day: then all statistics are None
+    ausfallquote: float | None
+    median: float | None
+    p90: float | None
+    puenktlich: float | None
+    fehlende_stunden: int  # hours of the day with incomplete data
+    trend: Trend
+
+
+class Tagesverlauf(BaseModel):
+    titel: str | None  # station name; None nationwide
+    tage: list[Tag]  # every calendar day of the data, ascending
+
+
 class Datenstand(BaseModel):
     monate: list[str]  # 'YYYY-MM'
     bahnhoefe: int  # named stations
     vollabdeckung_ab: str  # first month with at least half the stations of the largest month
     fehlende_stunden: dict[str, int]  # month -> hours with incomplete data; only months with gaps
     fahrplanwechsel: list[str]  # ISO dates of the timetable changes inside the data range
+    erster_tag: str  # ISO dates of the first and last calendar day of the data
+    letzter_tag: str
+    fehlende_stunden_tage: dict[str, int]  # day -> hours with incomplete data; only days with gaps
 
 
 MAX_QUERIES = 4
@@ -236,6 +274,16 @@ def _monate_for(path: str, mtime: int) -> pl.DataFrame:  # mtime is part of the 
 def monate() -> pl.DataFrame:
     """Per month: missing_hours and stations."""
     return _monate_for(MONATE_PATH, os.stat(MONATE_PATH).st_mtime_ns)
+
+
+@lru_cache(maxsize=1)
+def _tage_for(path: str, mtime: int) -> pl.DataFrame:  # mtime is part of the key: never stale
+    return collect(pl.scan_parquet(path)).sort("day")
+
+
+def tage() -> pl.DataFrame:
+    """Per calendar day: missing_hours."""
+    return _tage_for(TAGE_PATH, os.stat(TAGE_PATH).st_mtime_ns)
 
 
 def coverage_start() -> str | None:
@@ -585,9 +633,99 @@ def zeitverlauf(
     )
 
 
+TREND_DAYS = 28  # the trend window; it is centred, so it reaches TREND_DAYS // 2 days ahead
+TREND_MIN = 14  # values the window needs
+TREND_METRICS = ("puenktlich", "ausfallquote", "median", "p90")
+
+
+def trends(feed: pl.DataFrame) -> pl.DataFrame:
+    """Centred rolling median of each metric. `feed` has a `day` column and one Float64 column per
+    metric, None where a day gives no value."""
+    ahead = TREND_DAYS // 2
+    # Polars' rolling_*_by windows end at their row. The window ending `ahead` days later is the
+    # one centred on the day, so the calendar runs past the last day and the result shifts back.
+    calendar = pl.DataFrame(
+        {"day": pl.date_range(feed["day"][0], feed["day"][-1] + timedelta(ahead), eager=True)}
+    )
+    rolled = calendar.join(feed, on="day", how="left").select(
+        "day",
+        *(
+            pl.col(m)
+            .rolling_median_by("day", f"{TREND_DAYS}d", min_samples=TREND_MIN)
+            .shift(-ahead)
+            for m in TREND_METRICS
+        ),
+    )
+    return feed.select("day").join(rolled, on="day", how="left")
+
+
+# ponytail: per-process cache like karte_for; 16 entries hold the nationwide series and the busiest
+# stations, revisit when the station page is used heavily (entry size = one model per day)
+@lru_cache(maxsize=16)
+def tage_for(
+    days: str,
+    tage_path: str,
+    mtimes: tuple[int, int],  # part of the key, so new data is never served stale
+    gattung: str,
+    eva: str | None,
+) -> list[Tag]:
+    table = _tage_for(tage_path, mtimes[1])
+    grouped = collect(
+        selection(pl.scan_parquet(days), gattung, eva)
+        .group_by("day", "bucket")
+        .agg(n=pl.col("n").sum())
+    )
+    groups = {d: g for (d,), g in grouped.partition_by("day", as_dict=True).items()}  # pyright: ignore[reportArgumentType]
+    cells = {d: cell_stats_of(g) for d, g in groups.items()}
+    stats = {d: to_stats(c) for d, c in cells.items()}
+    gap_hours = dict(zip(table["day"], table["missing_hours"], strict=True))
+
+    # Only a value the UI shows feeds the trend: days with a gap in the data or too little data
+    # (`thin`; for the cancellation rate only the stop count) show their values but are left out.
+    def feeds(d: date, metric: str) -> bool:
+        if d not in cells or gap_hours[d]:
+            return False
+        return cells[d].n >= LOW_N if metric == "ausfallquote" else not thin(cells[d])
+
+    feed = pl.DataFrame(
+        {
+            "day": table["day"],
+            **{
+                m: [getattr(stats[d], m) if feeds(d, m) else None for d in table["day"]]
+                for m in TREND_METRICS
+            },
+        },
+        schema={"day": pl.Date, **dict.fromkeys(TREND_METRICS, pl.Float64)},
+    )
+    trend = trends(feed).drop("day").iter_rows(named=True)
+    return [
+        Tag(
+            tag=d.isoformat(),
+            fehlende_stunden=gap_hours[d],
+            trend=Trend(**t),
+            **(
+                stats[d].model_dump()
+                if d in stats
+                else {"n": 0, "ausfallquote": None, "median": None, "p90": None, "puenktlich": None}
+            ),
+        )
+        for d, t in zip(table["day"], trend, strict=True)
+    ]
+
+
+@app.get("/tagesverlauf", response_model=Tagesverlauf, operation_id="getTagesverlauf")
+def tagesverlauf(
+    eva: Annotated[str | None, Query(pattern=DIGITS)] = None, gattung: Gattung = "alle"
+) -> Tagesverlauf:
+    titel = known_station(eva).name if eva else None
+    mtimes = (os.stat(DAYS_PATH).st_mtime_ns, os.stat(TAGE_PATH).st_mtime_ns)
+    return Tagesverlauf(titel=titel, tage=tage_for(DAYS_PATH, TAGE_PATH, mtimes, gattung, eva))
+
+
 @app.get("/datenstand", response_model=Datenstand, operation_id="getDatenstand")
 def datenstand() -> Datenstand:
     df = monate()
+    days = tage()
     first, last = df["month"][0], df["month"][-1]
     last_year, last_month = int(last[:4]), int(last[5:])
     return Datenstand(
@@ -604,4 +742,11 @@ def datenstand() -> Datenstand:
                 date(last_year, last_month, calendar.monthrange(last_year, last_month)[1]),
             )
         ],
+        erster_tag=days["day"][0].isoformat(),
+        letzter_tag=days["day"][-1].isoformat(),
+        fehlende_stunden_tage={
+            d.isoformat(): h
+            for d, h in zip(days["day"], days["missing_hours"], strict=True)
+            if h > 0
+        },
     )
