@@ -28,6 +28,10 @@ from pipeline.download import REPO, download
 MONTH_FILES = ("aggregate", "lines", "ends", "networks", "stations", "meta", "days", "day_gaps")
 AGGREGATE_ORDER = ("month", "eva", "weekday", "hour", "gruppe", "bucket")
 DAYS_ORDER = ("day", "eva", "gruppe", "bucket")
+# About one day's rows (24.5 M rows over 822 days), so a one-day filter skips the other row groups.
+# ponytail: no test reads the row groups (neither Polars nor an installed library exposes them);
+# the evidence is the /tageskarte memory measurement in docs/day-history.md §5
+DAYS_ROW_GROUP = 50_000
 
 
 def _complete(month_dir: Path) -> bool:
@@ -83,7 +87,7 @@ def combine(data_dir: Path) -> None:
         .agg(pl.col("n").sum())
         .select("day", "gruppe", "eva", "bucket", "n")
         .sort(DAYS_ORDER, nulls_last=True)
-        .sink_parquet(data_dir / "days.parquet")
+        .sink_parquet(data_dir / "days.parquet", row_group_size=DAYS_ROW_GROUP)
     )
     pl.concat(pl.read_parquet(d / "day_gaps.parquet") for d in dirs).sort("day").write_parquet(
         data_dir / "tage.parquet"
