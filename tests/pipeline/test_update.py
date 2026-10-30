@@ -1,12 +1,16 @@
+import shutil
 from collections.abc import Callable
+from datetime import date
 from datetime import datetime as dt
 from pathlib import Path
 
 import polars as pl
 import pytest
 
+from pipeline.raw import RawSource
 from pipeline.update import update
 from tests.conftest import complete
+from tests.pipeline.test_raw import Response, at, fchg_stop, plan_stop, write_raw, xml
 
 # (eva, station name, train_type, line_number, train_number, ride id, planned arrival, destination)
 Row = tuple[str, str, str, str | None, str, str, str, str | None]
@@ -276,3 +280,270 @@ def test_monate(data_dir, fetch):
     assert monate.columns == ["month", "missing_hours", "stations"]
     assert monate["month"].to_list() == ["2026-09", "2026-10"]
     assert monate["stations"].to_list() == [6, 1]
+
+
+# Raw days: one folder per UTC day, one file each. The last complete month is September, so the
+# raw days start on 1 October. The plan for 00:05 on the 2nd sits in the folder of the 1st, as
+# the real runs write the early plan hours of a day into the folder before it.
+SEP_30: list[Response] = [
+    # Recorded in September: already in the monthly file, so left out of the raw days.
+    at("2026-09-30 23:00", "plan", xml(plan_stop("z-1-1", "2609302355")))
+]
+OCT_1: list[Response] = [
+    at(
+        "2026-10-01 00:30",
+        "plan",
+        xml(
+            plan_stop("a-1-1", "2610010800"),
+            plan_stop("b-1-1", "2610012355"),
+            plan_stop("c-1-1", "2610020005"),
+        ),
+    ),
+    at("2026-10-01 12:00", "fchg", xml(fchg_stop("a-1-1", '<ar ct="2610010810"/>'))),
+]
+OCT_2: list[Response] = [
+    at("2026-10-02 00:10", "plan", xml(plan_stop("d-1-1", "2610021200"))),
+    # Planned on the 1st, 25 minutes late after midnight: still a stop of the 1st.
+    at("2026-10-02 00:30", "fchg", xml(fchg_stop("b-1-1", '<ar ct="2610020020"/>'))),
+    at("2026-10-02 08:00", "fchg", xml(fchg_stop("d-1-1", '<ar ct="2610021205"/>'))),
+]
+OCT_3: list[Response] = [
+    at("2026-10-03 08:00", "fchg", xml(fchg_stop("d-1-1", '<ar ct="2610021210"/>')))
+]
+OCT_4: list[Response] = [
+    at("2026-10-04 00:05", "fchg", xml(fchg_stop("x-1-1", '<ar ct="2610040001"/>')))
+]
+OCT_DAYS = {date(2026, 9, 30): SEP_30} | {
+    date(2026, 10, d): r for d, r in enumerate([OCT_1, OCT_2, OCT_3, OCT_4], start=1)
+}
+FERN, EVA = "fern", "08000001"
+
+
+class FakeRaw:
+    """A raw source over local files, like the real one but without a network."""
+
+    def __init__(
+        self,
+        tmp_path: Path,
+        folders: dict[date, list[Response]],
+        tails: dict[date, list[Response]] | None = None,
+    ):
+        """One file per folder; `tails` adds a second, later file to some folders."""
+        src_dir = tmp_path / "raw-src"
+        src_dir.mkdir(exist_ok=True)
+        self.keys = {day: [f"{day}/file.parquet"] for day in folders}
+        self.paths = {
+            self.keys[day][0]: write_raw(src_dir / f"{day}.parquet", responses)
+            for day, responses in folders.items()
+        }
+        for day, responses in (tails or {}).items():
+            self.keys[day].append(f"{day}/tail.parquet")
+            self.paths[self.keys[day][1]] = write_raw(src_dir / f"{day}-tail.parquet", responses)
+        self.fetched: list[str] = []
+
+    def key(self, day: int, month: int = 10) -> str:
+        return self.keys[date(2026, month, day)][0]
+
+    def source(self) -> RawSource:
+        def files(day: date) -> list[str]:
+            return list(self.keys.get(day, []))
+
+        def last_fchg(key: str) -> dt | None:
+            df = pl.read_parquet(self.paths[key]).filter(pl.col("api_name").str.ends_with("fchg"))
+            return df["timestamp"].max()  # pyright: ignore[reportReturnType]
+
+        def fetch(key: str, dest: Path) -> Path:
+            self.fetched.append(key)
+            return Path(shutil.copy(self.paths[key], dest / key.replace("/", "_")))
+
+        return RawSource(files, last_fchg, fetch)
+
+
+@pytest.fixture
+def raw(tmp_path: Path) -> FakeRaw:
+    return FakeRaw(tmp_path, OCT_DAYS)
+
+
+def run_with_raw(data_dir: Path, fetch: Callable[[str], Path], raw: FakeRaw) -> None:
+    update(data_dir, lambda: ["2026-09"], fetch, raw.source())
+
+
+def raw_days_table(data_dir: Path) -> list[tuple]:
+    days = pl.read_parquet(data_dir / "days.parquet")
+    keys = ["day", "eva", "gruppe", "bucket"]
+    return days.filter(pl.col("day") >= date(2026, 10, 1)).sort(keys).select(*keys, "n").rows()
+
+
+def test_complete_raw_days_after_the_last_month_reach_the_day_tables(data_dir, fetch, raw):
+    run_with_raw(data_dir, fetch, raw)
+    assert raw_days_table(data_dir) == [
+        (date(2026, 10, 1), EVA, FERN, 10, 1),
+        (date(2026, 10, 1), EVA, FERN, 25, 1),  # after midnight, but planned on the 1st
+        (date(2026, 10, 2), EVA, FERN, 0, 1),
+        (date(2026, 10, 2), EVA, FERN, 10, 1),  # the later snapshot, from the next day's folder
+    ]
+    tage = pl.read_parquet(data_dir / "tage.parquet")
+    assert tage.columns == ["day", "missing_hours"]
+    # September has its 30 days; of October only the two complete raw days, no hours after them.
+    assert tage["day"].dt.strftime("%Y-%m-%d").to_list()[-3:] == [
+        "2026-09-30",
+        "2026-10-01",
+        "2026-10-02",
+    ]
+    assert tage.height == 30 + 2
+    days = data_dir / "days"
+    assert sorted(p.name for p in days.iterdir()) == ["2026-10-01", "2026-10-02"]
+    for name in ("days", "hours", "day_gaps"):
+        assert (days / "2026-10-01" / f"{name}.parquet").exists()
+
+
+def test_raw_days_leave_the_monthly_tables_alone(data_dir, fetch, raw):
+    run_with_raw(data_dir, fetch, raw)
+    assert pl.read_parquet(data_dir / "aggregate.parquet")["n"].sum() == 8
+    assert pl.read_parquet(data_dir / "monate.parquet")["month"].to_list() == ["2026-09"]
+    assert pl.read_parquet(data_dir / "lines.parquet")["n"].sum() == 8
+
+
+def test_a_second_run_downloads_nothing_new(data_dir, fetch, raw):
+    run_with_raw(data_dir, fetch, raw)
+    # A day reads the folders before it, of its own and after it; each is downloaded once.
+    assert raw.fetched == [raw.key(30, 9), raw.key(1), raw.key(2), raw.key(3)]
+    run_with_raw(data_dir, fetch, raw)
+    assert len(raw.fetched) == 4
+    assert len(raw_days_table(data_dir)) == 4
+
+
+def test_a_raw_day_keeps_a_stop_whose_plan_is_in_the_previous_folder(data_dir, fetch, raw):
+    run_with_raw(data_dir, fetch, raw)
+    # c-1-1 (00:05 on the 2nd) is planned in the folder of the 1st only.
+    assert (date(2026, 10, 2), EVA, FERN, 0, 1) in raw_days_table(data_dir)
+
+
+def test_files_nobody_needs_any_more_are_deleted(data_dir, fetch, raw):
+    seen: list[set[str]] = []
+    real = raw.source()
+
+    def fetch_and_look(key: str, dest: Path) -> Path:
+        seen.append({p.name for p in dest.iterdir()})  # what is on disk when a download starts
+        return real.fetch(key, dest)
+
+    update(
+        data_dir, lambda: ["2026-09"], fetch, RawSource(real.files, real.last_fchg, fetch_and_look)
+    )
+    names = [k.replace("/", "_") for k in (raw.key(30, 9), raw.key(1), raw.key(2))]
+    # Fetching the 3rd folder (for the 2nd day) happens after the 1st day dropped the 30th.
+    assert seen[3] == set(names[1:])
+
+
+def test_a_day_waits_for_a_snapshot_after_the_next_days_6am(data_dir, fetch, tmp_path):
+    early = [at("2026-10-02 05:59", "fchg", xml(fchg_stop("d-1-1", '<ar ct="2610021205"/>')))]
+    raw = FakeRaw(tmp_path, {date(2026, 10, 1): OCT_1, date(2026, 10, 2): early})
+    run_with_raw(data_dir, fetch, raw)
+    assert raw.fetched == []
+    assert not (data_dir / "days").exists() or not any((data_dir / "days").iterdir())
+    assert raw_days_table(data_dir) == []
+
+
+def test_a_last_file_without_fchg_does_not_hide_a_late_snapshot_before_it(
+    data_dir, fetch, tmp_path
+):
+    # The source has runs where every `fchg` request failed: the newest file then has none.
+    plan_only = [at("2026-10-02 23:00", "plan", xml(plan_stop("q-1-1", "2610030100")))]
+    raw = FakeRaw(
+        tmp_path,
+        {date(2026, 10, 1): OCT_1, date(2026, 10, 2): OCT_2},
+        {date(2026, 10, 2): plan_only},
+    )
+    run_with_raw(data_dir, fetch, raw)
+    assert [r[0] for r in raw_days_table(data_dir)] == [date(2026, 10, 1)] * 2
+
+
+def test_an_added_day_is_processed_by_the_next_run(data_dir, fetch, tmp_path):
+    folders = {d: r for d, r in OCT_DAYS.items() if d.day <= 3}
+    run_with_raw(data_dir, fetch, FakeRaw(tmp_path, folders))
+    assert len(raw_days_table(data_dir)) == 4  # the 3rd waits for a snapshot after the 4th, 6 am
+    late = [at("2026-10-04 08:00", "fchg", xml(fchg_stop("x-1-1", '<ar ct="2610040001"/>')))]
+    raw = FakeRaw(tmp_path, {**folders, date(2026, 10, 4): late})
+    run_with_raw(data_dir, fetch, raw)
+    assert raw.fetched == [raw.key(2), raw.key(3), raw.key(4)]  # the 2nd is the day before
+    assert (data_dir / "days" / "2026-10-03" / "days.parquet").exists()
+
+
+def test_the_first_raw_day_keeps_the_late_stops_of_the_last_monthly_day(data_dir, fetch, tmp_path):
+    # Planned at 23:55 on 30 September, 25 minutes late: recorded in October, so not in
+    # September's file. The first raw day keeps it, under its planned day.
+    folders = {
+        date(2026, 9, 30): [at("2026-09-30 23:00", "plan", xml(plan_stop("q-1-1", "2609302355")))],
+        date(2026, 10, 1): [
+            at("2026-10-01 00:30", "fchg", xml(fchg_stop("q-1-1", '<ar ct="2610010020"/>'))),
+            at("2026-10-01 00:31", "plan", xml(plan_stop("a-1-1", "2610010800"))),
+        ],
+        date(2026, 10, 2): [
+            at("2026-10-02 08:00", "fchg", xml(fchg_stop("z-1-1", '<ar ct="2610020900"/>')))
+        ],
+    }
+    run_with_raw(data_dir, fetch, FakeRaw(tmp_path, folders))
+    days = pl.read_parquet(data_dir / "days.parquet")
+    late = days.filter((pl.col("day") == date(2026, 9, 30)) & (pl.col("eva") == EVA))
+    assert late.select("bucket", "n").rows() == [(25, 1)]
+    assert raw_days_table(data_dir) == [(date(2026, 10, 1), EVA, FERN, 0, 1)]
+
+
+def test_the_boundary_shift_reprocesses_the_new_first_day(data_dir, fetch, raw):
+    run_with_raw(data_dir, fetch, raw)
+    days = data_dir / "days"
+    # An earlier run under another boundary left a folder for the first day after October.
+    shutil.copytree(days / "2026-10-02", days / "2026-11-01")
+    update(data_dir, lambda: ["2026-09", "2026-10"], fetch, raw.source())
+    assert not (days / "2026-11-01").exists()  # the day is judged again against the new boundary
+    assert list(days.glob("2026-10-*")) == []
+
+
+def test_an_empty_folder_of_the_day_is_reported(data_dir, fetch, tmp_path, capsys):
+    folders = {d: r for d, r in OCT_DAYS.items() if d != date(2026, 10, 1)}
+    run_with_raw(data_dir, fetch, FakeRaw(tmp_path, folders))
+    assert "2026-10-01: no raw files in its own folder" in capsys.readouterr().out
+
+
+def test_a_day_folder_is_dropped_once_its_month_is_complete(data_dir, fetch, raw):
+    run_with_raw(data_dir, fetch, raw)
+    assert (data_dir / "days" / "2026-10-01").exists()
+    update(data_dir, lambda: ["2026-09", "2026-10"], fetch, raw.source())
+    assert list((data_dir / "days").glob("2026-10-*")) == []
+    days = pl.read_parquet(data_dir / "days.parquet")
+    # October now comes from its monthly file alone: its one stop on the 5th, nothing from raw.
+    assert days.filter(pl.col("day") >= date(2026, 10, 1))["day"].to_list() == [date(2026, 10, 5)]
+    assert pl.read_parquet(data_dir / "tage.parquet").height == 30 + 31
+
+
+def test_combine_sums_a_raw_day_with_the_same_day_from_a_monthly_file(data_dir, tmp_path):
+    # A September stop planned at 00:05 on 1 October but recorded on 30 September ...
+    edge: Row = (EVA, "Alpha", "ICE", None, "125", "e1", "2026-10-01 00:05", "Beta")
+    sep = src([*SEP, edge]).with_columns(
+        time=pl.when(pl.col("time") >= dt(2026, 10, 1))
+        .then(dt(2026, 9, 30, 23, 59))
+        .otherwise(pl.col("time"))
+    )
+    path = tmp_path / "sep.parquet"
+    sep.write_parquet(path)
+    # ... is in the raw data too, next to a stop at 08:00 on 1 October that only raw has.
+    folders = {
+        date(2026, 10, 1): [
+            at(
+                "2026-10-01 00:30",
+                "plan",
+                xml(plan_stop("a-1-1", "2610010800"), plan_stop("e-1-1", "2610010005")),
+            ),
+            at("2026-10-01 00:40", "fchg", xml(fchg_stop("e-1-1", '<ar ct="2609302359"/>'))),
+        ],
+        date(2026, 10, 2): [
+            at("2026-10-02 08:00", "fchg", xml(fchg_stop("z-1-1", '<ar ct="2610020900"/>')))
+        ],
+    }
+    raw = FakeRaw(tmp_path, folders)
+    update(data_dir, lambda: ["2026-09"], lambda _: path, raw.source())
+    days = pl.read_parquet(data_dir / "days.parquet")
+    one = days.filter((pl.col("day") == date(2026, 10, 1)) & (pl.col("eva") == EVA))
+    # The monthly stop and the raw 08:00 stop are summed; the raw copy of the monthly one
+    # (recorded before October) is left out, so nothing is counted twice.
+    assert one.select("bucket", "n").rows() == [(0, 2)]

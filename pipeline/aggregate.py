@@ -175,15 +175,12 @@ def days(lf: pl.LazyFrame) -> pl.DataFrame:
     )
 
 
-def _hour_counts(month_rows: pl.LazyFrame, month: str) -> pl.DataFrame:
-    """One row per local hour of the real month (naive `hour`) with its `rows`, the usual level of
-    its hour of day and `thin`, whether it is missing."""
-    start = datetime.strptime(month, "%Y-%m")
-    end = datetime(start.year + start.month // 12, start.month % 12 + 1, 1)
+def hour_table(per_hour: pl.DataFrame, start: datetime, end: datetime) -> pl.DataFrame:
+    """One row per local hour from `start` to `end` (naive `hour`, `end` excluded) with its `rows`
+    (`per_hour` is (hour, rows); absent hours count 0), the usual level of its hour of day and
+    `thin`, whether it is missing. The one implementation of the GAP_SHARE rule: months and raw
+    days differ only in the range and the rows they hand in."""
     hours = pl.datetime_range(start, end, "1h", closed="left", time_zone="Europe/Berlin")
-    per_hour = (
-        month_rows.group_by(hour=pl.col("time").dt.truncate("1h")).agg(rows=pl.len()).collect()
-    )
     every_hour = pl.select(hour=hours.dt.replace_time_zone(None).unique()).with_columns(
         pl.col("hour").cast(per_hour.schema["hour"])
     )
@@ -195,6 +192,16 @@ def _hour_counts(month_rows: pl.LazyFrame, month: str) -> pl.DataFrame:
         .with_columns(usual=pl.col("usual").min().over("hour_of_day"))
         .with_columns(thin=pl.col("rows") < GAP_SHARE * pl.col("usual"))
     )
+
+
+def _hour_counts(month_rows: pl.LazyFrame, month: str) -> pl.DataFrame:
+    """`hour_table` over the real month, from the rows' `time`."""
+    start = datetime.strptime(month, "%Y-%m")
+    end = datetime(start.year + start.month // 12, start.month % 12 + 1, 1)
+    per_hour = (
+        month_rows.group_by(hour=pl.col("time").dt.truncate("1h")).agg(rows=pl.len()).collect()
+    )
+    return hour_table(per_hour, start, end)
 
 
 def day_gaps(lf: pl.LazyFrame, month: str) -> pl.DataFrame:

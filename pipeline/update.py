@@ -1,9 +1,12 @@
-"""The one pipeline command: process every remote month not yet done, then combine all months."""
+"""The one pipeline command: process every remote month not yet done, then the complete raw days
+after the last month, then combine."""
 
 import re
 import shutil
 import sys
+import tempfile
 from collections.abc import Callable
+from datetime import date, datetime, time, timedelta
 from pathlib import Path
 
 import polars as pl
@@ -24,6 +27,7 @@ from pipeline.aggregate import (
     with_coords,
 )
 from pipeline.download import REPO, download
+from pipeline.raw import RawSource, day_tables, raw_gaps, remote_source, stop_rows
 
 MONTH_FILES = ("aggregate", "lines", "ends", "networks", "stations", "meta", "days", "day_gaps")
 AGGREGATE_ORDER = ("month", "eva", "weekday", "hour", "gruppe", "bucket")
@@ -34,8 +38,18 @@ DAYS_ORDER = ("day", "eva", "gruppe", "bucket")
 DAYS_ROW_GROUP = 50_000
 
 
+DAY_FILES = ("days", "hours")  # `day_gaps` is rewritten for every raw day on each update
+# A raw day D is complete once a snapshot from after the start of D+1 at this hour exists (the
+# stored times are UTC), so its late trains are settled.
+SETTLED_HOUR = 6
+
+
 def _complete(month_dir: Path) -> bool:
     return all((month_dir / f"{name}.parquet").exists() for name in MONTH_FILES)
+
+
+def _day_done(day_dir: Path) -> bool:
+    return all((day_dir / f"{name}.parquet").exists() for name in DAY_FILES)
 
 
 def process(src: Path, month: str, out: Path) -> str:
@@ -63,6 +77,99 @@ def process(src: Path, month: str, out: Path) -> str:
     return f"dropped {dups} duplicates and {bad} implausible rows"
 
 
+def process_day(day: date, files: list[Path], boundary: datetime, out: Path) -> str:
+    """Write a raw day's tables to `out` via a temporary sibling, like `process`; returns a note."""
+    rows = stop_rows(files)
+    day_days, hours = day_tables(rows, day, boundary)
+    tmp = out.with_name(f"{out.name}.tmp")
+    shutil.rmtree(tmp, ignore_errors=True)
+    tmp.mkdir(parents=True)
+    day_days.write_parquet(tmp / "days.parquet")
+    hours.write_parquet(tmp / "hours.parquet")
+    shutil.rmtree(out, ignore_errors=True)
+    tmp.rename(out)
+    return f"{rows.height} stops, {day_days['n'].sum()} counted"
+
+
+def _raw_dirs(data_dir: Path) -> list[Path]:
+    """The raw day folders `combine` adds: processed, with their gaps, and not superseded by a
+    complete monthly folder (the monthly file wins)."""
+    months = {d.name for d in (data_dir / "months").glob("????-??") if _complete(d)}
+    return sorted(
+        d
+        for d in (data_dir / "days").glob("????-??-??")
+        if _day_done(d) and (d / "day_gaps.parquet").exists() and d.name[:7] not in months
+    )
+
+
+def _write_gaps(days_dir: Path) -> None:
+    """Judge the missing hours of every raw day against the raw days of its month so far, so the
+    usual level grows with the month and earlier days are re-judged."""
+    by_month: dict[str, list[Path]] = {}
+    for d in sorted(days_dir.glob("????-??-??")):
+        if _day_done(d):
+            by_month.setdefault(d.name[:7], []).append(d)
+    for dirs in by_month.values():
+        day_list = [date.fromisoformat(d.name) for d in dirs]
+        gaps = raw_gaps(pl.concat(pl.read_parquet(d / "hours.parquet") for d in dirs), day_list)
+        for d, day in zip(dirs, day_list, strict=True):
+            gaps.filter(pl.col("day") == day).write_parquet(d / "day_gaps.parquet")
+
+
+def update_days(data_dir: Path, raw: RawSource) -> None:
+    """Process the complete raw days after the last complete monthly folder into `data/days/`. A day
+    is complete once a `fchg` snapshot from after the next day's SETTLED_HOUR exists. It reads the
+    raw files of the UTC folders before it, of its own and after it: the runs write the early plan
+    hours of a day (00:00 to 03:00) into the folder before, and the late changes into the next.
+    Days already done are skipped.
+    ponytail: a day's raw files are downloaded again if its folder is lost or the parse logic
+    changes; keeping them would cost about 250 MB per day.
+    ponytail: an empty folder after the day (the source lost a whole UTC day) stalls every later
+    day until it appears or the monthly file arrives; skipping it needs a rule for the day after."""
+    days_dir = data_dir / "days"
+    months = sorted(d.name for d in (data_dir / "months").glob("????-??") if _complete(d))
+    last = datetime.strptime(months[-1], "%Y-%m") if months else None
+    day = date(last.year + last.month // 12, last.month % 12 + 1, 1) if last else None
+    stale = [d for d in days_dir.glob("????-??-??*") if d.name[:7] in months]
+    if stale and day:
+        # The boundary moved: the new first day was processed under the old one. First, so a
+        # crash leaves it to be redone.
+        shutil.rmtree(days_dir / day.isoformat(), ignore_errors=True)
+    for d in days_dir.glob("????-??-??*"):
+        if d.name.endswith(".tmp") or d.name[:7] in months:  # a crash, or the monthly file wins
+            shutil.rmtree(d, ignore_errors=True)
+    if not day:
+        return
+    boundary, step = datetime.combine(day, time()), timedelta(days=1)
+    with tempfile.TemporaryDirectory() as tmp:
+        downloaded: dict[str, Path] = {}  # each folder is needed by three days in a row
+
+        def get(key: str) -> Path:
+            if key not in downloaded:
+                downloaded[key] = raw.fetch(key, Path(tmp))
+            return downloaded[key]
+
+        while True:  # until the first day that is not complete yet
+            out = days_dir / day.isoformat()
+            if not _day_done(out):
+                before, own, following = (raw.files(day + n * step) for n in (-1, 0, 1))
+                # The newest file may hold no `fchg` (a run whose requests failed): look back.
+                stamps = (raw.last_fchg(k) for k in reversed(following))
+                newest = next((t for t in stamps if t is not None), None)
+                if newest is None or newest <= datetime.combine(day + step, time(SETTLED_HOUR)):
+                    break
+                if not own:
+                    print(f"{day}: no raw files in its own folder (the source lost the day)")
+                files = [get(k) for k in before + own + following]
+                summary = process_day(day, files, boundary, out)
+                print(f"{day}: processed from raw, {summary}")
+                for key in before:  # the next day starts at its own folder
+                    if key in downloaded:
+                        downloaded.pop(key).unlink()
+            day += step
+    _write_gaps(days_dir)
+
+
 def _read(dirs: list[Path], name: str) -> pl.DataFrame:
     """One table over all months, with `month` from the folder name where the table has none."""
     frames = [pl.read_parquet(d / f"{name}.parquet") for d in dirs]
@@ -73,25 +180,28 @@ def _read(dirs: list[Path], name: str) -> pl.DataFrame:
 
 
 def combine(data_dir: Path) -> None:
-    """Write the files the API reads from all complete month folders."""
+    """Write the files the API reads from all complete month folders; the day tables (`days`,
+    `tage`) also take the raw days after the last month."""
     dirs = sorted(d for d in (data_dir / "months").glob("????-??") if _complete(d))
+    raw_dirs = _raw_dirs(data_dir)
     aggregates = [d / "aggregate.parquet" for d in dirs]
     pl.scan_parquet(aggregates).sort(*AGGREGATE_ORDER, nulls_last=True).sink_parquet(
         data_dir / "aggregate.parquet"
     )
 
-    # An edge day can sit in two month files: sum it per key.
+    # An edge day can sit in two month files, or in the last month and the first raw day: sum it
+    # per key.
     (
-        pl.scan_parquet([d / "days.parquet" for d in dirs])
+        pl.scan_parquet([d / "days.parquet" for d in [*dirs, *raw_dirs]])
         .group_by(DAYS_ORDER)
         .agg(pl.col("n").sum())
         .select("day", "gruppe", "eva", "bucket", "n")
         .sort(DAYS_ORDER, nulls_last=True)
         .sink_parquet(data_dir / "days.parquet", row_group_size=DAYS_ROW_GROUP)
     )
-    pl.concat(pl.read_parquet(d / "day_gaps.parquet") for d in dirs).sort("day").write_parquet(
-        data_dir / "tage.parquet"
-    )
+    pl.concat(pl.read_parquet(d / "day_gaps.parquet") for d in [*dirs, *raw_dirs]).sort(
+        "day"
+    ).write_parquet(data_dir / "tage.parquet")
 
     per_month = _read(dirs, "stations")
     names = (
@@ -124,7 +234,10 @@ def combine(data_dir: Path) -> None:
 
 
 def update(
-    data_dir: Path, remote_months: Callable[[], list[str]], fetch: Callable[[str], Path]
+    data_dir: Path,
+    remote_months: Callable[[], list[str]],
+    fetch: Callable[[str], Path],
+    raw: RawSource | None = None,
 ) -> None:
     coords = data_dir / "coords.parquet"
     if not coords.exists():
@@ -135,6 +248,8 @@ def update(
             print(f"{month}: skipped, already complete")
             continue
         print(f"{month}: processed, {process(fetch(month), month, out)}")
+    if raw:
+        update_days(data_dir, raw)
     combine(data_dir)
 
 
@@ -147,7 +262,7 @@ def remote_months() -> list[str]:
 def main(argv: list[str]) -> None:
     if argv:
         sys.exit("usage: python -m pipeline.update")
-    update(Path("data"), remote_months, lambda month: Path(download(month)))
+    update(Path("data"), remote_months, lambda month: Path(download(month)), remote_source())
 
 
 if __name__ == "__main__":
