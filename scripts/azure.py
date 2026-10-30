@@ -1,9 +1,10 @@
 """Deploy Gleisatlas to Azure in one command, and delete it again (docs/deployment.md §4).
 
     uv run python scripts/azure.py deploy
+    uv run python scripts/azure.py data
     uv run python scripts/azure.py teardown
 
-Both talk to the signed-in `az` account. Steps stream their output; the first failure stops the
+All three talk to the signed-in `az` account. Steps stream their output; the first failure stops the
 script with the step, the command and the error, exit code 1. Personal values come from the
 environment (GLEISATLAS_BUDGET_EMAIL, GLEISATLAS_BUDGET_AMOUNT) or a prompt, never from the repo.
 """
@@ -43,6 +44,7 @@ DATA_FILES = ("aggregate", "stations", "monate", "lines", "linien", "days", "tag
 CSP_WILDCARD = "https://*.swedencentral.azurecontainerapps.io"
 SWA_CLI = "@azure/static-web-apps-cli@2.0.10"
 DEPLOY_STEPS = 14
+DATA_STEPS = 3
 TEARDOWN_STEPS = 5
 
 current_step = ""
@@ -132,6 +134,25 @@ def personal(name: str, prompt: str) -> str:
     return os.environ.get(name) or input(f"{prompt} (or set {name}): ").strip()
 
 
+def check_data() -> None:
+    missing = [
+        f"data/{f}.parquet" for f in DATA_FILES if not (ROOT / "data" / f"{f}.parquet").exists()
+    ]
+    if missing:
+        die(f"missing data files: {', '.join(missing)} (build them with pipeline.update)")
+
+
+def upload_data(storage: str) -> None:
+    for f in DATA_FILES:
+        print(f"  {f}.parquet")
+        run(
+            [AZ, "storage", "blob", "upload", "--account-name", storage]
+            + ["--container-name", "data", "--name", f"{f}.parquet", "--file", f"data/{f}.parquet"]
+            + ["--auth-mode", "key", "--overwrite", "--only-show-errors", "--output", "none"],
+            capture=True,
+        )
+
+
 def deploy() -> None:
     # ponytail: no resume, a rerun repeats every step (all are safe to repeat); split into stages
     # if the run time gets in the way. The budget-date lookup treats any failure as "no earlier
@@ -146,11 +167,7 @@ def deploy() -> None:
     account()
     if run(["git", "status", "--porcelain"], capture=True):
         die("the working tree is not clean: commit first, the image tag must name the commit")
-    missing = [
-        f"data/{f}.parquet" for f in DATA_FILES if not (ROOT / "data" / f"{f}.parquet").exists()
-    ]
-    if missing:
-        die(f"missing data files: {', '.join(missing)} (build them with pipeline.update)")
+    check_data()
     email = personal("GLEISATLAS_BUDGET_EMAIL", "E-mail address for the budget alerts")
     amount = personal("GLEISATLAS_BUDGET_AMOUNT", "Monthly budget, a whole number")
     if "@" not in email or not amount.isdigit():
@@ -166,7 +183,7 @@ def deploy() -> None:
 
     step(4, total, "Phase 1: everything except the Container App")
     print(
-        "COST: from here the container registry is billed per day (about …) until teardown"
+        "COST: from here the container registry is billed per day (a small amount) until teardown"
     )
     last = probe(
         [AZ, "deployment", "group", "show", "--resource-group", GROUP, "--name", "main"]
@@ -190,14 +207,7 @@ def deploy() -> None:
     print(f"registry {out['registryName']}, storage {storage}, web {out['webName']}")
 
     step(6, total, "Upload the data files")
-    for f in DATA_FILES:
-        print(f"  {f}.parquet")
-        run(
-            [AZ, "storage", "blob", "upload", "--account-name", storage]
-            + ["--container-name", "data", "--name", f"{f}.parquet", "--file", f"data/{f}.parquet"]
-            + ["--auth-mode", "key", "--overwrite", "--only-show-errors", "--output", "none"],
-            capture=True,
-        )
+    upload_data(storage)
 
     step(7, total, "Check the blob access: a file is public, the listing is not")
     base = f"https://{storage}.blob.core.windows.net/data"
@@ -256,6 +266,20 @@ def deploy() -> None:
     print(f"site: https://{out['webHostname']}\napi:  {api_url}")
 
 
+def data() -> None:
+    total = DATA_STEPS
+    step(1, total, "Preflight")
+    check_data()
+    account()
+
+    step(2, total, "Read the storage account from the deployment outputs")
+    storage = outputs()["storageName"]
+
+    step(3, total, f"Upload the data files to {storage}")
+    upload_data(storage)
+    print("Uploaded. A running replica keeps the old data until its next cold start.")
+
+
 def teardown() -> int:
     total = TEARDOWN_STEPS
     step(1, total, "Check what is deployed")
@@ -299,10 +323,14 @@ def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description="Deploy Gleisatlas to Azure, or delete it.")
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("deploy", help="deploy everything, 14 steps (starts billing, see COST lines)")
+    sub.add_parser("data", help="upload only the data files to the deployed storage account")
     sub.add_parser("teardown", help="delete the resource group and everything in it")
     args = parser.parse_args(argv)
     if args.command == "teardown":
         return teardown()
+    if args.command == "data":
+        data()
+        return 0
     deploy()
     return 0
 

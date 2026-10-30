@@ -1,9 +1,11 @@
 import json
 from datetime import date
+from pathlib import Path
 
 import pytest
 
-from scripts.azure import budget_start, narrow_csp
+from scripts import azure
+from scripts.azure import DATA_FILES, budget_start, narrow_csp
 
 WILDCARD = "https://*.swedencentral.azurecontainerapps.io"
 ORIGIN = "https://gleisatlas-api.example.swedencentral.azurecontainerapps.io"
@@ -38,3 +40,48 @@ def test_budget_start_reuses_the_date_of_the_last_deployment():
 @pytest.mark.parametrize("existing", [None, "", "None", "garbage"])
 def test_budget_start_is_the_first_of_this_month_without_a_usable_date(existing: str | None):
     assert budget_start(existing, date(2026, 10, 29)) == "2026-10-01"
+
+
+@pytest.fixture
+def az_calls(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> list[list[str]]:
+    """Every command the script runs, with az answered by stand-ins and the data in tmp_path."""
+    calls: list[list[str]] = []
+
+    def run(cmd: list[str], **_: object) -> str:
+        calls.append(cmd)
+        if cmd[1:3] == ["account", "show"]:
+            return json.dumps({"name": "sub", "user": {"name": "user"}})
+        if cmd[1:4] == ["deployment", "group", "show"]:
+            return json.dumps({"storageName": {"value": "gleisatlasdata"}})
+        return ""
+
+    monkeypatch.setattr(azure, "run", run)
+    monkeypatch.setattr(azure, "ROOT", tmp_path)
+    (tmp_path / "data").mkdir()
+    for f in DATA_FILES:
+        (tmp_path / "data" / f"{f}.parquet").write_bytes(b"")
+    return calls
+
+
+def uploads(calls: list[list[str]]) -> list[str]:
+    return [c[c.index("--name") + 1] for c in calls if c[1:4] == ["storage", "blob", "upload"]]
+
+
+def test_data_uploads_exactly_the_data_files_and_nothing_else(az_calls: list[list[str]]):
+    assert azure.main(["data"]) == 0
+    assert uploads(az_calls) == [f"{f}.parquet" for f in DATA_FILES]
+    for cmd in az_calls:
+        assert cmd[0] == azure.AZ
+        assert cmd[1:3] != ["acr", "build"]
+        assert cmd[1:4] != ["deployment", "group", "create"]
+        assert "staticwebapp" not in cmd
+
+
+def test_data_stops_before_any_upload_when_a_file_is_missing(
+    az_calls: list[list[str]], tmp_path: Path
+):
+    (tmp_path / "data" / "tage.parquet").unlink()
+    with pytest.raises(SystemExit) as stop:
+        azure.main(["data"])
+    assert stop.value.code == 1
+    assert uploads(az_calls) == []
