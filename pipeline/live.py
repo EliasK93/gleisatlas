@@ -21,7 +21,7 @@ from pathlib import Path
 
 import polars as pl
 
-from core.periods import full_coverage_start, local_time
+from core.periods import full_coverage_start, large_stations, local_time
 from pipeline.aggregate import day_hours
 from pipeline.raw import FCHG, FCHG_COLUMNS, PLAN, PLAN_COLUMNS, Stops, frame, merge, parse
 
@@ -40,16 +40,17 @@ AHEAD = 3  # plan slices up to this many hours after now, so the next hours are 
 Get = Callable[[str], tuple[int, str]]  # url -> (status, body)
 
 
-def large_stations(data_dir: Path) -> list[str]:
+def large_evas(data_dir: Path) -> list[str]:
     """The EVAs of the last month before full coverage: the stations the source had before it
-    took every station in, the large ones.
+    took every station in, the large ones (the core rule, over data/days.parquet and
+    data/monate.parquet); empty without such a month.
     ponytail: frozen to that month; a new large station needs a rule beyond the old source."""
     monate = pl.read_parquet(data_dir / "monate.parquet")
     start = full_coverage_start(dict(zip(monate["month"], monate["stations"], strict=True)))
-    before = sorted(m for m in monate["month"] if start and m < start)
-    if not before:
-        sys.exit("no month before full coverage in data/monate.parquet: run pipeline.update first")
-    return sorted(pl.read_parquet(data_dir / "months" / before[-1] / "stations.parquet")["eva"])
+    if start is None:
+        return []
+    days = pl.scan_parquet(data_dir / "days.parquet")
+    return large_stations(days, start).collect()["eva"].to_list()
 
 
 def _write(df: pl.DataFrame, path: Path) -> None:
@@ -82,7 +83,12 @@ def run(
     slices_path = state / "slices.parquet"
     slices = set(pl.read_parquet(slices_path).iter_rows()) if slices_path.exists() else set()
 
-    evas = large_stations(data_dir)
+    evas = large_evas(data_dir)
+    if not evas:
+        sys.exit(
+            "no large stations (no month before full coverage in data/monate.parquet and"
+            " data/days.parquet): run pipeline.update first"
+        )
     # The changes, then the slices before the cut station by station (so a first run of the day
     # makes stations ready one after another), then the hours ahead of all stations.
     jobs: list[tuple[str, int | None]] = [(e, None) for e in evas]

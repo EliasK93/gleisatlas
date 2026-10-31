@@ -30,6 +30,7 @@ from pipeline.aggregate import (
     with_coords,
 )
 from pipeline.download import REPO, download
+from pipeline.live import large_evas
 from pipeline.raw import RawSource, day_tables, fchg_pass, raw_gaps, remote_source, stop_rows
 
 MONTH_FILES = (
@@ -192,13 +193,13 @@ def newest_fchg(raw: RawSource, keys: list[str]) -> tuple[str, datetime] | None:
     return next(((k, t) for k, t in stamps if t is not None), None)
 
 
-def update_rest(data_dir: Path, raw: RawSource, now: datetime) -> None:
+def update_rest(data_dir: Path, raw: RawSource, now: datetime, large: list[str]) -> None:
     """Write `heute_rest.parquet`: the local day of `now` so far, from the raw files of the UTC
-    folders before it and of its own. `day_hours` of the stops planned on the day at the stations
-    that answered in the newest `fchg` pass, only the hours before the local hour the pass
-    started, plus that start as `stand` (UTC); like the live collector's run start, the stops of
-    the hour the pass started in are not settled. No pass of the day yet gives no rows, so an
-    earlier file never stays.
+    folders before it and of its own. `day_hours` of the stops planned on the day at the large
+    stations (`large`) that answered in the newest `fchg` pass, only the hours before the local
+    hour the pass started, plus that start as `stand` (UTC); like the live collector's run start,
+    the stops of the hour the pass started in are not settled. No pass of the day yet gives no
+    rows, so an earlier file never stays.
     ponytail: every update downloads both UTC folders again (about 2 x 160 MB); keep them in a
     local cache if updates run often."""
     day = local_time(now).date()
@@ -216,7 +217,7 @@ def update_rest(data_dir: Path, raw: RawSource, now: datetime) -> None:
         paths = [files.get(k) or raw.fetch(k, Path(tmp)) for k in keys] if cut else []
         rows = stop_rows(paths)
     today = rows.sort("time", "id").lazy().filter(pl.col("arrival_planned_time").dt.date() == day)
-    keep = pl.col("eva").is_in(sorted(answered))
+    keep = pl.col("eva").is_in(sorted(answered & set(large)))
     rest = day_hours(today).filter(pl.col("hour") < cut, keep)
     out = data_dir / "heute_rest.parquet"
     tmp_out = out.with_name(f"{out.name}.tmp")
@@ -254,8 +255,12 @@ def combine(data_dir: Path) -> None:
         .sort(DAYS_ORDER, nulls_last=True)
         .sink_parquet(data_dir / "days.parquet", row_group_size=DAYS_ROW_GROUP)
     )
+    # `large_evas` reads the two files just written. The hour table covers only the large stations
+    # (the day map's today needs no others); month and day folders keep theirs whole.
+    _read(dirs, "meta").sort("month").write_parquet(data_dir / "monate.parquet")
     (
         pl.scan_parquet([d / "day_hours.parquet" for d in [*dirs, *raw_dirs]])
+        .filter(pl.col("eva").is_in(large_evas(data_dir)))
         .group_by(DAY_HOURS_ORDER)
         .agg(pl.col("n").sum())
         .select("day", "hour", "gruppe", "eva", "bucket", "n")
@@ -293,8 +298,6 @@ def combine(data_dir: Path) -> None:
         .write_parquet(data_dir / "lines.parquet")
     )
 
-    _read(dirs, "meta").sort("month").write_parquet(data_dir / "monate.parquet")
-
 
 def update(
     data_dir: Path,
@@ -318,7 +321,7 @@ def update(
         update_days(data_dir, raw)
     combine(data_dir)
     if raw and now:
-        update_rest(data_dir, raw, now())
+        update_rest(data_dir, raw, now(), large_evas(data_dir))
 
 
 def remote_months() -> list[str]:

@@ -46,6 +46,20 @@ def stands(df: pl.DataFrame) -> list[dt]:
 
 
 B = "08000002"
+LARGE = [EVA, B]
+
+
+def test_a_station_that_is_not_large_is_left_out(tmp_path):
+    folders = {
+        date(2026, 11, 4): [
+            at("2026-11-04 05:00", "plan", xml(plan_stop("a-1-1", "2611041100"))),
+            at("2026-11-04 05:00", "plan", xml(plan_stop("b-1-1", "2611041100")), eva=B),
+            at("2026-11-04 11:30", "fchg", xml()),
+            at("2026-11-04 11:31", "fchg", xml(), eva=B),  # B answered too
+        ]
+    }
+    update_rest(tmp_path, FakeRaw(tmp_path, folders).source(), AT_14_00, [EVA])
+    assert rest(tmp_path).select("hour", "eva").rows() == [(11, EVA)]
 
 
 def test_a_station_whose_changes_failed_in_the_newest_pass_is_left_out(tmp_path):
@@ -62,7 +76,7 @@ def test_a_station_whose_changes_failed_in_the_newest_pass_is_left_out(tmp_path)
             at("2026-11-04 11:31", "fchg", "", eva=B, status="500"),
         ]
     }
-    update_rest(tmp_path, FakeRaw(tmp_path, folders, newest).source(), AT_14_00)
+    update_rest(tmp_path, FakeRaw(tmp_path, folders, newest).source(), AT_14_00, LARGE)
     # B's stop ran late, but without B's changes it would count as on time
     assert rest(tmp_path).select("hour", "eva", "bucket").rows() == [(11, EVA, 2)]
 
@@ -80,7 +94,8 @@ def test_the_cut_and_stand_come_from_the_start_of_the_newest_pass(tmp_path):
             at("2026-11-04 13:03", "fchg", xml(), eva=B),
         ]
     }
-    update_rest(tmp_path, FakeRaw(tmp_path, folders).source(), dt(2026, 11, 4, 14, 0, tzinfo=UTC))
+    now = dt(2026, 11, 4, 14, 0, tzinfo=UTC)
+    update_rest(tmp_path, FakeRaw(tmp_path, folders).source(), now, LARGE)
     out = rest(tmp_path)
     assert out.select("hour", "eva").rows() == [(12, EVA)]
     assert stands(out) == [dt(2026, 11, 4, 12, 58)]
@@ -110,7 +125,7 @@ def test_the_combined_files_are_written_before_the_partial_day_is_fetched(tmp_pa
 
 def test_the_partial_day_counts_todays_stops_before_the_newest_snapshots_hour(tmp_path):
     raw = FakeRaw(tmp_path, NOV, NOV_TAIL)
-    update_rest(tmp_path, raw.source(), AT_14_00)
+    update_rest(tmp_path, raw.source(), AT_14_00, LARGE)
     out = rest(tmp_path)
     assert out.schema == HEUTE_SCHEMA
     # The 00:30 stop from the folder before and the delayed 09:00 one; not the 14:00 stop (the
@@ -136,7 +151,8 @@ def test_the_cut_is_the_local_hour_across_the_utc_date(tmp_path):
             at("2026-07-09 23:30", "fchg", xml(fchg_stop("a-1-1", '<ar ct="2607100022"/>'))),
         ]
     }
-    update_rest(tmp_path, FakeRaw(tmp_path, folders).source(), dt(2026, 7, 10, 0, 10, tzinfo=UTC))
+    now = dt(2026, 7, 10, 0, 10, tzinfo=UTC)
+    update_rest(tmp_path, FakeRaw(tmp_path, folders).source(), now, LARGE)
     assert rest(tmp_path).select("hour", "bucket", "n").rows() == [(0, 2, 1)]
 
 
@@ -149,14 +165,14 @@ def test_a_newest_snapshot_from_yesterday_gives_no_rows_and_no_download(tmp_path
         ]
     }
     raw = FakeRaw(tmp_path, folders)
-    update_rest(tmp_path, raw.source(), dt(2026, 7, 10, 0, 10, tzinfo=UTC))
+    update_rest(tmp_path, raw.source(), dt(2026, 7, 10, 0, 10, tzinfo=UTC), LARGE)
     assert rest(tmp_path).height == 0
     assert raw.fetched == []
 
 
 def test_no_files_write_an_empty_table_over_an_earlier_one(tmp_path):
     pl.DataFrame({"stale": [1]}).write_parquet(tmp_path / "heute_rest.parquet")
-    update_rest(tmp_path, FakeRaw(tmp_path, {}).source(), AT_14_00)
+    update_rest(tmp_path, FakeRaw(tmp_path, {}).source(), AT_14_00, LARGE)
     out = rest(tmp_path)
     assert out.height == 0
     assert out.schema == HEUTE_SCHEMA
@@ -166,11 +182,14 @@ def test_update_writes_the_partial_day_and_leaves_the_day_folders_alone(tmp_path
     data_dir = tmp_path / "data"
     data_dir.mkdir()
     coords.write_parquet(data_dir / "coords.parquet")
-    sep = tmp_path / "sep.parquet"
-    src(SEP).write_parquet(sep)
+    paths = {"2026-08": tmp_path / "aug.parquet", "2026-09": tmp_path / "sep.parquet"}
+    src([(EVA, "Alpha", "ICE", None, "120", "a0", "2026-08-10 08:00", "Beta")]).write_parquet(
+        paths["2026-08"]
+    )  # the large station of the raw days; September has six stations
+    src(SEP).write_parquet(paths["2026-09"])
     now = dt(2026, 10, 2, 10, 0, tzinfo=UTC)  # 12:00 summer time; newest `fchg` 10:00 local
     raw = FakeRaw(tmp_path, OCT_DAYS).source()
-    update(data_dir, lambda: ["2026-09"], lambda _: sep, raw, lambda: now)
+    update(data_dir, lambda: list(paths), lambda m: paths[m], raw, lambda: now)
     assert rest(data_dir).select("day", "hour", "bucket", "n").rows() == [
         (date(2026, 10, 2), 0, 0, 1)
     ]

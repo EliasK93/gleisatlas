@@ -6,6 +6,7 @@ from pathlib import Path
 import polars as pl
 import pytest
 
+from core.periods import large_stations
 from pipeline import live
 from tests.pipeline.test_raw import API, EVA, fchg_stop, plan_stop, xml
 
@@ -88,13 +89,27 @@ def write_stations(data_dir: Path, evas: list[str]) -> None:
         schema={"month": pl.String, "missing_hours": pl.Int32, "stations": pl.UInt32},
     )
     monate.write_parquet(data_dir / "monate.parquet")
-    for month, month_evas in {"2025-09": [OLD], "2025-10": evas, "2025-11": [*evas, OLD]}.items():
-        folder = data_dir / "months" / month
-        folder.mkdir(parents=True)
-        pl.DataFrame(
-            {"eva": month_evas, "name": month_evas, "n": [1] * len(month_evas)},
-            schema={"eva": pl.String, "name": pl.String, "n": pl.UInt32},
-        ).write_parquet(folder / "stations.parquet")
+    by_month = {"2025-09": [OLD], "2025-10": evas, "2025-11": [*evas, OLD]}
+    rows = [
+        (date.fromisoformat(f"{m}-15"), "fern", e, 0, 1) for m, es in by_month.items() for e in es
+    ]
+    pl.DataFrame(
+        rows,
+        schema={
+            "day": pl.Date,
+            "gruppe": pl.String,
+            "eva": pl.String,
+            "bucket": pl.Int32,
+            "n": pl.UInt32,
+        },
+        orient="row",
+    ).write_parquet(data_dir / "days.parquet")
+
+
+def test_the_collector_takes_the_core_rule_for_the_large_stations(data_dir):
+    days = pl.scan_parquet(data_dir / "days.parquet")
+    assert live.large_evas(data_dir) == large_stations(days, "2025-11").collect()["eva"].to_list()
+    assert live.large_evas(data_dir) == [A, B]
 
 
 @pytest.fixture

@@ -284,7 +284,17 @@ def day_hours_per_day(data_dir: Path) -> pl.DataFrame:
     return summed.sort(keys, nulls_last=True)
 
 
-def test_day_hours_sum_an_edge_day_and_add_up_to_days(data_dir, tmp_path):
+# August has one station: it is the large one, the stations the source covered before September
+# brought in the rest (September has six, so full coverage starts there).
+AUG: list[Row] = [("1", "Alpha", "ICE", None, "120", "a0", "2026-08-10 08:00", "Beta")]
+
+
+def large_days(data_dir: Path, evas: list[str]) -> pl.DataFrame:
+    """`days.parquet` of the given stations only."""
+    return pl.read_parquet(data_dir / "days.parquet").filter(pl.col("eva").is_in(evas))
+
+
+def test_day_hours_sum_an_edge_day_and_add_up_to_days_of_the_large_stations(data_dir, tmp_path):
     edge: Row = ("1", "Alpha", "ICE", None, "125", "e1", "2026-10-01 00:05", "Beta")
     other: Row = ("1", "Alpha", "ICE", None, "126", "e2", "2026-10-01 00:20", "Beta")
     sep = src(SEP + [edge]).with_columns(
@@ -292,7 +302,8 @@ def test_day_hours_sum_an_edge_day_and_add_up_to_days(data_dir, tmp_path):
         .then(dt(2026, 9, 30, 23, 59))
         .otherwise(pl.col("time"))
     )
-    paths = {"2026-09": tmp_path / "sep.parquet", "2026-10": tmp_path / "oct.parquet"}
+    paths = {m: tmp_path / f"{m}.parquet" for m in ("2026-08", "2026-09", "2026-10")}
+    src(AUG).write_parquet(paths["2026-08"])
     sep.write_parquet(paths["2026-09"])
     src(OCT + [other]).write_parquet(paths["2026-10"])
     update(data_dir, lambda: list(paths), lambda month: paths[month])
@@ -303,16 +314,24 @@ def test_day_hours_sum_an_edge_day_and_add_up_to_days(data_dir, tmp_path):
     assert hours.schema["hour"] == pl.Int8
     edge_hour = hours.filter((pl.col("day") == date(2026, 10, 1)) & (pl.col("hour") == 0))
     assert edge_hour.select("eva", "bucket", "n").rows() == [("1", 0, 2)]  # both files summed
-    assert day_hours_per_day(data_dir).equals(pl.read_parquet(data_dir / "days.parquet"))
+    # Only the large station is in the hour table; days.parquet keeps all six.
+    assert hours["eva"].unique().to_list() == ["1"]
+    assert pl.read_parquet(data_dir / "days.parquet")["eva"].n_unique() == 6
+    assert day_hours_per_day(data_dir).equals(large_days(data_dir, ["1"]))
 
 
-def test_day_hours_take_the_raw_days_too(data_dir, fetch, raw):
-    run_with_raw(data_dir, fetch, raw)
+def test_day_hours_take_the_raw_days_too(data_dir, fetch, tmp_path, raw):
+    paths = {"2026-08": tmp_path / "aug.parquet", "2026-09": fetch("2026-09")}
+    src([(EVA, "Alpha", "ICE", None, "120", "a0", "2026-08-10 08:00", "Beta")]).write_parquet(
+        paths["2026-08"]
+    )
+    update(data_dir, lambda: list(paths), lambda month: paths[month], raw.source())
     assert (data_dir / "days" / "2026-10-01" / "day_hours.parquet").exists()
     hours = pl.read_parquet(data_dir / "day_hours.parquet")
     oct_1 = hours.filter(pl.col("day") == date(2026, 10, 1)).sort("hour")
     assert oct_1.select("hour", "bucket", "n").rows() == [(8, 10, 1), (23, 25, 1)]
-    assert day_hours_per_day(data_dir).equals(pl.read_parquet(data_dir / "days.parquet"))
+    assert hours["eva"].unique().to_list() == [EVA]  # the six stations of September are left out
+    assert day_hours_per_day(data_dir).equals(large_days(data_dir, [EVA]))
 
 
 def test_monate(data_dir, fetch):
