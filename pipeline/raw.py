@@ -3,7 +3,9 @@ per-day tables the day views read.
 
 A `plan` response lists the planned stops of one station and hour, a `fchg` response the changes of
 one station. Both are IRIS XML in `response_data`; `stop_rows` combines them the way piebro's
-monthly release does (see the SQL in his `create_monthly_data_release.py`, MIT)."""
+monthly release does (see the SQL in his `create_monthly_data_release.py`, MIT): `parse` folds each
+response into dicts, `merge` turns them into rows. The live collector (`pipeline.live`) uses the
+same two steps."""
 
 import xml.etree.ElementTree as ET
 from collections.abc import Callable
@@ -15,15 +17,16 @@ import polars as pl
 from huggingface_hub import HfApi, hf_hub_download
 from huggingface_hub.errors import EntryNotFoundError
 
-from pipeline.aggregate import COLUMNS, clean, days, hour_table
+from pipeline.aggregate import COLUMNS, clean, day_hours, days, hour_table
 from pipeline.download import REPO
 
 PLAN, FCHG = "timetables/v1/plan", "timetables/v1/fchg"
-_PLAN_COLUMNS = ("id", "eva", "p_type", "p_number", "p_ar", "p_dp")
-_FCHG_COLUMNS = (
+PLAN_COLUMNS = ("id", "eva", "p_type", "p_number", "p_ar", "p_dp")
+FCHG_COLUMNS = (
     *("id", "f_eva", "f_type", "f_number"),
     *("f_ar", "f_ar_ct", "f_ar_clt", "f_ar_cs", "f_dp", "f_dp_ct", "f_dp_clt", "f_dp_cs"),
 )
+Stops = dict[str, tuple[str | None, ...]]  # stop id -> the other columns of PLAN/FCHG_COLUMNS
 
 
 class RawSource(NamedTuple):
@@ -37,6 +40,24 @@ class RawSource(NamedTuple):
 
 def _eva(url: str, api: str) -> str:
     return url.split(f"/{api}/", 1)[1].split("/")[0]
+
+
+def fchg_pass(path: Path) -> tuple[datetime | None, set[str]]:
+    """The `fchg` pass of one raw file (one collector run): its first request time (naive UTC)
+    and the stations that answered with a body. An unparsable body never gets this far:
+    `stop_rows` would fail on it."""
+    passed = (
+        pl.scan_parquet(path)
+        .filter(pl.col("api_name") == FCHG)
+        .select(
+            "timestamp",
+            "url",
+            ok=(pl.col("status_code") == "200") & (pl.col("response_data").fill_null("") != ""),
+        )
+        .collect()
+    )
+    start = passed.select(pl.col("timestamp").min()).item()
+    return start, {_eva(u, FCHG) for u in passed.filter("ok")["url"]}
 
 
 def _has_change(s: ET.Element) -> bool:
@@ -59,7 +80,8 @@ def _event(e: ET.Element | None) -> tuple[str | None, str | None, str | None, st
     return e.get("pt"), e.get("ct"), e.get("clt"), e.get("cs")
 
 
-def _frame(rows: dict[str, tuple[str | None, ...]], columns: tuple[str, ...]) -> pl.DataFrame:
+def frame(rows: Stops, columns: tuple[str, ...]) -> pl.DataFrame:
+    """A `plan` or `fchg` dict as a table of strings, the stop id first."""
     return pl.DataFrame(
         [(sid, *r) for sid, r in rows.items()],
         schema=dict.fromkeys(columns, pl.String),
@@ -67,13 +89,27 @@ def _frame(rows: dict[str, tuple[str | None, ...]], columns: tuple[str, ...]) ->
     )
 
 
+def parse(api: str, eva: str, text: str, plan: Stops, fchg: Stops) -> None:
+    """Fold one response of station `eva` into the dicts, responses in time order: a `plan` stop
+    replaces the earlier one of its id, a `fchg` stop only when it carries a change."""
+    for s in ET.fromstring(text).findall("s"):
+        sid, tl, ar, dp = s.get("id"), s.find("tl"), s.find("ar"), s.find("dp")
+        if sid is None:
+            continue
+        kind = (tl.get("c"), tl.get("n")) if tl is not None else (None, None)
+        if api == PLAN:
+            plan[sid] = (eva, *kind, _event(ar)[0], _event(dp)[0])
+        elif _has_change(s):
+            fchg[sid] = (eva, *kind, *_event(ar), *_event(dp))
+
+
 def stop_rows(files: list[Path]) -> pl.DataFrame:
     """One row per stop id in the monthly source schema (unused columns NULL), from the raw files in
     time order. The latest `plan` snapshot gives the timetable; the latest `fchg` snapshot that
     carries a change gives the changes, and its fields replace the plan's as a whole. Times are the
     local naive ones of the source. The table is not cleaned."""
-    plan: dict[str, tuple[str | None, ...]] = {}
-    fchg: dict[str, tuple[str | None, ...]] = {}
+    plan: Stops = {}
+    fchg: Stops = {}
     for path in files:
         responses = (
             pl.scan_parquet(path)
@@ -87,19 +123,14 @@ def stop_rows(files: list[Path]) -> pl.DataFrame:
             .collect()
         )
         for url, api, text in responses.iter_rows():
-            eva = _eva(url, api)
-            for s in ET.fromstring(text).findall("s"):
-                sid, tl, ar, dp = s.get("id"), s.find("tl"), s.find("ar"), s.find("dp")
-                if sid is None:
-                    continue
-                kind = (tl.get("c"), tl.get("n")) if tl is not None else (None, None)
-                if api == PLAN:
-                    plan[sid] = (eva, *kind, _event(ar)[0], _event(dp)[0])
-                elif _has_change(s):
-                    fchg[sid] = (eva, *kind, *_event(ar), *_event(dp))
+            parse(api, _eva(url, api), text, plan, fchg)
+    return merge(plan, fchg)
 
-    merged = _frame(plan, _PLAN_COLUMNS).join(
-        _frame(fchg, _FCHG_COLUMNS), on="id", how="full", coalesce=True
+
+def merge(plan: Stops, fchg: Stops) -> pl.DataFrame:
+    """The stop rows of `stop_rows` from the folded dicts."""
+    merged = frame(plan, PLAN_COLUMNS).join(
+        frame(fchg, FCHG_COLUMNS), on="id", how="full", coalesce=True
     )
 
     def moment(*cols: str) -> pl.Expr:
@@ -129,12 +160,13 @@ def stop_rows(files: list[Path]) -> pl.DataFrame:
 
 def day_tables(
     rows: pl.DataFrame, day: date, boundary: datetime
-) -> tuple[pl.DataFrame, pl.DataFrame]:
-    """(days, hours) of one raw day: the delay histogram of the stops planned on `day`, and the
-    cleaned rows per local hour of `time` on `day` (what `raw_gaps` judges). Rows recorded before
-    `boundary` are left out: they are already in the last monthly file. The first raw day (the day
-    of `boundary`) also keeps the stops planned on earlier days but recorded after the boundary,
-    mostly the late stops of the last monthly day: no monthly file holds them yet."""
+) -> tuple[pl.DataFrame, pl.DataFrame, pl.DataFrame]:
+    """(days, hours, day_hours) of one raw day: the delay histogram of the stops planned on `day`,
+    the cleaned rows per local hour of `time` on `day` (what `raw_gaps` judges) and the delay
+    histogram per planned arrival hour as well. Rows recorded before `boundary` are left out: they
+    are already in the last monthly file. The first raw day (the day of `boundary`) also keeps the
+    stops planned on earlier days but recorded after the boundary, mostly the late stops of the
+    last monthly day: no monthly file holds them yet."""
     # Like the monthly files, so the first duplicate is the same; the id breaks ties.
     # ponytail: the monthly release leaves ties open (DuckDB), so about 3 stops a day (one train's
     # two ids, same time) keep the other duplicate and sit 1-2 minutes off. Ends once the monthly
@@ -151,7 +183,7 @@ def day_tables(
         .sort("hour")
         .collect()
     )
-    return days(mine), hours
+    return days(mine), hours, day_hours(mine)
 
 
 def raw_gaps(hours: pl.DataFrame, day_list: list[date]) -> pl.DataFrame:

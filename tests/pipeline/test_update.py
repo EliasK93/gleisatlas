@@ -274,6 +274,47 @@ def test_an_edge_day_split_over_two_months_is_summed(data_dir, tmp_path):
     assert days["n"].sum() == 11  # the nine of the fixtures plus the two edge stops
 
 
+def day_hours_per_day(data_dir: Path) -> pl.DataFrame:
+    """`day_hours.parquet` summed over the hour, in the shape and order of `days.parquet`."""
+    keys = ["day", "eva", "gruppe", "bucket"]
+    hours = pl.read_parquet(data_dir / "day_hours.parquet")
+    summed = (
+        hours.group_by(keys).agg(pl.col("n").sum()).select("day", "gruppe", "eva", "bucket", "n")
+    )
+    return summed.sort(keys, nulls_last=True)
+
+
+def test_day_hours_sum_an_edge_day_and_add_up_to_days(data_dir, tmp_path):
+    edge: Row = ("1", "Alpha", "ICE", None, "125", "e1", "2026-10-01 00:05", "Beta")
+    other: Row = ("1", "Alpha", "ICE", None, "126", "e2", "2026-10-01 00:20", "Beta")
+    sep = src(SEP + [edge]).with_columns(
+        time=pl.when(pl.col("time") >= dt(2026, 10, 1))
+        .then(dt(2026, 9, 30, 23, 59))
+        .otherwise(pl.col("time"))
+    )
+    paths = {"2026-09": tmp_path / "sep.parquet", "2026-10": tmp_path / "oct.parquet"}
+    sep.write_parquet(paths["2026-09"])
+    src(OCT + [other]).write_parquet(paths["2026-10"])
+    update(data_dir, lambda: list(paths), lambda month: paths[month])
+    for month in paths:
+        assert (data_dir / "months" / month / "day_hours.parquet").exists()
+    hours = pl.read_parquet(data_dir / "day_hours.parquet")
+    assert hours.columns == ["day", "hour", "gruppe", "eva", "bucket", "n"]
+    assert hours.schema["hour"] == pl.Int8
+    edge_hour = hours.filter((pl.col("day") == date(2026, 10, 1)) & (pl.col("hour") == 0))
+    assert edge_hour.select("eva", "bucket", "n").rows() == [("1", 0, 2)]  # both files summed
+    assert day_hours_per_day(data_dir).equals(pl.read_parquet(data_dir / "days.parquet"))
+
+
+def test_day_hours_take_the_raw_days_too(data_dir, fetch, raw):
+    run_with_raw(data_dir, fetch, raw)
+    assert (data_dir / "days" / "2026-10-01" / "day_hours.parquet").exists()
+    hours = pl.read_parquet(data_dir / "day_hours.parquet")
+    oct_1 = hours.filter(pl.col("day") == date(2026, 10, 1)).sort("hour")
+    assert oct_1.select("hour", "bucket", "n").rows() == [(8, 10, 1), (23, 25, 1)]
+    assert day_hours_per_day(data_dir).equals(pl.read_parquet(data_dir / "days.parquet"))
+
+
 def test_monate(data_dir, fetch):
     run(data_dir, fetch)
     monate = pl.read_parquet(data_dir / "monate.parquet")

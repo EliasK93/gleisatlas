@@ -159,20 +159,30 @@ def stations(lf: pl.LazyFrame) -> pl.DataFrame:
     )
 
 
+def _per_day(lf: pl.LazyFrame, **extra: pl.Expr) -> pl.DataFrame:
+    keys = ["day", *extra, "eva", "gruppe", "bucket"]
+    return (
+        _arrivals(lf)
+        .select(day=_planned.dt.date(), **extra, gruppe=_gruppe, eva=pl.col("eva"), bucket=_bucket)
+        .group_by(keys)
+        .agg(n=pl.len())
+        .select("day", *extra, "gruppe", "eva", "bucket", "n")
+        .sort(keys, nulls_last=True)
+        .collect()
+    )
+
+
 def days(lf: pl.LazyFrame) -> pl.DataFrame:
     """Delay histogram per planned arrival day: (day, gruppe, eva, bucket, n); bucket NULL =
     cancelled. A file holds stops planned on the neighbouring month's edge day, so days of two
     files can overlap and are summed when the months are combined."""
-    keys = ["day", "eva", "gruppe", "bucket"]
-    return (
-        _arrivals(lf)
-        .select(day=_planned.dt.date(), gruppe=_gruppe, eva=pl.col("eva"), bucket=_bucket)
-        .group_by(keys)
-        .agg(n=pl.len())
-        .select("day", "gruppe", "eva", "bucket", "n")
-        .sort(keys, nulls_last=True)
-        .collect()
-    )
+    return _per_day(lf)
+
+
+def day_hours(lf: pl.LazyFrame) -> pl.DataFrame:
+    """`days` per planned arrival hour as well: (day, hour, gruppe, eva, bucket, n), so a day can
+    be cut at an hour. Summed over the hour it is `days`."""
+    return _per_day(lf, hour=_planned.dt.hour())
 
 
 def hour_table(per_hour: pl.DataFrame, start: datetime, end: datetime) -> pl.DataFrame:

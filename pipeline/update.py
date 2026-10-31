@@ -1,22 +1,25 @@
 """The one pipeline command: process every remote month not yet done, then the complete raw days
-after the last month, then combine."""
+after the last month and the current day so far, then combine."""
 
+import os
 import re
 import shutil
 import sys
 import tempfile
 from collections.abc import Callable
-from datetime import date, datetime, time, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 from pathlib import Path
 
 import polars as pl
 from huggingface_hub import list_repo_files
 
 from core.lines import line_ids, line_table, networks
+from core.periods import local_time
 from pipeline.aggregate import (
     aggregate,
     coverage_report,
     day_gaps,
+    day_hours,
     days,
     dropped,
     ends,
@@ -27,18 +30,30 @@ from pipeline.aggregate import (
     with_coords,
 )
 from pipeline.download import REPO, download
-from pipeline.raw import RawSource, day_tables, raw_gaps, remote_source, stop_rows
+from pipeline.raw import RawSource, day_tables, fchg_pass, raw_gaps, remote_source, stop_rows
 
-MONTH_FILES = ("aggregate", "lines", "ends", "networks", "stations", "meta", "days", "day_gaps")
+MONTH_FILES = (
+    "aggregate",
+    "lines",
+    "ends",
+    "networks",
+    "stations",
+    "meta",
+    "days",
+    "day_gaps",
+    "day_hours",
+)
 AGGREGATE_ORDER = ("month", "eva", "weekday", "hour", "gruppe", "bucket")
 DAYS_ORDER = ("day", "eva", "gruppe", "bucket")
+DAY_HOURS_ORDER = ("day", "hour", "eva", "gruppe", "bucket")
 # About one day's rows (24.5 M rows over 822 days), so a one-day filter skips the other row groups.
 # ponytail: no test reads the row groups (neither Polars nor an installed library exposes them);
 # the evidence is the /tageskarte memory measurement in docs/day-history.md §5
 DAYS_ROW_GROUP = 50_000
 
 
-DAY_FILES = ("days", "hours")  # `day_gaps` is rewritten for every raw day on each update
+# `day_gaps` is rewritten for every raw day on each update
+DAY_FILES = ("days", "hours", "day_hours")
 # A raw day D is complete once a snapshot from after the start of D+1 at this hour exists (the
 # stored times are UTC), so its late trains are settled.
 SETTLED_HOUR = 6
@@ -69,6 +84,7 @@ def process(src: Path, month: str, out: Path) -> str:
         "meta": meta(lf, month),
         "days": days(lf),
         "day_gaps": day_gaps(lf, month),
+        "day_hours": day_hours(lf),
     }
     for name, df in tables.items():
         df.write_parquet(tmp / f"{name}.parquet")
@@ -80,12 +96,13 @@ def process(src: Path, month: str, out: Path) -> str:
 def process_day(day: date, files: list[Path], boundary: datetime, out: Path) -> str:
     """Write a raw day's tables to `out` via a temporary sibling, like `process`; returns a note."""
     rows = stop_rows(files)
-    day_days, hours = day_tables(rows, day, boundary)
+    day_days, hours, hour_days = day_tables(rows, day, boundary)
     tmp = out.with_name(f"{out.name}.tmp")
     shutil.rmtree(tmp, ignore_errors=True)
     tmp.mkdir(parents=True)
     day_days.write_parquet(tmp / "days.parquet")
     hours.write_parquet(tmp / "hours.parquet")
+    hour_days.write_parquet(tmp / "day_hours.parquet")
     shutil.rmtree(out, ignore_errors=True)
     tmp.rename(out)
     return f"{rows.height} stops, {day_days['n'].sum()} counted"
@@ -153,10 +170,8 @@ def update_days(data_dir: Path, raw: RawSource) -> None:
             out = days_dir / day.isoformat()
             if not _day_done(out):
                 before, own, following = (raw.files(day + n * step) for n in (-1, 0, 1))
-                # The newest file may hold no `fchg` (a run whose requests failed): look back.
-                stamps = (raw.last_fchg(k) for k in reversed(following))
-                newest = next((t for t in stamps if t is not None), None)
-                if newest is None or newest <= datetime.combine(day + step, time(SETTLED_HOUR)):
+                newest = newest_fchg(raw, following)
+                if newest is None or newest[1] <= datetime.combine(day + step, time(SETTLED_HOUR)):
                     break
                 if not own:
                     print(f"{day}: no raw files in its own folder (the source lost the day)")
@@ -170,6 +185,46 @@ def update_days(data_dir: Path, raw: RawSource) -> None:
     _write_gaps(days_dir)
 
 
+def newest_fchg(raw: RawSource, keys: list[str]) -> tuple[str, datetime] | None:
+    """The newest of `keys` (in time order) with a `fchg` snapshot, and that snapshot's time
+    (naive UTC). The newest file may hold none (a run whose requests failed): look back."""
+    stamps = ((k, raw.last_fchg(k)) for k in reversed(keys))
+    return next(((k, t) for k, t in stamps if t is not None), None)
+
+
+def update_rest(data_dir: Path, raw: RawSource, now: datetime) -> None:
+    """Write `heute_rest.parquet`: the local day of `now` so far, from the raw files of the UTC
+    folders before it and of its own. `day_hours` of the stops planned on the day at the stations
+    that answered in the newest `fchg` pass, only the hours before the local hour the pass
+    started, plus that start as `stand` (UTC); like the live collector's run start, the stops of
+    the hour the pass started in are not settled. No pass of the day yet gives no rows, so an
+    earlier file never stays.
+    ponytail: every update downloads both UTC folders again (about 2 x 160 MB); keep them in a
+    local cache if updates run often."""
+    day = local_time(now).date()
+    keys = raw.files(day - timedelta(days=1)) + raw.files(day)
+    newest = newest_fchg(raw, keys)
+    stand, cut, answered = None, 0, set[str]()
+    with tempfile.TemporaryDirectory() as tmp:
+        files: dict[str, Path] = {}
+        if newest and local_time(newest[1].replace(tzinfo=UTC)).date() == day:
+            files[newest[0]] = raw.fetch(newest[0], Path(tmp))
+            start, answered = fchg_pass(files[newest[0]])
+            stand = start.replace(tzinfo=UTC) if start else None
+            seen = local_time(stand) if stand else None
+            cut = seen.hour if seen and seen.date() == day else 0
+        paths = [files.get(k) or raw.fetch(k, Path(tmp)) for k in keys] if cut else []
+        rows = stop_rows(paths)
+    today = rows.sort("time", "id").lazy().filter(pl.col("arrival_planned_time").dt.date() == day)
+    keep = pl.col("eva").is_in(sorted(answered))
+    rest = day_hours(today).filter(pl.col("hour") < cut, keep)
+    out = data_dir / "heute_rest.parquet"
+    tmp_out = out.with_name(f"{out.name}.tmp")
+    rest.with_columns(stand=pl.lit(stand, pl.Datetime("us", "UTC"))).write_parquet(tmp_out)
+    os.replace(tmp_out, out)
+    print(f"{day} so far: {rest['n'].sum()} stops before {cut:02d}:00 from raw, stand {stand}")
+
+
 def _read(dirs: list[Path], name: str) -> pl.DataFrame:
     """One table over all months, with `month` from the folder name where the table has none."""
     frames = [pl.read_parquet(d / f"{name}.parquet") for d in dirs]
@@ -181,7 +236,7 @@ def _read(dirs: list[Path], name: str) -> pl.DataFrame:
 
 def combine(data_dir: Path) -> None:
     """Write the files the API reads from all complete month folders; the day tables (`days`,
-    `tage`) also take the raw days after the last month."""
+    `day_hours`, `tage`) also take the raw days after the last month."""
     dirs = sorted(d for d in (data_dir / "months").glob("????-??") if _complete(d))
     raw_dirs = _raw_dirs(data_dir)
     aggregates = [d / "aggregate.parquet" for d in dirs]
@@ -198,6 +253,14 @@ def combine(data_dir: Path) -> None:
         .select("day", "gruppe", "eva", "bucket", "n")
         .sort(DAYS_ORDER, nulls_last=True)
         .sink_parquet(data_dir / "days.parquet", row_group_size=DAYS_ROW_GROUP)
+    )
+    (
+        pl.scan_parquet([d / "day_hours.parquet" for d in [*dirs, *raw_dirs]])
+        .group_by(DAY_HOURS_ORDER)
+        .agg(pl.col("n").sum())
+        .select("day", "hour", "gruppe", "eva", "bucket", "n")
+        .sort(DAY_HOURS_ORDER, nulls_last=True)
+        .sink_parquet(data_dir / "day_hours.parquet", row_group_size=DAYS_ROW_GROUP)
     )
     pl.concat(pl.read_parquet(d / "day_gaps.parquet") for d in [*dirs, *raw_dirs]).sort(
         "day"
@@ -238,7 +301,10 @@ def update(
     remote_months: Callable[[], list[str]],
     fetch: Callable[[str], Path],
     raw: RawSource | None = None,
+    now: Callable[[], datetime] | None = None,
 ) -> None:
+    """`now` (aware) enables the partial current day from `raw`, written last: its downloads
+    failing never keeps the complete days from being combined."""
     coords = data_dir / "coords.parquet"
     if not coords.exists():
         sys.exit(f"Missing {coords}: run `uv run python -m pipeline.coords` first")
@@ -251,6 +317,8 @@ def update(
     if raw:
         update_days(data_dir, raw)
     combine(data_dir)
+    if raw and now:
+        update_rest(data_dir, raw, now())
 
 
 def remote_months() -> list[str]:
@@ -262,7 +330,13 @@ def remote_months() -> list[str]:
 def main(argv: list[str]) -> None:
     if argv:
         sys.exit("usage: python -m pipeline.update")
-    update(Path("data"), remote_months, lambda month: Path(download(month)), remote_source())
+    update(
+        Path("data"),
+        remote_months,
+        lambda month: Path(download(month)),
+        remote_source(),
+        lambda: datetime.now(UTC),
+    )
 
 
 if __name__ == "__main__":

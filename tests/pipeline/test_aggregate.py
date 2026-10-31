@@ -9,6 +9,7 @@ from pipeline.aggregate import (
     aggregate,
     clean,
     day_gaps,
+    day_hours,
     days,
     dropped,
     lines,
@@ -245,6 +246,25 @@ def test_days_are_sorted_with_nulls_last(source: pl.DataFrame):
     out = days(source.lazy())
     assert out.equals(out.sort("day", "eva", "gruppe", "bucket", nulls_last=True))
     assert out.filter(pl.col("eva") == "1")["bucket"].to_list()[-1] is None
+
+
+def test_day_hours_sum_over_the_hour_to_days(source: pl.DataFrame):
+    out = day_hours(source.lazy())
+    assert out.schema == pl.Schema(
+        {
+            "day": pl.Date,
+            "hour": pl.Int8,
+            "gruppe": pl.String,
+            "eva": pl.String,
+            "bucket": pl.Int32,
+            "n": pl.UInt32,
+        }
+    )
+    assert out.equals(out.sort("day", "hour", "eva", "gruppe", "bucket", nulls_last=True))
+    assert out["hour"].unique().to_list() == [8]
+    keys = ["day", "eva", "gruppe", "bucket"]
+    summed = out.group_by(keys).agg(pl.col("n").sum()).select(days(source.lazy()).columns)
+    assert summed.sort(keys, nulls_last=True).equals(days(source.lazy()))
 
 
 def test_day_gaps_has_one_row_per_day_and_adds_up_to_meta():
