@@ -6,12 +6,15 @@ Turns the monthly source files from `piebro/deutsche-bahn-data` into compact tab
 
 The current month, which has no monthly file yet, is covered for the day views only: the days after the last monthly file are built from the source's raw Timetables responses, up to the last complete day (§2, "Raw days"). The month views never use them.
 
+Today so far comes from two places: `pipeline.update` writes the current day from the raw responses as far as they reach (§2, "Today so far"), and the collector `pipeline.live` asks the DB Timetables API for the large stations every 15 minutes (§2, "Live collector"). An hour table (the day histogram per planned arrival hour) lets the API cut the reference days at the hour today has reached. How the map uses them is in [day-history.md](day-history.md).
+
 ## 2 Spec
 
 Commands (from the repo root):
 
 - `uv run python -m pipeline.coords` runs one SPARQL query against Wikidata and writes `data/coords.parquet`. Needs network access; run it once and again to refresh.
-- `uv run python -m pipeline.update` is the one command for the data. It lists the monthly files on HuggingFace, downloads and processes every month whose folder `data/months/YYYY-MM/` is missing or incomplete, then processes the complete raw days after the last month (see "Raw days"), and then combines everything. A second run downloads no month again (AC-1) and no raw day that is done. It reads `data/coords.parquet` and aborts before fetching anything if the file is missing, so run `pipeline.coords` first.
+- `uv run python -m pipeline.update` is the one command for the data. It lists the monthly files on HuggingFace, downloads and processes every month whose folder `data/months/YYYY-MM/` is missing or incomplete, then processes the complete raw days after the last month (see "Raw days"), then combines everything, and last writes today so far (see "Today so far"). A second run downloads no month again (AC-1) and no raw day that is done. It reads `data/coords.parquet` and aborts before fetching anything if the file is missing, so run `pipeline.coords` first.
+- `uv run python -m pipeline.live` makes one run of the live collector for the large stations (see "Live collector"); it needs the DB API key in the environment.
 - `uv run python -m pipeline.download YYYY-MM` downloads one monthly file into `data/raw/`; `pipeline.update` calls it, you rarely need it directly.
 - `uv run python scripts/check_sample.py <source.parquet>` compares computed arrival delays against raw rows (spot check for AC-4, outside the gate).
 
@@ -19,7 +22,7 @@ After a change to the per-month logic (cleaning, line names, coverage rule) the 
 
 **Source schema.** The source must carry exactly the 23 known columns (`COLUMNS` in `pipeline/aggregate.py`). A missing or a new column aborts the run with a message that names it (AC-2).
 
-**Month folder** `data/months/YYYY-MM/`, written to a temporary sibling and renamed only when all eight files exist, so a crash never leaves a half-complete month (a folder from before the day tables lacks two of them and is processed again by the next run):
+**Month folder** `data/months/YYYY-MM/`, written to a temporary sibling and renamed only when all nine files exist, so a crash never leaves a half-complete month (a folder from before the day tables or the hour table lacks some of them and is processed again by the next run):
 
 | File | Keys |
 |---|---|
@@ -31,6 +34,7 @@ After a change to the per-month logic (cleaning, line names, coverage rule) the 
 | `meta.parquet` | `month`, `missing_hours`, `stations` |
 | `days.parquet` | `day`, `gruppe`, `eva`, `bucket`, `n` (the delay histogram per planned arrival day) |
 | `day_gaps.parquet` | `day`, `missing_hours`: one row per calendar day of the month, days without a gap included |
+| `day_hours.parquet` | `day`, `hour`, `gruppe`, `eva`, `bucket`, `n`: the `days` histogram per planned arrival hour as well (`hour` Int8) |
 
 **Raw days.** The source's `raw_data` folder (`raw_data/year=/month=/day=/…parquet`, one folder per UTC day, no zero padding) holds the raw DB Timetables API responses: `plan` and `fchg` as IRIS XML in `response_data`, with `url`, `api_name`, `status_code` and `timestamp` (naive UTC). The collector runs four times a day in blocks of six hours, and a pass over all stations takes about five minutes. A month is about 4.8 GB, about 160 MB a day. Licence as the monthly files (CC BY 4.0, Deutsche Bahn).
 
@@ -41,6 +45,7 @@ After a change to the per-month logic (cleaning, line names, coverage rule) the 
   |---|---|
   | `days.parquet` | `day`, `gruppe`, `eva`, `bucket`, `n`: the same histogram as a month's, for the stops planned on that day |
   | `hours.parquet` | `hour`, `rows`: the cleaned rows per local hour of `time` on that day, what the gap rule needs |
+  | `day_hours.parquet` | the month folder's hour table, for the stops planned on that day |
   | `day_gaps.parquet` | `day`, `missing_hours`: one row, rewritten for every raw day on each update |
 
 - **Superseded by the monthly file.** Once a month's folder under `data/months/` is complete, the raw day folders of that month are deleted and `combine` ignores them: the monthly file wins. The folder of the new first raw day is deleted and processed again too, because the boundary moved (see §3).
@@ -58,8 +63,26 @@ After a change to the per-month logic (cleaning, line names, coverage rule) the 
 | `monate.parquet` | `month`, `missing_hours`, `stations`: one row per month. The API requires it. |
 | `days.parquet` | `day`, `gruppe`, `eva`, `bucket`, `n`: the month files and the raw days summed per key (an edge day can sit in two of them, or in the last month and the first raw day), sorted by day, EVA, group and bucket, in row groups of `DAYS_ROW_GROUP` = 50,000 rows (about one day), so the API's one-day filter skips the others ([day-history.md](day-history.md) §3). |
 | `tage.parquet` | `day`, `missing_hours`: every calendar day from the first month to the last complete raw day, sorted. |
+| `day_hours.parquet` | `day`, `hour`, `gruppe`, `eva`, `bucket`, `n`: the hour table of the month files and the raw days, summed per key like `days.parquet`, sorted by day, hour, EVA, group and bucket, in row groups of `DAYS_ROW_GROUP` rows. Summed over the hour it equals `days.parquet`. The API reads it only for today, and the Azure deployment does not download it. |
 
 `aggregate.parquet`, `lines.parquet`, `linien.parquet`, `stations.parquet` and `monate.parquet` are built from the month folders only.
+
+**Today so far.** After `combine`, `pipeline.update` writes `data/heute_rest.parquet`, the current local day as far as the raw responses reach:
+
+- It reads the UTC folders of the day before and of today, the way a raw day does, and takes the newest file with a `fchg` pass. If that pass ended on an earlier local day, or there is none, the file gets zero rows and nothing is downloaded.
+- `stand` is the start of that pass (UTC), and the cut is the local hour of `stand`: only arrivals planned on today before that hour count, because the stops of the current hour are not settled.
+- Only the stations that answered that pass with a body count; a station whose request failed would otherwise keep older changes and look on time.
+- The content is `day_hours` of those stops plus the constant `stand`, written to a `.tmp` sibling and renamed. It is rewritten on every update and never becomes a folder in `data/days/`, so `combine` and the completeness rule do not see it. Because it runs last, a failing download of today's files never keeps the complete days from being combined.
+- It downloads both UTC folders again on every update (about 2 × 160 MB, deleted afterwards).
+
+**Live collector.** `pipeline.live` fetches today's state of the large stations from the DB Timetables API ([adr/0002-live-source.md](adr/0002-live-source.md)):
+
+- **Running it.** Register an application in the DB API Marketplace (plan "Free") and put its two values into the environment, `DB_CLIENT_ID=<client id>` and `DB_API_KEY=<api key>`, kept in an environment file outside the repository; the key is never committed, and the gate's secret scan covers the repository. Then `uv run python -m pipeline.live`. One call is one run and prints one line: the day and the cut, the requests and how many failed, how many stations are ready, and whether the deadline or HTTP 429 stopped it. The line never contains the key. For a fresh today, call it every 15 minutes, by cron or by a loop in the shell. It needs `data/monate.parquet` and `data/months/` from `pipeline.update`, and the `pipeline` dependency group.
+- **Stations.** The EVAs of the last month before full coverage (`core.periods.full_coverage_start`): 131 stations, the ones the source had before it took every station in.
+- **A run.** First `fchg` for every station, then the missing `plan` slices of today before the current hour, station by station, then the slices of the current hour and the next three for all stations. Every slice is fetched once a day. HTTP 429 ends the run's requests; other errors, empty bodies and unparsable XML skip that request, and a skipped slice is asked for again next run. The state and the output are written in any case.
+- **Rate.** One request per second at most, so never more than the documented 60 a minute; on average about 11 a minute (131 changes per run plus 24 slices per station and day). No request starts later than 12 minutes after the run's start, so runs every 15 minutes do not overlap unless one request hangs for its 30-second timeout.
+- **State** in `data/live/YYYY-MM-DD/`: `plan.parquet`, `fchg.parquet` and `slices.parquet`; the XML is parsed with the raw days' rules (`pipeline.raw.parse` and `merge`) and dropped. Folders older than yesterday are deleted.
+- **Output** `data/heute.parquet`: `day_hours` of today's arrivals before the last full hour of the run's start, at the stations whose changes came in this run and whose slices before that hour are all in, plus the run's start as `stand` (UTC). It is written to a `.tmp` sibling and renamed. Before 01:00, or when every request failed, it has zero rows.
 
 ## 3 Decisions
 
@@ -105,19 +128,23 @@ After a change to the per-month logic (cleaning, line names, coverage rule) the 
 - **Equivalence with the monthly file was checked on four past days** (see the milestone). Reason: the product owner wanted exact or a stated cause before any tolerance.
 - **Timetable changes are marked, not split.** `core.periods.timetable_changes` returns the Sunday after the second Saturday of December (2024-12-15, 2025-12-14, 2026-12-13). The API lists those inside the data range and trains keep one key across years. Reason: product owner's choice (SPEC O6); splitting statistics per timetable period comes with the planner, where train numbers matter.
 - **Full coverage starts where the station count jumps.** `core.periods.full_coverage_start` returns the first month with at least half as many stations as the largest month. The source has about 135 stations per month until 2025-10 and about 5,2xx from 2025-11, so it returns 2025-11. Reason: views default to the period where "nationwide" is true.
-- **Output size over 27 months:** `aggregate.parquet` 60.8 MB, `lines.parquet` 10.9 MB, `linien.parquet` 0.2 MB, `stations.parquet` 0.1 MB, `monate.parquet` under 0.1 MB. The per-day histogram adds about 36 MB over 27 months (measured on 2025-06 and 2026-09); the real file is 36.7 MB, 0.3 % more with the row groups ([day-history.md](day-history.md) §5). The 2 GB limit of AC-3 is far away, so no watchlist fallback is needed.
+- **The hour table is `days` with the planned arrival hour in the keys** (`day_hours`, both through `_per_day`), over all days. Reason: the reference days of today are cut at the hour today has reached, with all four metrics ([adr/0002-live-source.md](adr/0002-live-source.md)). `days.parquet` stays as it is, so the existing day views are unchanged.
+- **The live collector and the partial day reuse the raw days' parser.** `stop_rows` is `parse` (fold one response into the `plan` and `fchg` dicts) plus `merge` (dicts to stop rows); the collector calls both steps, so live, raw and partial days follow one set of rules. The decisions about today (the cut, the deadline, which stations count, `stand`) are in [day-history.md](day-history.md) §3.
+- **Local time comes from `core.periods.local_time`** (Polars' time zone rules), not from `zoneinfo`. Reason: Windows has no `tzdata`, and no package is added for it.
+- **Output size over 27 months:** `aggregate.parquet` 60.8 MB, `lines.parquet` 10.9 MB, `linien.parquet` 0.2 MB, `stations.parquet` 0.1 MB, `monate.parquet` under 0.1 MB. The per-day histogram adds about 36 MB over 27 months (measured on 2025-06 and 2026-09); the real file is 36.7 MB, 0.3 % more with the row groups ([day-history.md](day-history.md) §5). The hour table `day_hours.parquet` is 231 MB with the raw days up to 2026-10-30 (106.0 million rows). The 2 GB limit of AC-3 is far away, so no watchlist fallback is needed.
 
 ## 4 Architecture and data keys
 
-- `pipeline/aggregate.py`: per-month tables from one source file, read lazily with Polars. `check_schema` validates, `clean` applies the cleaning, and `aggregate`, `lines`, `ends`, `month_networks`, `stations`, `meta`, `days` and `day_gaps` build the eight month tables. `with_coords` and `coverage_report` serve the combine step.
-- `pipeline/update.py`: `update` walks the remote months and calls `process` for each incomplete one, then `update_days` for the raw days, then `combine`. The downloader, the list of remote months and the raw source (`RawSource`: list a UTC day's files, read the newest `fchg` time of a file, download a file) are passed in, so tests run it with fakes that count their calls. `combine` writes the seven combined files; `MONTH_FILES` lists the month tables, so a month folder without one of them counts as incomplete. `update_days` deletes leftover `.tmp` folders and the day folders of complete months (the new first day first), then walks from the first day after the last month to the first incomplete day; `process_day` writes one folder, `_write_gaps` re-judges all of them, `_raw_dirs` lists the folders `combine` adds (`DAY_FILES`: `days`, `hours`; `SETTLED_HOUR` = 6).
-- `pipeline/raw.py`: `stop_rows` parses `plan` and `fchg` into one row per stop id in the monthly schema; `day_tables` returns `days` and `hours` of one day; `raw_gaps` returns the missing hours per raw day through `hour_table`; `remote_source` is the real `RawSource` (the HuggingFace listing per day folder, a remote read of the two columns `api_name` and `timestamp`, the download).
-- `core/lines.py`, `core/periods.py`, `core/delay.py`, `core/holidays.py`: the pure parts (line names, end-station spelling and networks, timetable changes and coverage start, the delay and plausibility rules, the nationwide public holidays: fixed dates plus the Easter-based ones, no library; regional holidays are not included).
+- `pipeline/aggregate.py`: per-month tables from one source file, read lazily with Polars. `check_schema` validates, `clean` applies the cleaning, and `aggregate`, `lines`, `ends`, `month_networks`, `stations`, `meta`, `days`, `day_gaps` and `day_hours` build the nine month tables (`days` and `day_hours` share `_per_day`). `with_coords` and `coverage_report` serve the combine step.
+- `pipeline/update.py`: `update` walks the remote months and calls `process` for each incomplete one, then `update_days` for the raw days, then `combine`, then (when `main` passes a clock) `update_rest` for today so far. The downloader, the list of remote months and the raw source (`RawSource`: list a UTC day's files, read the newest `fchg` time of a file, download a file) are passed in, so tests run it with fakes that count their calls. `combine` writes the eight combined files; `MONTH_FILES` lists the month tables, so a month folder without one of them counts as incomplete. `update_days` deletes leftover `.tmp` folders and the day folders of complete months (the new first day first), then walks from the first day after the last month to the first incomplete day; `process_day` writes one folder, `_write_gaps` re-judges all of them, `_raw_dirs` lists the folders `combine` adds (`DAY_FILES`: `days`, `hours`, `day_hours`; `SETTLED_HOUR` = 6). `newest_fchg` finds the newest file with a `fchg` snapshot, looking back past files without one, for `update_days` and `update_rest`; `update_rest` writes `heute_rest.parquet`.
+- `pipeline/raw.py`: `stop_rows` parses `plan` and `fchg` into one row per stop id in the monthly schema, as `parse` (one response into the dicts) and `merge` (the dicts into rows); `fchg_pass` gives a file's `fchg` pass start and the stations that answered with a body; `day_tables` returns `days`, `hours` and `day_hours` of one day; `raw_gaps` returns the missing hours per raw day through `hour_table`; `remote_source` is the real `RawSource` (the HuggingFace listing per day folder, a remote read of the two columns `api_name` and `timestamp`, the download).
+- `pipeline/live.py`: the live collector (`run`, `large_stations`, `main`; see §2, "Live collector").
+- `core/lines.py`, `core/periods.py`, `core/delay.py`, `core/holidays.py`: the pure parts (line names, end-station spelling and networks, timetable changes, coverage start and German local time, the delay and plausibility rules, the nationwide public holidays: fixed dates plus the Easter-based ones, no library; regional holidays are not included).
 - `data/coords.parquet`: `ibnr`, `lat`, `lon`, `land`, one row per IBNR for the whole of Wikidata (not only Germany). The join strips the leading zero of our EVA (`08000207` to `8000207`) with `core.stations.ibnr_expr`. An EVA without a match takes the coordinates of the one located station with exactly the same name (secondary EVAs such as S-Bahn platforms). Details and the source decision: [adr/0001-station-coordinates.md](adr/0001-station-coordinates.md).
 - `data/stations.parquet`: `n` is all stops of the EVA in the source, arrival stops with cancelled ones included; it ranks search results and sizes map dots. `lat`, `lon` and `land` are NULL where Wikidata has no match or no state.
 - Coverage report, printed by the combine step: named stations with coordinates (number and share), the share of stops that belong to them, and the unmatched named stations with the most stops. Over 27 months: 5,418 of 5,419 named stations (100.0 %, as the report rounds it). Unmatched: Trebitz (b Könnern), one stop, no Wikidata item.
 - The source also contains `xml_station_name`, `id`, `is_additional_stop`, the departure columns and more; most are not used yet.
-- Time zone: Europe/Berlin, as in the source; times are not converted.
+- Time zone: Europe/Berlin, as in the source; the stop times are not converted. The request times (`timestamp` of the raw files, the collector's clock) are UTC; where they decide a local day or hour (today, the cut), `core.periods.local_time` converts them.
 
 ## 5 Milestones
 
@@ -160,6 +187,8 @@ After a change to the per-month logic (cleaning, line names, coverage rule) the 
     - **Real run with three folders**, the same 29 days: about 32 minutes (about 70 s a day for downloading and parsing three folders, 1.3 to 1.7 million stops per day, plus `combine`), 29 folders in `data/days/`, `data/days.parquet` 39.5 MB (36.7 MB before; 26.4 million rows), the last day in `data/tage.parquet` 2026-10-29. No gap day in October. Rows in hour 0 per raw day: median 9,851 (minimum 9,385), against a median of 10,237 (minimum 9,291) in September's monthly file. The daily trend reaches the newest day for all four metrics, nationwide and for Köln Hbf (before, it ended on 2026-10-22).
     - **Time**, `/tageskarte?tag=2026-10-29` (5,023 stations, 1.55 MB) cold 0.63 s and warm 42 ms; `/tagesverlauf` nationwide (851 days) cold 0.46 s and warm 8 ms; test client over the real data, one thread (measured on the first run; the rerun did not change the data's size).
 
+- [x] Hour table and today so far – the day histogram per hour, the partial current day from the raw responses and the live collector. Re-check: `uv run pytest -q`, in particular `tests/pipeline/test_aggregate.py` (`test_day_hours_sum_over_the_hour_to_days`), `tests/pipeline/test_update.py` (`test_day_hours_sum_an_edge_day_and_add_up_to_days`, `test_day_hours_take_the_raw_days_too`), `tests/pipeline/test_rest.py`, `tests/pipeline/test_live.py` and `tests/core/test_periods.py` (`test_local_time_is_naive_german_time_in_winter_summer_and_the_doubled_hour`); `tests/pipeline/test_raw.py` passes unchanged after the split into `parse` and `merge`. The test names and the real-data figures are in [day-history.md](day-history.md) §5; the run with the real DB key is a platform check there (§6).
+
 ## 6 Platform checks
 
 - `uv`; paths use forward slashes in code and commands, so the commands run the same on Windows, macOS and Linux.
@@ -193,6 +222,7 @@ None.
 - **Raw downloads are not kept.** A day's raw files are downloaded again if its folder is lost or the parse logic changes (`ponytail:` comment in `update_days`); keeping them would cost about 250 MB a day. After a change to the parsing, delete `data/days/` and run `pipeline.update` again.
 - **An empty folder after a day stalls the later days.** If the source loses a whole UTC day, the folder of D+1 is empty, the completeness check never passes and no day after D is processed until the folder appears or the monthly file arrives (`ponytail:` comment in `update_days`). A day whose own folder is empty is processed from its neighbours and prints a warning; the gap rule flags it. Skipping over an empty folder needs a rule for the day after.
 - `combine` fails when no month folder is complete; it only happens if the remote list is empty.
+- The shortcuts of today (the partial day's repeated download, the collector's catch-up, its frozen station list and whole-state rewrite) are listed in [day-history.md](day-history.md) §8.
 - The spot check script runs on demand, not in the gate.
 - `pipeline.coords` is not run by tests or the gate (it needs the network); only its parser is tested, on canned JSON.
 - The end-station spelling fix is a regex. Variants such as "Bahnhof, Arnsberg" stay separate; map destinations to station EVAs if they show in labels.

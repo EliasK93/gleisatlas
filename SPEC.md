@@ -43,10 +43,10 @@ Timetable apps (bahn.de, DB Navigator) optimise for the connection that is *sche
 |---|---|
 | **v0.1 – Pattern analysis** | Data pipeline (nationwide), aggregates, dashboard for patterns (weekday, time, line, station, train category), cancellation vs. delay analysis. Runs locally. |
 | **v0.2 – Deployment** | v0.1 deployed on Azure, data update reproducible. |
-| **v0.3 – Day-level history** | Daily time series in place of the monthly one; the map for one past day against the normal for that weekday, drawn as a weather map (Germany, then Bundesländer, then stations); a line detail page with "Zeitfresser" sections and a graphic timetable (Bildfahrplan) for one day, planned against actual, as the visual form of delay propagation. Deployed. |
+| **v0.3 – Day-level history** | Daily time series in place of the monthly one; the map for one past day against the normal for that weekday, drawn as a weather map (Germany, then Bundesländer, then stations); a line detail page with "Zeitfresser" sections and a graphic timetable (Bildfahrplan) for one day, planned against actual, as the visual form of delay propagation. "Bahnwetter": the day map for today, refreshed every 15 minutes for the large stations, the rest from the community dataset's raw data. Deployed. |
 | **v1.0 – Connection comparison** | Start/destination/time window → connections with arrival distribution, transfer risk, transfer recommendation. Deployed. |
 | **v1.x – Optional features** | Depending on time: weather correlation (on the daily time series), comparison with official DB statistics. |
-| **v2 – Live situation** | Current delay of a concrete trip today + transfer risk in real time; "Bahnwetter": the day map for today. |
+| **v2 – Live situation** | Current delay of a concrete trip today + transfer risk in real time. |
 
 ### 3.2 In scope (v0.1–v1.0)
 
@@ -62,8 +62,8 @@ Timetable apps (bahn.de, DB Navigator) optimise for the connection that is *sche
 
 ### 3.3 Non-goals (deliberately not in v1)
 
-- **No live/real-time data** for the current trip (→ v2). The architecture must not rule it out, though (the connection engine should later be able to accept a "current delay" as input).
-- **No own data collector** against DB APIs as long as the community dataset stays current (see 4.1). Fallback option if the dataset goes stale.
+- **No live/real-time data** for a concrete trip (→ v2). The architecture must not rule it out, though (the connection engine should later be able to accept a "current delay" as input).
+- **No own data collector** against DB APIs beyond the one for today's state at the large stations ([ADR 0002](docs/adr/0002-live-source.md)). A full collector stays a fallback if the community dataset goes stale (see 4.1).
 - No public transport (subway, tram, bus), no walking paths between stations, no transport-association data.
 - No prices, no booking, no ticket logic.
 - No user accounts, no multi-user, no push notifications.

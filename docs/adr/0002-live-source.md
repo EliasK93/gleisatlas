@@ -1,10 +1,10 @@
 # ADR 0002: A live source for today
 
-Status: proposed (spike: research and measurements, no code)
+Status: accepted (based on a spike: research and measurements)
 
 ## Context
 
-The day map ([day-history.md](../day-history.md)) reaches up to the last day of the monthly files; the current month comes from piebro's raw data, up to yesterday from about midday, at worst the day before (a day is complete only with the first run after 06:00 UTC the next day). The product owner wants the map to reach today, refreshed every 10 to 15 minutes, compared with the same hours of the reference days. piebro's collector is scheduled four times a day ([workflow](https://github.com/piebro/deutsche-bahn-data/blob/main/.github/workflows/fetch_and_upload_data.yml), cron `17 3,9,15,21 * * *` UTC), but the runs start hours late or are dropped: 3 to 6 runs per UTC day, and in October 2026 the data was up to about 10 hours behind (observed run starts on 2026-10-28, UTC: 00:31, 01:00, 09:37, 20:14). Anything fresher needs an own collector against the DB Timetables API, which SPEC §3.3 rules out before v2. This record prepares that decision.
+The day map ([day-history.md](../day-history.md)) reaches up to the last day of the monthly files; the current month comes from piebro's raw data, up to yesterday from about midday, at worst the day before (a day is complete only with the first run after 06:00 UTC the next day). The product owner wants the map to reach today, refreshed every 10 to 15 minutes, compared with the same hours of the reference days. piebro's collector is scheduled four times a day ([workflow](https://github.com/piebro/deutsche-bahn-data/blob/main/.github/workflows/fetch_and_upload_data.yml), cron `17 3,9,15,21 * * *` UTC), but the runs start hours late or are dropped: 3 to 6 runs per UTC day, and in October 2026 the data was up to about 10 hours behind (observed run starts on 2026-10-28, UTC: 00:31, 01:00, 09:37, 20:14). Anything fresher needs an own collector against the DB Timetables API, which SPEC §3.3 rules out before v2. This record decides it.
 
 ## The Timetables API
 
@@ -103,28 +103,44 @@ Rough estimate, not measured: collector (fetch, XML parsing, joining `fchg` onto
 - **Second EVAs and empty answers** (Berlin Hbf above, about 290 empty bodies and 28 errors per pass): the large-station list must be checked against `fchg`, not taken from names.
 - **Secret handling**: the API key goes into a Container Apps secret or the VPS's environment file; the gate's secret scan covers the repository.
 - **Cost on Azure**: the job takes most of the free grant; the budget alerts ([deployment.md](../deployment.md)) stay the protection.
-- **SPEC §3.3** changes: an own collector moves forward from v2.
 
-## Options for the product owner
+## Options considered
 
-Scope, recommended first:
+Scope:
 
 1. **Own collector for the ≈131 large stations every 15 minutes; the other stations from piebro's raw data (up to about 10 hours behind).** About 11 requests per minute, within the documented limit; the map shows two freshness levels and must say so.
 2. **All 5,461 stations every 15 minutes.** About 455 requests per minute, only while DB does not enforce 60 per minute or after DB grants a higher quota in writing.
 3. **No own collector; today from piebro's raw data only.** No registration and no new hosting, but "today" is up to about 10 hours behind and refreshed 3 to 6 times a day, at irregular times.
 4. **Up to about 700 stations every 15 minutes within 60 per minute.** More of the map is fresh within the terms, but the `plan` slices still cap it and the choice of stations needs a rule.
 
-Hosting, recommended first:
+Hosting:
 
 1. **A VPS with cron, together with the API's move there.** No extra cost, today's file is read like every other file; only once the VPS exists.
 2. **Azure Container Apps job with a blob re-download in the API.** Works with today's deployment; takes about 84 % of the free grant at 60 requests per minute.
 3. **GitHub Actions.** Free on a public repository, but runs can be delayed or dropped.
 
-Hour table, recommended first:
+Hour table:
 
 1. **Day × hour histogram for the last 12 weeks plus today, about 26 MB.** All four metrics; the history stays in `days.parquet`.
 2. **Day × hour histogram over all days, about 115 to 120 MB.** All four metrics for any past day cut at any hour; three times the data to download at container start.
 3. **Day × hour counts, about 80 MB.** Smaller rows, but no median or P90.
+
+## Decision
+
+- **Scope: an own collector for the ≈131 large stations** (option 1): `fchg` every 15 minutes plus the 24 `plan` slices a day, about 11 requests per minute, within the documented 60. All other stations keep coming from piebro's raw data, up to about 10 hours behind. The map shows two freshness levels and says so. Reason: it stays within the documented limit, which is not enforced today but may be.
+- **Hosting: a VPS with cron**, on the same machine as the API, writing `heute.parquet` into `data/`. It ships with the API's move to the VPS; until then the collector runs locally. Reason: no extra cost, no grant to watch, and the API reads today's file like every other file. The Azure job and GitHub Actions are not chosen, for the reasons above.
+- **Hour table: the day × hour histogram over all days**, about 115 to 120 MB, all four metrics, any past day cut at any hour. Reason: the reference days of any day can be cut at any hour, not only the last 12 weeks. Azure does not download it, because Azure has no today; on the VPS it sits on disk.
+- **The key:** the product owner registers the DB API Marketplace account. The key stays outside the repository, in a local environment file and later in the VPS's environment file.
+
+## Consequences
+
+- SPEC §3.3 allows an own collector for today's state at the large stations; a full collector stays a fallback if the community dataset goes stale.
+- The map has two freshness levels: the large stations refreshed every 15 minutes, the rest up to about 10 hours behind. It shows the time of the data.
+- "Today" appears on the deployed site only after the move to the VPS.
+- The hour table is the largest data file: 231 MB on the real data, about six times the day table and twice the estimate above ([day-history.md](../day-history.md) §5).
+- When the collector fails, its stations fall back to piebro's raw data of today, and without that the map falls back to the last complete day. DB may block or change the API without notice (§ 7), and the product is labelled beta.
+- Live values and piebro's later monthly values come from different collectors, so a day can shift a little when the monthly file replaces it.
+- The API key is handled by the product owner outside the repository; the gate's secret scan covers the repository.
 
 ## Reproduce
 

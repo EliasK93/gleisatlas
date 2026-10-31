@@ -83,13 +83,14 @@ Parameters: `budgetEmail`, `budgetStartDate` and `budgetAmount` (all required), 
 | `POLARS_MAX_THREADS` | API, set by Bicep | `1` |
 | `LOG_FILE` | API, local only | a path for a timestamped copy of the request lines; unset on Azure |
 | `AGGREGATE_PATH`, `STATIONS_PATH`, `MONATE_PATH`, `LINES_PATH`, `LINIEN_PATH`, `DAYS_PATH`, `TAGE_PATH` | API | default `data/<name>.parquet`; `backend.fetch` downloads to the same paths |
+| `DAY_HOURS_PATH`, `HEUTE_PATH`, `HEUTE_REST_PATH` | API, local only | default `data/day_hours.parquet`, `data/heute.parquet`, `data/heute_rest.parquet`; not downloaded, so the deployed API has no today ([day-history.md](day-history.md)) |
 | `VITE_API_URL` | frontend build | the `apiUrl` output, set by the deploy script |
 | `VITE_IMPRESSUM_NAME`, `…_STREET`, `…_CITY`, `…_EMAIL` | frontend build | the provider's details; while one is empty, `/impressum` reads "Angaben folgen." |
 
 **Data flow**
 
 1. `pipeline.update` builds `data/*.parquet` locally ([pipeline.md](pipeline.md)).
-2. The deploy script uploads the seven files the API reads (`aggregate`, `stations`, `monate`, `lines`, `linien`, `days`, `tage`) to the container `data`. `coords.parquet`, `raw/` and `months/` stay local.
+2. The deploy script uploads the seven files the API reads (`aggregate`, `stations`, `monate`, `lines`, `linien`, `days`, `tage`) to the container `data`. `coords.parquet`, `raw/`, `months/` and `days/` stay local, and so do the files of today (`day_hours.parquet`, `heute.parquet`, `heute_rest.parquet`, `live/`): Azure has neither the collector nor the raw data, so it never has a today.
 3. At container start `python -m backend.fetch` downloads `DATA_URL + <file name>` for each file, then uvicorn starts with `--no-access-log`.
 4. The browser loads the web app from Static Web Apps, calls the API at `VITE_API_URL` (CORS allows the web app's origin) and loads tiles, style and fonts from `tiles.openfreemap.org`.
 
