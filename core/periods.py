@@ -1,7 +1,16 @@
-"""Calendar facts about the data: timetable changes and the start of full station coverage."""
+"""Calendar facts about the data: German local time, timetable changes and the start of full
+station coverage."""
 
 from collections.abc import Mapping
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
+
+import polars as pl
+
+
+def local_time(t: datetime) -> datetime:
+    """The naive Europe/Berlin time of an aware instant, the clock the source's times use. Polars
+    carries the time zone rules; Python's zoneinfo would need the tzdata package on Windows."""
+    return pl.Series([t]).dt.convert_time_zone("Europe/Berlin").dt.replace_time_zone(None).item()
 
 
 def timetable_changes(first: date, last: date) -> list[date]:
