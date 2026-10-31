@@ -23,6 +23,7 @@ All views are addressable through hash/path routes with query parameters → **s
 | Area | Page | Route (example) |
 |---|---|---|
 | Discover ("Entdecken") | **Map** (start page) | `/karte?k=puenktlich&z=6/51.1/10.4&g=nah` |
+| Discover | Live-Lage (the map for one day) | `/lage?tag=2026-09-15` |
 | Discover | Station detail | `/bahnhof/8000105?von=2025-11&bis=2026-09` |
 | Discover | Weekday × hour | `/muster/heatmap?bhf=8000105&g=fern` |
 | Discover | Rankings | `/muster/rankings?typ=linien&min_n=200` |
@@ -38,6 +39,7 @@ All views are addressable through hash/path routes with query parameters → **s
 [🔍 Bahnhof suchen …   ⌘K]       ← global search, opens the command palette
 ENTDECKEN
   ◉ Karte                         ← start page
+  ☀ Live-Lage                     ← the map for one day, today by default
   ▦ Wochentag × Uhrzeit
   ≡ Rankings
   ∿ Zeitverlauf
@@ -45,7 +47,7 @@ PLANEN
   → Verbindung planen
   ⇄ Umstieg prüfen
 BALD                              ← greyed out, "bald" badge, not clickable
-  Live-Lage heute · Wetter · Verspätungsketten · Gespeicherte Fahrten
+  Verspätungsketten · Gespeicherte Fahrten
 ────────────
   ⓘ So liest man die Zahlen
   Datenstand: Sep 2026 · CC BY 4.0
@@ -62,7 +64,7 @@ Active filters are filled (light accent colour), inactive ones only outlined. On
 
 ### 1.4 Mobile (< 768 px)
 
-- Sidebar → **bottom tab bar** with 4 tabs: *Karte · Muster · Planen · Mehr*. "Muster" bundles heatmap/rankings/time series as a segmented switch at the top; "Mehr" contains check transfer, methodology, theme, license.
+- Sidebar → **bottom tab bar** with 4 tabs: *Karte · Live-Lage · Muster · Mehr*. "Muster" bundles heatmap/rankings/time series as a segmented switch at the top; "Mehr" contains plan a connection (bald), check transfer, methodology, theme, license.
 - Filter bar → horizontally scrollable chip row (only the chips scroll, never the page) + a "Filter" button that opens a bottom sheet.
 - Search → icon at the top right, full-screen overlay.
 
@@ -75,7 +77,7 @@ Grid: 12 columns, content width max. 1200 px (map full-bleed), gutter 24 px desk
 ### 2.1 Map (start page)
 **Desktop:** The map fills the whole content area to the right of the sidebar. Floating elements (cards on `surface` with a light shadow, 12 px from the edge):
 - top left: metric switch (segments: *Pünktlichkeit · Typische Verspätung (Median) · Schlechte Tage (P90) · Ausfälle*) + filter chips.
-- bottom left: **legend** (5-step scale with class limits as text, plus "◌ hohl = wenig Daten", "Punktgröße = Anzahl Halte"). In day mode (see [day-history.md](day-history.md) §2) the scale carries the five step names instead of class limits, a sentence says what "wie üblich" means (no numbers: the limits differ per station), and the Germany card stands above it in the same 300 px column.
+- bottom left: **legend** (5-step scale with class limits as text, plus "◌ hohl = wenig Daten", "Punktgröße = Anzahl Halte"). On Live-Lage (see [day-history.md](day-history.md) §2) the scale carries the five step names instead of class limits, a sentence says what "wie üblich" means (no numbers: the limits differ per station), and the Germany card stands above it in the same 300 px column.
 - right: **station panel** (360 px) appears after a click: name, identifier, 4 mini tiles, a sentence ("8 von 10 Ankünften sind pünktlich"), button "Alle Details". The map stays visible and usable.
 - bottom right: zoom, attribution. "My position" is left out (not needed before the trip).
 

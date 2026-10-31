@@ -49,21 +49,27 @@ Details and the runbook in [deployment.md](deployment.md).
 ## M6 Daily history and the day map (v0.3)
 Details in [day-history.md](day-history.md). Built on a per-day delay histogram (about 36 MB over 27 months, measured on 2025-06 and 2026-09).
 - [x] Daily time series with a 28-day trend as the default; the monthly view stays as a switch (re-check: `uv run pytest -q`, `tests/api/test_tagesverlauf_api.py`, `tests/core/test_holidays.py`; `npm --prefix frontend run test:e2e`, the "day view" tests in `frontend/e2e/zeitverlauf.spec.ts`)
-- [x] Day map: the map coloured by one past day against each station's normal for that weekday (noise-aware classes), with a weather symbol for Germany (re-check: `uv run pytest -q`, `tests/core/test_normal.py`, `tests/api/test_tageskarte_api.py`; `npm --prefix frontend run test:e2e`, `frontend/e2e/daymap.spec.ts`)
-- [ ] Bundesländer level of the day map, with weather symbols
+- [x] Day map: the map coloured by one past day against each station's normal for that weekday (noise-aware classes), with a weather symbol for Germany (re-check: `uv run pytest -q`, `tests/core/test_normal.py`, `tests/api/test_tageskarte_api.py`; `npm --prefix frontend run test:e2e`, `frontend/e2e/lage.spec.ts`; the map is the page Live-Lage since the section below)
 
 ## M7 Fresh days (v0.3)
 Details in [pipeline.md](pipeline.md) (raw days) and [day-history.md](day-history.md) (coverage); the live source is decided in [adr/0002-live-source.md](adr/0002-live-source.md).
 - [x] Fresh days from raw data: the day map and the daily series reach the last complete day, about one to two days back; the month views stay on whole months (re-check: `uv run pytest -q`, `tests/pipeline/test_raw.py`, `tests/pipeline/test_update.py`, `test_complete_raw_days_after_the_last_month_reach_the_day_tables`, `test_combine_sums_a_raw_day_with_the_same_day_from_a_monthly_file`; on the real data `/datenstand` names the last complete day)
 - [x] Data refresh of the deployed site: `scripts/azure.py data` uploads the data files to Blob (re-check: `uv run pytest -q`, `tests/scripts/test_azure.py`; the first refresh of the live site is a platform check in [day-history.md](day-history.md) §6)
 - [x] Live source for "today": where the live state comes from, how it is collected and where it runs (re-check: [adr/0002-live-source.md](adr/0002-live-source.md) is accepted)
-- [x] Day × hour histogram over all days, all four metrics, so any past day can be cut at any hour (re-check: `uv run pytest -q`, `test_day_hours_sum_over_the_hour_to_days`, `test_day_hours_sum_an_edge_day_and_add_up_to_days`, `test_day_hours_take_the_raw_days_too`)
+- [x] Day × hour histogram over all days, all four metrics, so any past day can be cut at any hour (re-check: `uv run pytest -q`, `test_day_hours_sum_over_the_hour_to_days`, `test_day_hours_sum_an_edge_day_and_add_up_to_days_of_the_large_stations`, `test_day_hours_take_the_raw_days_too`)
 - [x] Collector for the large stations: `fchg` every 15 minutes and each `plan` slice once, writing `heute.parquet`; tested against a fake API with the raw days' XML, the run with the real key is a platform check (re-check: `uv run pytest -q`, `tests/pipeline/test_live.py`; [day-history.md](day-history.md) §6)
 - [x] The other stations from the source's partial raw day, written by `pipeline.update` as `heute_rest.parquet` (re-check: `uv run pytest -q`, `tests/pipeline/test_rest.py`)
-- [x] "Heute" on the day map: today so far against the same hours of the reference days, two freshness levels, the time of the data, a fallback to the last complete day (re-check: `uv run pytest -q`, `tests/api/test_heute_api.py`; `npm --prefix frontend run test:e2e`, the "today" tests in `frontend/e2e/daymap.spec.ts`; details in [day-history.md](day-history.md))
+- [x] "Heute" in the day view: today so far against the same hours of the reference days, two freshness levels, the time of the data, a fallback to the last complete day (re-check: `uv run pytest -q`, `tests/api/test_heute_api.py`; `npm --prefix frontend run test:e2e`, the "today" tests in `frontend/e2e/lage.spec.ts`; details in [day-history.md](day-history.md))
 
 ## Move to a VPS
 - [ ] The stable run on one VPS: the API image, the static frontend with the CSP and TLS, the data on disk, the collector's cron and key. Azure stays for tests and temporary deploys. "Today" on the deployed site waits for this.
+
+## Live-Lage
+Details in [day-history.md](day-history.md).
+- [x] Live-Lage as its own page `/lage` for the 131 large stations: today by default, a Rückblick to any day through the date field and 7 chips, the Germany card with Fern and Regional, the Karte without a Tag switch and the Karte's Gattung and period kept across the page (re-check: `uv run pytest -q`, `tests/api/test_tageskarte_api.py`, `tests/api/test_heute_api.py`, `tests/core/test_periods.py`; `npm --prefix frontend run test:e2e`, `frontend/e2e/lage.spec.ts`)
+- [ ] Bundesländer level of Live-Lage, with weather symbols
+- [ ] A day-level Zeitraum on the Karte, up to the last complete day
+- [ ] An hour slider for the Rückblick
 
 ## M8 Line detail page (v0.3)
 - [ ] Line detail page with the line's stations and statistics

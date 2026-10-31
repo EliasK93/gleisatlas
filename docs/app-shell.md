@@ -12,6 +12,7 @@ The frame around every page: sidebar, filter bar, mobile top bar and tab bar, fo
 |---|---|
 | `/karte` | Map start page (see [map.md](map.md)) |
 | `/bahnhof/{eva}` | Station detail page (see [map.md](map.md)) |
+| `/lage` | Live-Lage: the map of the 131 large stations for one day, today by default (see [day-history.md](day-history.md)) |
 | `/muster/heatmap` | Heatmap "Wann ist es am schlimmsten?" |
 | `/muster/rankings` | Rankings of stations or lines |
 | `/muster/zeitverlauf` | Time series by day (default) and by month |
@@ -26,21 +27,22 @@ The frame around every page: sidebar, filter bar, mobile top bar and tab bar, fo
 | `g` | `regional`, `fern` | all categories |
 | `bhf` | EVA number | all stations |
 | `von`, `bis` | `YYYY-MM` | `von`: first month with full coverage; `bis`: last month |
-| `tag` | `YYYY-MM-DD` (map only) | the period map; a day switches the map to day mode, drops `von` and `bis` and is clamped to the days of the data |
+| `tag` | `YYYY-MM-DD` (Live-Lage only) | the newest day (today, else the last complete day); a past day is clamped to the days of the data |
 | `k` | `median`, `p90`, `ausfall` | punctuality |
 | `typ` | `linien` (rankings only) | `bahnhoefe` |
 | `min` | `100`, `1000`, `5000` (rankings only) | `500` |
 | `linie` | a line id (time series only) | no line |
 | `z` | `monat` (time series only) | the day view |
 
-Unknown or invalid values fall back to the default and are removed from the URL once. Keys are always written in one fixed order: `g`, `bhf`, `von`, `bis`, `tag`, `linie`, `z`, `k`, then `typ` and `min`. Sidebar and tab-bar links carry the current query string, so filters persist across pages. A page drops the keys it has no meaning for: `bhf` on the rankings and on the time series when a `linie` is set, `linie` and `z` on every page but the time series, `tag` on every page but the map. The day mode is described in [day-history.md](day-history.md) §2. What `bhf` means on the map and on the station page is described in [map.md](map.md).
+Unknown or invalid values fall back to the default and are removed from the URL once. Keys are always written in one fixed order: `g`, `bhf`, `von`, `bis`, `tag`, `linie`, `z`, `k`, then `typ` and `min`. Sidebar and tab-bar links carry the current query string, so filters persist across pages. A page drops the keys it has no meaning for: `bhf` on the rankings and on the time series when a `linie` is set, `linie` and `z` on every page but the time series, `tag` on every page but Live-Lage (the Karte included). Live-Lage is the exception for `g`, `von` and `bis`: it ignores them and leaves them in the URL, so Karte → Live-Lage → Karte restores the Gattung and the period. Its day and chips are described in [day-history.md](day-history.md) §2. What `bhf` means on the map and on the station page is described in [map.md](map.md).
 
-**Sidebar** (from 768 px): logo, the station search field (see [map.md](map.md)), then the groups "Entdecken" (Karte, Wochentag × Uhrzeit, Rankings, Zeitverlauf), "Planen" (Verbindung planen, Umstieg prüfen) and "Bald" (Live-Lage heute, Verspätungsketten, Gespeicherte Fahrten), then "So liest man die Zahlen". Karte, Wochentag × Uhrzeit, Rankings and Zeitverlauf are links. Every other item is dimmed with a "bald" tag and is not a link; it becomes a link when its page ships. Above the footer sit the Darstellung (theme) and Sprache (language) switches, described in [theme-and-language.md](theme-and-language.md). The footer shows "Datenstand: {month} · {n} Bahnhöfe" and "Kein Angebot der Deutschen Bahn." The page footer with the disclaimer, that sentence and the source with the CC BY 4.0 link is hidden on the map, which fills the viewport.
+**Sidebar** (from 768 px): logo, the station search field (see [map.md](map.md)), then the groups "Entdecken" (Karte, Live-Lage, Wochentag × Uhrzeit, Rankings, Zeitverlauf), "Planen" (Verbindung planen, Umstieg prüfen) and "Bald" (Verspätungsketten, Gespeicherte Fahrten), then "So liest man die Zahlen". Karte, Live-Lage, Wochentag × Uhrzeit, Rankings and Zeitverlauf are links. Every other item is dimmed with a "bald" tag and is not a link; it becomes a link when its page ships. Above the footer sit the Darstellung (theme) and Sprache (language) switches, described in [theme-and-language.md](theme-and-language.md). The footer shows "Datenstand: {month} · {n} Bahnhöfe" and "Kein Angebot der Deutschen Bahn." The page footer with the disclaimer, that sentence and the source with the CC BY 4.0 link is hidden on the map, which fills the viewport.
 
 **Filter bar**
 
 - Zeitraum: two native month `<select>`s ("von" and "bis"), filled from `/datenstand` `monate`. They show the URL's `von` and `bis`, or the defaults (full coverage start, last month), and write both to the URL. A pick that crosses the other edge moves that edge to the same month. The chip is highlighted only when `von` or `bis` is set. The time series hides it: that page always shows every month.
 - Linie: with a `linie` in the URL (time series only), a highlighted chip "Linie: {label}" with a button "Linie entfernen" that drops the key.
+- Live-Lage: instead of Zeitraum and Gattung, a date field (`<input type="date">`, from the first day of the data to the newest day) and a group "Letzte Tage" of up to 7 chips (the newest day, "Heute" while it is today, and the days before it; the pressed one is the shown day). Station and Zurücksetzen as elsewhere. On a phone the whole bar is one sideways-scrolling row like the other bars, so the chips never wrap.
 - Gattung: native `<select>` with Alle, Regionalverkehr, Fernverkehr. "Regionalverkehr" is everything that is not long-distance (S-Bahn, RB, RE and regional operators); buses are excluded in the pipeline.
 - Bahnhof: a chip that opens a native `popover` with a combobox over `/stationen`. It shows name and "EVA …" and filters by EVA only.
 - Zurücksetzen: clears all keys.
@@ -79,7 +81,7 @@ Unknown or invalid values fall back to the default and are removed from the URL 
 
 **Mobile (below 768 px)**
 
-- Sidebar replaced by a top bar with the logo mark and the search field, and a bottom tab bar Karte, Muster, Planen, Mehr. Unbuilt tabs read "bald". The Muster tab links to `/muster`, which redirects to the heatmap, so the tab stays current on all three pattern pages.
+- Sidebar replaced by a top bar with the logo mark and the search field, and a bottom tab bar Karte · Live-Lage · Muster · Mehr. "Planen" (bald) is an entry of Mehr. The Muster tab links to `/muster`, which redirects to the heatmap, so the tab stays current on all three pattern pages.
 - On each pattern page a "Muster" segmented switch Heatmap · Rankings · Zeitverlauf sits above the heading and keeps the query string. Its first label is the short "Heatmap" because the sidebar label does not fit at 375 px.
 - Filter chips scroll sideways; the metric switch is one sideways-scrolling row.
 - The heatmap is transposed to 24 hour rows × 7 weekday columns, with a "Ø" row for the weekday totals. The page never scrolls sideways.
@@ -108,7 +110,9 @@ Unknown or invalid values fall back to the default and are removed from the URL 
 - **"Halte" instead of "Ankünfte"** in the meta line. Reason: n includes cancelled stops.
 - **Mobile hit areas are at least 44 px without changing the visual size.** A `hit` utility adds an invisible 44 px area behind chips, buttons and the metric switch. Reason: design.md §5; the mockup's 32 px chips would be too small to tap. For the same reason the metric switch is one sideways-scrolling row on mobile: two wrapped rows leave no room for 44 px areas without overlap.
 - **Dates and weekdays come from ICU** (`Intl`, de-DE or en-GB by language): "Sept. 2026", "Mo." and "Montag". Reason: English follows without extra code; the mockup's "Sep 2026" is not what ICU produces.
-- **The mockup's "Bald" group is included** (Live-Lage heute, Verspätungsketten, Gespeicherte Fahrten). Reason: the mockup wins over the earlier plan.
+- **The mockup's "Bald" group is included** (Verspätungsketten, Gespeicherte Fahrten). Reason: the mockup wins over the earlier plan.
+- **Live-Lage is a link under "Entdecken" after Karte, and on a phone it takes the tab bar slot of "Planen", which moves into Mehr.** Reason: the page is built and is a view of the data like the others, so it leaves "Bald"; a phone's tab bar has room for four, and "Planen" has no page yet while Live-Lage is the page to open first on a phone. The product owner chose this.
+- **On a phone the Live-Lage filter bar is one sideways-scrolling row, like every other filter bar.** Reason: with the seven day chips wrapped the card was 227 px tall, against 173 px on the Karte. On a 375×700 phone the open legend and the Germany card then covered the filters (86 px overlap on a past day), and the start view put Germany behind the cards. As one row the card ends at the same 173.5 px as the Karte's, the start view keeps the fixed 140 px room, and the Germany card with the legend open stands clear of the filter card (top at 207.7 px). Every chip stays reachable by scrolling. The product owner chose this over wrapping.
 - **Inter is bundled with Fontsource** (`@fontsource-variable/inter`), no CDN. Reason: no third-party request at runtime. The no-library alternative is copying the woff2 and writing `@font-face` by hand, but the package carries version and licence.
 - **No icon library.** The mockup's SVG paths live in one `Icon` component. Reason: about a dozen icons do not justify a dependency.
 - **The logo is two static SVGs in `frontend/public/`.** `favicon.svg` is the mark: a white Germany silhouette with a railway track on the gradient badge, used as tab icon and in the mobile top bar. `logo.svg` is the wordmark: the mark plus "Gleisatlas" in Inter 650 as outlines (taken from the bundled font with fontTools and HarfBuzz), used in the sidebar and the README. Its text colours are literal copies of `--text` light and dark, switched by `prefers-color-scheme` inside the SVG, which follows the page's `color-scheme`. Reason: a favicon cannot read CSS tokens, and text as outlines keeps logo and name aligned in every renderer, GitHub included.

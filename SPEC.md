@@ -43,7 +43,7 @@ Timetable apps (bahn.de, DB Navigator) optimise for the connection that is *sche
 |---|---|
 | **v0.1 – Pattern analysis** | Data pipeline (nationwide), aggregates, dashboard for patterns (weekday, time, line, station, train category), cancellation vs. delay analysis. Runs locally. |
 | **v0.2 – Deployment** | v0.1 deployed on Azure, data update reproducible. |
-| **v0.3 – Day-level history** | Daily time series in place of the monthly one; the map for one past day against the normal for that weekday, drawn as a weather map (Germany, then Bundesländer, then stations); a line detail page with "Zeitfresser" sections and a graphic timetable (Bildfahrplan) for one day, planned against actual, as the visual form of delay propagation. "Bahnwetter": the day map for today, refreshed every 15 minutes for the large stations, the rest from the community dataset's raw data. Deployed. |
+| **v0.3 – Day-level history** | Daily time series in place of the monthly one; the page "Live-Lage" (`/lage`): the map for one day against the normal for that weekday, drawn as a weather map (Germany, then Bundesländer, then stations), for the 131 large stations, with a Rückblick to any earlier day (the Karte stays periods for all stations); a line detail page with "Zeitfresser" sections and a graphic timetable (Bildfahrplan) for one day, planned against actual, as the visual form of delay propagation. "Bahnwetter" is this page for today: refreshed every 15 minutes for the large stations, with the community dataset's raw data as the fallback. Deployed. |
 | **v1.0 – Connection comparison** | Start/destination/time window → connections with arrival distribution, transfer risk, transfer recommendation. Deployed. |
 | **v1.x – Optional features** | Depending on time: weather correlation (on the daily time series), comparison with official DB statistics. |
 | **v2 – Live situation** | Current delay of a concrete trip today + transfer risk in real time. |
@@ -53,7 +53,7 @@ Timetable apps (bahn.de, DB Navigator) optimise for the connection that is *sche
 - Historical data nationwide, all stations in the dataset.
 - Filter by train category (regional / long-distance / individually selectable).
 - Pattern analysis (must).
-- Day-level history: daily time series, day map, line detail page (v0.3).
+- Day-level history: daily time series, Live-Lage (the day map), line detail page (v0.3).
 - Connection comparison in a time window (must).
 - **Transfer recommendation**: empirically sufficient transfer time at a station or for a concrete train pair (must).
 - **Cancellations reported separately from delays** (must).
@@ -89,7 +89,7 @@ On the daily time series (v0.3): a smoothed trend line, a calendar view, marked 
 - Known problems: missing hours 2025-11 to 2026-07 (among others 102 h in July 2026); schema changes in 2026-05 and 2026-08 (make the pipeline robust against schema changes, validate the schema on import).
 - Time zone: Europe/Berlin, no conversion in the dataset.
 
-**v1 decision:** monthly files are the basis for everything. The raw data is the source for the current month's day views (daily series and day map), up to the last complete day, one to two days back; month views stay on whole months. Details: [docs/pipeline.md](docs/pipeline.md) §2, "Raw days".
+**v1 decision:** monthly files are the basis for everything. The raw data is the source for the current month's day views (daily series and Live-Lage), up to the last complete day, one to two days back; month views stay on whole months. Details: [docs/pipeline.md](docs/pipeline.md) §2, "Raw days".
 
 ### 4.2 Connection / timetable source (for v1.0) – **open, spike needed**
 

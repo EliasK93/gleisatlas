@@ -137,7 +137,7 @@ Hour table:
 - SPEC §3.3 allows an own collector for today's state at the large stations; a full collector stays a fallback if the community dataset goes stale.
 - The map has two freshness levels: the large stations refreshed every 15 minutes, the rest up to about 10 hours behind. It shows the time of the data.
 - "Today" appears on the deployed site only after the move to the VPS.
-- The hour table is the largest data file: 231 MB on the real data, about six times the day table and twice the estimate above ([day-history.md](../day-history.md) §5).
+- The hour table over all stations was 231 MB on the real data, twice the estimate above. Since the day map became the Live-Lage page for the large stations only, it holds just those: 24.9 MB ([day-history.md](../day-history.md) §5).
 - When the collector fails, its stations fall back to piebro's raw data of today, and without that the map falls back to the last complete day. DB may block or change the API without notice (§ 7), and the product is labelled beta.
 - Live values and piebro's later monthly values come from different collectors, so a day can shift a little when the monthly file replaces it.
 - The API key is handled by the product owner outside the repository; the gate's secret scan covers the repository.

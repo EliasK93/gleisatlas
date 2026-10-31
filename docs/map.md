@@ -12,6 +12,7 @@ The start page of the app: a map of Germany with one dot per station, coloured b
 |---|---|
 | `/karte` | Map start page; `/` and unknown paths redirect here, query string kept |
 | `/bahnhof/{eva}` | Station detail page |
+| `/lage` | Live-Lage, the map for one day (see [day-history.md](day-history.md)) |
 
 The filter keys `g`, `von`, `bis` and `k` are the ones of the shell (see [app-shell.md](app-shell.md)). On the map, `bhf` is the selected station: it opens the panel, so a link or a reload restores the selection. The detail page takes the station from the path and drops a `bhf` or `linie` key from the URL once; the map drops `linie` too. A station picked from the search goes to `/bahnhof/{eva}` and keeps `g`, `von`, `bis` and `k`. From the detail page, the breadcrumb "Karte" and "Groß ansehen →" (the heatmap) carry the filters plus `bhf={eva}`. Every URL write puts the keys in one canonical order, so a filter change never reloads the page.
 
@@ -35,9 +36,9 @@ The filter keys `g`, `von`, `bis` and `k` are the ones of the shell (see [app-sh
 - A `bhf` without map data (unknown or no coordinates) shows the panel with "EVA …" as title and a note, plus the real name when `/stationen/{eva}` knows it.
 - States: loading text in the legend, empty card with "Filter zurücksetzen", error banner with "Erneut versuchen" that keeps the filters.
 
-**Day mode**
+**One day**
 
-- With `tag=YYYY-MM-DD` the map shows one past day against its normal instead of a period: the "Zeitraum | Tag" switch and the date field in the filter bar, the dots coloured by the API's step of the deviation from the normal, a card for Germany with a weather symbol above the legend, and the normal in the tooltip and the panel. It asks `GET /tageskarte` instead of `/karte`. The rules, the steps and the data are in [day-history.md](day-history.md) §2 and §4.
+- The Karte shows periods only (`von`, `bis`): it has no Tag switch and no date field, and it ignores a `tag` key. Live-Lage in turn ignores the Karte's `g`, `von` and `bis` and leaves them in the URL, so the way back restores them. The map of one day against its normal is the separate page Live-Lage (`/lage`), which shares this page's map code; its rules, the steps and the data are in [day-history.md](day-history.md) §2 and §4.
 
 **Station detail page**
 
@@ -87,7 +88,7 @@ The filter keys `g`, `von`, `bis` and `k` are the ones of the shell (see [app-sh
 
 ## 4 Architecture and data keys
 
-- `frontend/src/MapPage.tsx`: the page, `StationMap` (MapLibre lifecycle, one GeoJSON source with a circle layer and a selection ring, features built from the theme tokens at runtime), `Legend`, `StationPanel`.
+- `frontend/src/MapPage.tsx`: the page (also Live-Lage, through its `day` prop), `StationMap` (MapLibre lifecycle, one GeoJSON source with a circle layer and a selection ring, features built from the theme tokens at runtime), `Legend`, `StationPanel`.
 - `frontend/src/StationPage.tsx`: the detail page with its tiles, distribution, mini heatmap, category bars, the `Lines` table and states. The `Sparkline` card is `ZeitverlaufPage.tsx`'s export (see [app-shell.md](app-shell.md)).
 - `frontend/src/StationSearch.tsx`: `StationSearch` (the combobox, variants "global" and "inline", ids from `useId`), `useOpenStation`, `GlobalSearch`, `useSearchShortcut`.
 - `frontend/src/ui.tsx`: pieces shared by the pages: metric switch, error banner, empty card, share button, "bald" tag, the low-data rule `show()`, the class fills, and `Badge`, `MiniBar` and `Cancelled` for the lines table and the category bars.
