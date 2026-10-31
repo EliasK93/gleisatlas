@@ -28,7 +28,7 @@ import { setLang, useTheme, type ThemePref } from "./prefs";
 import RankingsPage from "./RankingsPage";
 import StationPage from "./StationPage";
 import { GlobalSearch, useSearchShortcut } from "./StationSearch";
-import { HEATMAP, MAP, RANKINGS, Segmented, SoonTag, stationPath, ZEITVERLAUF } from "./ui";
+import { HEATMAP, LAGE, MAP, RANKINGS, Segmented, SoonTag, stationPath, ZEITVERLAUF } from "./ui";
 import ZeitverlaufPage from "./ZeitverlaufPage";
 
 export default function App() {
@@ -37,6 +37,7 @@ export default function App() {
       <Route element={<Shell />}>
         <Route index element={<Redirect to={MAP} />} />
         <Route path={MAP} element={<MapPage />} />
+        <Route path={LAGE} element={<MapPage day />} />
         <Route path={stationPath(":eva")} element={<StationPage />} />
         <Route path="/muster" element={<Redirect to={HEATMAP} />} />
         <Route path={HEATMAP} element={<HeatmapPage />} />
@@ -61,8 +62,10 @@ function Shell() {
   // Links carry the query string, so filters persist across pages.
   const { search } = useLocation();
   useSearchShortcut();
-  // The map is full-bleed and fills the viewport without a footer or page scroll.
-  const full = useMatch(MAP) !== null;
+  // The maps are full-bleed and fill the viewport without a footer or page scroll.
+  const onMap = useMatch(MAP) !== null;
+  const onLage = useMatch(LAGE) !== null;
+  const full = onMap || onLage;
   return (
     <div
       className={`md:grid md:grid-cols-[248px_1fr] ${full ? "flex h-dvh flex-col overflow-hidden" : "min-h-screen"}`}
@@ -88,6 +91,7 @@ function Shell() {
         <nav aria-label={t("nav.label")} className="hidden md:flex md:flex-1 md:flex-col md:gap-1">
           <Group label="nav.discover" />
           <SideLink icon="map" label="nav.map" to={{ pathname: MAP, search }} />
+          <SideLink icon="clock" label="nav.live" to={{ pathname: LAGE, search }} />
           <SideLink icon="grid" label="nav.heatmap" to={{ pathname: HEATMAP, search }} />
           <SideLink icon="list" label="nav.rankings" to={{ pathname: RANKINGS, search }} />
           <SideLink icon="trend" label="nav.timeline" to={{ pathname: ZEITVERLAUF, search }} />
@@ -95,7 +99,6 @@ function Shell() {
           <Soon icon="route" label="nav.connection" />
           <Soon icon="xfer" label="nav.transfer" />
           <Group label="nav.later" />
-          <Soon icon="clock" label="nav.live" />
           <Soon icon="trend" label="nav.chains" />
           <Soon icon="star" label="nav.saved" />
           <div className="mt-auto border-t border-border pt-3 text-[13px]">
@@ -129,9 +132,9 @@ function Shell() {
         className={`z-10 grid grid-cols-4 border-t border-border bg-surface px-1 pt-1 pb-2 md:hidden ${full ? "shrink-0" : "fixed inset-x-0 bottom-0"}`}
       >
         <Tab icon="map" label="nav.map" to={{ pathname: MAP, search }} />
+        <Tab icon="clock" label="nav.live" to={{ pathname: LAGE, search }} />
         {/* /muster redirects to the heatmap; the tab stays current on every pattern page. */}
         <Tab icon="grid" label="nav.patterns" to={{ pathname: "/muster", search }} />
-        <Tab icon="route" label="nav.plan" />
         <Tab icon="more" label="nav.more" to={{ pathname: "/mehr", search }} />
       </nav>
     </div>
@@ -171,20 +174,13 @@ function Soon({ icon, label }: { icon: IconName; label: MessageKey }) {
   );
 }
 
-function Tab({ icon, label, to }: { icon: IconName; label: MessageKey; to?: To }) {
-  const base =
-    "flex min-h-11 flex-col items-center justify-center gap-0.5 rounded-lg py-1.5 text-[11px] font-[550]";
-  if (!to)
-    return (
-      <span className={`${base} text-text-3 opacity-55`}>
-        <Icon name={icon} className="size-[22px]" />
-        <span>{t("nav.soonTab", { label: t(label), soon: t("nav.soon") })}</span>
-      </span>
-    );
+function Tab({ icon, label, to }: { icon: IconName; label: MessageKey; to: To }) {
   return (
     <NavLink
       to={to}
-      className={({ isActive }) => `${base} ${isActive ? "text-accent" : "text-text-3"}`}
+      className={({ isActive }) =>
+        `flex min-h-11 flex-col items-center justify-center gap-0.5 rounded-lg py-1.5 text-[11px] font-[550] ${isActive ? "text-accent" : "text-text-3"}`
+      }
     >
       <Icon name={icon} className="size-[22px]" />
       {t(label)}
@@ -277,7 +273,7 @@ function MorePage() {
       <div className="card flex flex-col gap-0.5 p-2">
         <Soon icon="xfer" label="nav.transfer" />
         <Soon icon="info" label="nav.method" />
-        <Soon icon="clock" label="nav.live" />
+        <Soon icon="route" label="nav.plan" />
         <Soon icon="star" label="nav.saved" />
       </div>
       <ThemeSwitch className="card mt-4" />

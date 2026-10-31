@@ -198,6 +198,12 @@ const dayShort = new Intl.DateTimeFormat(LOCALE, { weekday: "short", timeZone: "
 export const weekdayOf = (ymd: string) => dayLong.format(new Date(`${ymd}T00:00:00Z`));
 export const dayName = (d: number, short = false) =>
   (short ? dayShort : dayLong).format(dayDate(d));
+/** "2026-09-30" → "Mi 30" (en: "Wed 30"): the short weekday and the day of the month. */
+export const formatChip = (ymd: string) =>
+  `${dayShort.format(new Date(`${ymd}T00:00:00Z`))} ${Number(ymd.slice(8))}`;
+/** "2026-03-01" shifted by `n` days. */
+export const addDays = (ymd: string, n: number) =>
+  new Date(Date.parse(`${ymd}T00:00:00Z`) + n * 86400000).toISOString().slice(0, 10);
 
 const MONTH = /^\d{4}-(0[1-9]|1[0-2])$/;
 
@@ -213,7 +219,7 @@ export type Filters = {
   bhf?: string;
   von?: string;
   bis?: string;
-  /** One past day; only the map uses it (day mode), which drops `von` and `bis`. */
+  /** One day; only the Live-Lage page uses it, and it is left out for the newest day. */
   tag?: string;
   /** A line id; only the time series page uses it, and it wins over `bhf` there. Lines are monthly. */
   linie?: string;

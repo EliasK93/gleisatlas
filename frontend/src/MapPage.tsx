@@ -157,7 +157,11 @@ function toFeatures(
 const categoryName = (g: FilterKeys["g"]) =>
   g ? t(g === "fern" ? "filter.fern" : "filter.regional") : t("map.allCategories");
 
-export default function MapPage() {
+/**
+ * The period map (`/karte`), or with `day` the Live-Lage page (`/lage`): the large stations on one
+ * day against the usual, today if there is a today.
+ */
+export default function MapPage({ day = false }: { day?: boolean }) {
   const [params] = useSearchParams();
   const setParams = useSetParams();
   const root = useRef<HTMLDivElement>(null);
@@ -165,20 +169,23 @@ export default function MapPage() {
   const status = useDatenstand();
   const datenstand = status.data;
   const read = readFilters(params);
-  // With a day the map is in day mode: the day replaces the period, and a day outside the data
-  // moves to its nearest edge (the middle of three ISO dates in order is the clamped one). Any day
-  // after the last complete one moves to the live day, which is the only one served beyond it.
-  const tag =
+  // The Live-Lage page shows one day and has no period or train type (it ignores g, von and bis).
+  // A day outside the data moves
+  // to its nearest edge (the middle of three ISO dates in order is the clamped one); any day after
+  // the last complete one moves to the live day, which is the only one served beyond it. Without
+  // a tag the page shows the newest day, which also is not written, so a bookmark opens live.
+  const newest = datenstand && (datenstand.heute ?? datenstand.letzter_tag);
+  const wanted =
     read.tag && datenstand
       ? read.tag > datenstand.letzter_tag && datenstand.heute
         ? datenstand.heute
         : [datenstand.erster_tag, read.tag, datenstand.letzter_tag].sort()[1]
       : read.tag;
+  const tag = day && wanted !== newest ? wanted : undefined;
+  const shown = tag ?? newest;
   const f: FilterKeys = {
     ...read,
     tag,
-    von: tag ? undefined : read.von,
-    bis: tag ? undefined : read.bis,
     linie: undefined,
     z: undefined,
   };
@@ -188,36 +195,34 @@ export default function MapPage() {
       api
         .GET("/karte", { params: { query: { gattung: f.g ?? "alle", von: f.von, bis: f.bis } } })
         .then(must),
-    enabled: !f.tag,
+    enabled: !day,
     placeholderData: keepPreviousData,
   });
   const dayMap = useQuery({
-    queryKey: ["tageskarte", f.g, f.tag],
+    queryKey: ["tageskarte", shown],
     queryFn: async () => {
-      const answer = await api.GET("/tageskarte", {
-        params: { query: { tag: f.tag!, gattung: f.g ?? "alle" } },
-      });
+      const answer = await api.GET("/tageskarte", { params: { query: { tag: shown! } } });
       // Today's map is gone (a tab left open across midnight): ask what the data covers now, so
       // the clamp moves the day before the failure shows.
-      if (answer.response.status === 404 && f.tag === datenstand?.heute) await status.refetch();
+      if (answer.response.status === 404 && shown === datenstand?.heute) await status.refetch();
       return must(answer);
     },
     // The day is clamped to the data first, so the request never names a day outside it.
-    enabled: !!f.tag && !!datenstand,
+    enabled: day && !!shown && !!datenstand,
     placeholderData: keepPreviousData,
     // The live day grows while the tab is open.
-    refetchInterval: f.tag && f.tag === datenstand?.heute ? LIVE_REFRESH : false,
+    refetchInterval: shown && shown === datenstand?.heute ? LIVE_REFRESH : false,
   });
-  const q = f.tag ? dayMap : periodMap;
-  const data = f.tag ? dayMap.data : periodMap.data;
+  const q = day ? dayMap : periodMap;
+  const data = q.data;
   // Labels name the day the data on screen is for, which lags behind the URL while a day loads.
-  const shownDay = dayMap.data?.tag ?? f.tag;
-  // The day map also needs /datenstand to clamp the day, so its failure is the map's error too,
-  // unless it already has it (a failed refresh of the data stand leaves a working map alone).
-  const failed = q.isError || (!!f.tag && status.isError && !datenstand);
+  const shownDay = dayMap.data?.tag ?? shown;
+  // The Live-Lage page also needs /datenstand to know its day, so its failure is the page's error
+  // too, unless it already has it (a failed refresh of the data stand leaves a working map alone).
+  const failed = q.isError || (day && status.isError && !datenstand);
   // Today has up to two sources, each with a data time and a cut hour: the collector's run for the
   // large stations (`stand`) and piebro's partial day for the others (`stand_rest`).
-  const d = f.tag ? dayMap.data : undefined;
+  const d = day ? dayMap.data : undefined;
   const live = d?.stand && d.bis_stunde != null ? { stand: d.stand, cut: d.bis_stunde } : undefined;
   const rest =
     d?.stand_rest && d.bis_stunde_rest != null
@@ -226,13 +231,14 @@ export default function MapPage() {
   const today = !!(live || rest);
   const liveStand = live && formatStand(live.stand, live.cut);
   const restStand = rest && formatStand(rest.stand, rest.cut);
-  const period = f.tag
-    ? today
-      ? t("map.day.today")
-      : formatDay(shownDay!)
+  const period = day
+    ? shownDay && (today ? t("map.day.today") : formatDay(shownDay))
     : periodMap.data?.n
       ? formatPeriod(periodMap.data.von, periodMap.data.bis)
       : undefined;
+  // The Live-Lage page ignores g, von and bis and leaves them in the URL, so the other pages
+  // get them back; it counts all trains.
+  const category = categoryName(day ? undefined : f.g);
   const station = f.bhf ? data?.stationen.find((s) => s.eva === f.bhf) : undefined;
   // The panel names the stand of the station's own source.
   const own = (station as Entry | undefined)?.live ? live : rest;
@@ -250,7 +256,7 @@ export default function MapPage() {
     meta =
       t("map.meta", {
         period: period ?? "–",
-        category: categoryName(f.g),
+        category,
         x: int(data.stationen.length),
       }) + (data.ohne_koordinaten ? t("map.metaMissing", { n: int(data.ohne_koordinaten) }) : "");
 
@@ -259,7 +265,7 @@ export default function MapPage() {
       <StationMap
         card={card}
         stations={data?.stationen}
-        day={!!f.tag}
+        day={day}
         liveStand={liveStand}
         restStand={restStand}
         metric={f.k}
@@ -275,9 +281,11 @@ export default function MapPage() {
       >
         <div className="max-md:-mb-2.5">
           <h1 className="text-lg leading-tight font-[650] tracking-[-0.015em] max-md:sr-only">
-            {t("map.title")}
+            {t(day ? "nav.live" : "map.title")}
           </h1>
-          <p className="mt-0.5 hidden text-[13px] text-text-2 md:block">{t("map.lead")}</p>
+          <p className="mt-0.5 hidden text-[13px] text-text-2 md:block">
+            {t(day ? "lage.lead" : "map.lead")}
+          </p>
         </div>
         <MetricSwitch
           metric={f.k}
@@ -285,22 +293,19 @@ export default function MapPage() {
           className="-mx-2.5 -my-2 px-2.5 py-2 md:m-0 md:p-0"
         />
         <div className="-mb-2.5">
-          <Filters dayMap stationName={data ? station?.name : null} />
+          <Filters lage={day} stationName={data ? station?.name : null} />
         </div>
       </div>
 
       <div className="absolute bottom-4 left-2.5 z-10 flex flex-col gap-2.5 md:bottom-6 md:left-3 md:w-[300px]">
-        {f.tag && dayMap.data && (
+        {day && dayMap.data && (
           <WeatherCard
             tag={dayMap.data.tag}
-            today={
-              source && {
-                label: formatLive(source.stand, source.cut),
-                large: !!d?.deutschland_live,
-              }
-            }
+            today={source && formatLive(source.stand, source.cut)}
             metric={f.k}
             germany={dayMap.data.deutschland}
+            fern={dayMap.data.deutschland_fern}
+            regional={dayMap.data.deutschland_regional}
             gap={dayMap.data.fehlende_stunden}
           />
         )}
@@ -312,8 +317,11 @@ export default function MapPage() {
             restStand && t(live ? "map.day.freshRest" : "map.day.freshAll", { stand: restStand }),
           ].filter((line): line is string => !!line)}
           day={
-            f.tag
-              ? { weekday: weekdayOf(shownDay!), refs: dayMap.data?.referenztage.length }
+            day
+              ? {
+                  weekday: shownDay ? weekdayOf(shownDay) : "",
+                  refs: dayMap.data?.referenztage.length,
+                }
               : undefined
           }
         />
@@ -338,8 +346,8 @@ export default function MapPage() {
           eva={f.bhf}
           station={station}
           loaded={!!data}
-          day={!!f.tag}
-          category={categoryName(f.g)}
+          day={day}
+          category={category}
           period={panelPeriod}
           onClose={() => {
             setParams(withParam("bhf", ""));
@@ -796,7 +804,7 @@ function StationPanel({
           </p>
         </>
       ) : (
-        loaded && <p className="my-3 text-text-2">{t("map.noData")}</p>
+        loaded && <p className="my-3 text-text-2">{t(day ? "lage.notLarge" : "map.noData")}</p>
       )}
 
       <div className="flex flex-wrap items-center gap-2">

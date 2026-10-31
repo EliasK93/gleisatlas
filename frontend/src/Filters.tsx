@@ -5,9 +5,8 @@ import { clearParams, useSetParams } from "./useSetParams";
 import { api, must, useDatenstand } from "./api";
 import { t } from "./i18n";
 import { Icon } from "./Icon";
-import { formatPeriod, readFilters, withParam, withPeriod } from "./metrics";
+import { addDays, formatChip, formatPeriod, readFilters, withParam, withPeriod } from "./metrics";
 import { StationSearch } from "./StationSearch";
-import { Segmented } from "./ui";
 
 const chip = (on: boolean) =>
   `chip ${on ? "border-transparent bg-accent-soft text-accent" : "border-border bg-surface text-text-2"}`;
@@ -16,19 +15,20 @@ const chip = (on: boolean) =>
  * Global filter bar of the Discover area. All state lives in the URL. `noStation` leaves out the
  * Bahnhof chip and `noPeriod` the Zeitraum chip. `stationName` is the selected station's name when
  * the page already has it: a string uses it, `null` waits for the page's data, `undefined` looks
- * the station up. With a `linie` in the URL, a removable chip shows `lineTitle`. `dayMap` (the map)
- * adds the Zeitraum | Tag switch; with a `tag` in the URL a day field replaces the period chip.
+ * the station up. With a `linie` in the URL, a removable chip shows `lineTitle`. `lage` (the
+ * Live-Lage page) shows a day instead of a period and a train type: a day field and the last
+ * seven days as chips. Its newest day is the default and so never written as `tag`.
  */
 export function Filters({
   noStation,
   noPeriod,
-  dayMap,
+  lage,
   stationName,
   lineTitle,
 }: {
   noStation?: boolean;
   noPeriod?: boolean;
-  dayMap?: boolean;
+  lage?: boolean;
   stationName?: string | null;
   lineTitle?: string;
 }) {
@@ -42,78 +42,70 @@ export function Filters({
     von: f.von ?? datenstand.data?.vollabdeckung_ab ?? "",
     bis: f.bis ?? months.at(-1) ?? "",
   };
-  const day = !!dayMap && !!f.tag;
   const first = datenstand.data?.erster_tag;
+  const complete = datenstand.data?.letzter_tag;
   // The live day, where there is one, is the newest day.
   const heute = datenstand.data?.heute ?? undefined;
-  const last = heute ?? datenstand.data?.letzter_tag;
+  const newest = heute ?? complete;
+  const day = f.tag ?? newest;
+  // The newest day and the six before it, none before the first day of the data. A day between
+  // the last complete one and today has no map yet, so it gets no chip.
+  const recent: string[] = [];
+  if (lage && newest && complete && first)
+    for (let d = newest; recent.length < 7 && d >= first; d = addDays(d, -1))
+      if (d === newest || d <= complete) recent.push(d);
   // Uncontrolled: React would put the URL's day back after every key of a half-typed year. The
   // field follows the URL only when the URL's day changes by other means (a clamped link).
   const dayField = useRef<HTMLInputElement>(null);
   useEffect(() => {
-    if (dayField.current && f.tag && dayField.current.value !== f.tag)
-      dayField.current.value = f.tag;
-  }, [f.tag]);
+    if (dayField.current && day && dayField.current.value !== day) dayField.current.value = day;
+  }, [day]);
   return (
     // The vertical padding keeps the mobile tap areas of the chips inside the scroll box.
     <div className="-mx-4 -mt-1.5 mb-2.5 flex gap-2 overflow-x-auto px-4 pt-1.5 pb-2 [scrollbar-width:none] md:mx-0 md:flex-wrap md:overflow-visible md:px-0">
-      {dayMap && (
-        <Segmented
-          label={t("map.mode.label")}
-          options={[
-            { value: "zeitraum", label: t("map.mode.period") },
-            { value: "tag", label: t("map.mode.day") },
-          ]}
-          value={day ? "tag" : "zeitraum"}
-          onChange={(v) => {
-            if ((v === "tag") === day) return;
-            if (v === "zeitraum") setParams(withParam("tag", ""));
-            // The newest day to start with; a day replaces the period, so the period goes.
-            else if (last)
-              setParams((p) => {
-                p.delete("von");
-                p.delete("bis");
-                return withParam("tag", last)(p);
-              });
-          }}
-          className="max-md:-my-2 max-md:py-2 shrink-0 self-center"
-        />
-      )}
-      {day && (
+      {lage && (
         <>
           <span className={chip(true)}>
-            {t("filter.chip", { label: t("map.mode.day") })}
+            {t("filter.chip", { label: t("filter.day") })}
             <label className="hit">
               <input
                 type="date"
                 aria-label={t("map.day.pick")}
                 ref={dayField}
-                defaultValue={f.tag}
+                defaultValue={day}
                 min={first}
-                max={last}
+                max={newest}
                 onChange={(e) => {
                   // Only a day inside the data: while a year is typed the field passes
                   // through values like 0002-09-15, which must neither move the map nor query.
                   const v = e.target.value;
-                  if (first && last && v >= first && v <= last) setParams(withParam("tag", v));
+                  if (first && newest && v >= first && v <= newest)
+                    setParams(withParam("tag", v === newest ? "" : v));
                 }}
                 className="cursor-pointer bg-transparent px-1 font-semibold"
               />
             </label>
           </span>
-          {heute && (
-            <button
-              type="button"
-              aria-pressed={f.tag === heute}
-              onClick={() => setParams(withParam("tag", heute))}
-              className={`${chip(f.tag === heute)} cursor-pointer`}
-            >
-              {t("map.day.today")}
-            </button>
-          )}
+          <div
+            role="group"
+            aria-label={t("lage.recent")}
+            className="flex shrink-0 gap-2 md:flex-wrap"
+          >
+            {recent.map((d) => (
+              <button
+                key={d}
+                type="button"
+                aria-pressed={d === day}
+                onClick={() => setParams(withParam("tag", d === newest ? "" : d))}
+                className={`${chip(d === day)} cursor-pointer`}
+              >
+                {d === heute ? t("map.day.today") : formatChip(d)}
+              </button>
+            ))}
+          </div>
         </>
       )}
-      {!noPeriod && !day && (
+      {!noPeriod && !lage && (
         <span className={chip(!!(f.von || f.bis))}>
           {t("filter.chip", { label: t("filter.period") })}
           {(["von", "bis"] as const).map((edge, i) => (
@@ -137,18 +129,20 @@ export function Filters({
           ))}
         </span>
       )}
-      <label className={chip(!!f.g)}>
-        {t("filter.chip", { label: t("filter.category") })}
-        <select
-          value={f.g ?? ""}
-          onChange={(e) => setParams(withParam("g", e.target.value))}
-          className={`cursor-pointer bg-transparent px-1 font-semibold ${f.g ? "" : "text-text"}`}
-        >
-          <option value="">{t("filter.all")}</option>
-          <option value="regional">{t("filter.regional")}</option>
-          <option value="fern">{t("filter.fern")}</option>
-        </select>
-      </label>
+      {!lage && (
+        <label className={chip(!!f.g)}>
+          {t("filter.chip", { label: t("filter.category") })}
+          <select
+            value={f.g ?? ""}
+            onChange={(e) => setParams(withParam("g", e.target.value))}
+            className={`cursor-pointer bg-transparent px-1 font-semibold ${f.g ? "" : "text-text"}`}
+          >
+            <option value="">{t("filter.all")}</option>
+            <option value="regional">{t("filter.regional")}</option>
+            <option value="fern">{t("filter.fern")}</option>
+          </select>
+        </label>
+      )}
       {!noStation && (
         <StationFilter
           eva={f.bhf}

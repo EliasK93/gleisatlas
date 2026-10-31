@@ -124,6 +124,7 @@ export const MetricSwitch = ({
 );
 
 export const MAP = "/karte";
+export const LAGE = "/lage";
 export const stationPath = (eva: string) => `/bahnhof/${eva}`;
 export const HEATMAP = "/muster/heatmap";
 export const RANKINGS = "/muster/rankings";

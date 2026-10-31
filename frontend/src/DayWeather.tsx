@@ -92,47 +92,50 @@ function Weather({ rank, gap }: { rank: keyof typeof SYMBOLS | null; gap: boolea
   );
 }
 
+/** The value of the metric and its normal as one line: "78,9 % pünktlich · üblich 83,3 %". */
+function figures(metric: Metric, g: Deutschland) {
+  const field = API_FIELD[metric];
+  const value = g[field];
+  const normal = g.normal[field];
+  return [
+    value === null
+      ? t("hm.onlyCancelledLegend")
+      : t(`metric.${metric}.cell`, { v: figureText(metric, value) }),
+    normal === null
+      ? t("map.day.noCompare")
+      : t("map.day.usual", { v: figureText(metric, normal) }),
+  ].join(" · ");
+}
+
 /**
- * The day map's card for Germany: the weather symbol of the selected metric's rank among the
- * reference days, the day's value and the normal, and a note for hours missing from the data.
- * Without `germany` (a day with no stops) it only says so.
+ * The Live-Lage page's card for Germany: the weather symbol of the selected metric's rank among
+ * the reference days, the day's value and the normal, a smaller line each for Fern and Regional
+ * (left out where the API has none), and a note for hours missing from the data. Without `germany`
+ * (a day with no stops) it only says so.
  */
 export function WeatherCard({
   tag,
   today,
   metric,
   germany,
+  fern,
+  regional,
   gap,
 }: {
   tag: string;
-  /**
-   * On today: the label of the source the card counts ("Heute, Stand 14:37 · bis 14:00"), and
-   * whether that is the collector's large stations or every station that reports so far.
-   */
-  today?: { label: string; large: boolean };
+  /** On today: the label of the source the card counts ("Heute, Stand 14:37 · bis 14:00"). */
+  today?: string;
   metric: Metric;
   germany: Deutschland | null;
+  fern: Deutschland | null;
+  regional: Deutschland | null;
   gap: number;
 }) {
   const field = API_FIELD[metric];
-  let line = t("map.day.noData");
-  if (germany) {
-    const value = germany[field];
-    const normal = germany.normal[field];
-    line = [
-      value === null
-        ? t("hm.onlyCancelledLegend")
-        : t(`metric.${metric}.cell`, { v: figureText(metric, value) }),
-      normal === null
-        ? t("map.day.noCompare")
-        : t("map.day.usual", { v: figureText(metric, normal) }),
-    ].join(" · ");
-  }
+  const line = germany ? figures(metric, germany) : t("map.day.noData");
   return (
     <section
-      aria-label={t(
-        !today ? "map.day.card" : today.large ? "map.day.cardLive" : "map.day.cardToday",
-      )}
+      aria-label={t(today ? "map.day.cardToday" : "map.day.card")}
       className="rounded-xl border border-border bg-surface px-3 py-2.5 shadow-card md:px-3.5 md:py-3"
     >
       <div className="flex items-center gap-3">
@@ -140,14 +143,25 @@ export function WeatherCard({
           <Weather rank={germany.wetter[field] as keyof typeof SYMBOLS | null} gap={gap > 0} />
         )}
         <div className="min-w-0">
-          <p className="text-[13px] font-semibold">
-            {t(today?.large ? "map.day.large" : "map.day.germany")}
-          </p>
+          <p className="text-[13px] font-semibold">{t("map.day.germany")}</p>
           <p className="text-[12.5px] text-text-2">
-            {today?.label ?? formatDay(tag)} · {line}
+            {today ?? formatDay(tag)} · {line}
           </p>
         </div>
       </div>
+      {(
+        [
+          ["filter.fern", fern],
+          ["filter.regional", regional],
+        ] as const
+      ).map(
+        ([label, g]) =>
+          g && (
+            <p key={label} className="mt-1.5 text-xs text-text-2">
+              {t(label)} · {figures(metric, g)}
+            </p>
+          ),
+      )}
       {gap > 0 && (
         <p className="mt-1.5 text-xs font-[550] text-text-2">{t("map.day.gap", { h: gap })}</p>
       )}

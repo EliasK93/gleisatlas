@@ -17,13 +17,13 @@ const map = (page: Page) => page.getByTestId("map");
 const panel = (page: Page) => page.getByRole("complementary");
 const legend = (page: Page) => page.getByRole("region", { name: "Legende" });
 const germany = (page: Page) => page.getByRole("region", { name: "Deutschland an diesem Tag" });
-const mode = (page: Page) => page.getByRole("group", { name: "Zeitraum oder Tag" });
+const chips = (page: Page) => page.getByRole("group", { name: "Letzte Tage" });
 const dayRequests = (requests: URL[]) => requests.filter((u) => u.pathname === "/tageskarte");
 
-/** The day map on `tag`, with the map drawn. */
+/** The Live-Lage page on `tag`, with the map drawn. */
 async function open(page: Page, query = `tag=${DAY}`) {
   const requests = await mockApi(page);
-  await page.goto(`/karte?${query}`);
+  await page.goto(query ? `/lage?${query}` : "/lage");
   await expect(map(page)).toHaveAttribute("data-ready", "true");
   return requests;
 }
@@ -46,7 +46,7 @@ const STATIONS = {
 
 /**
  * Where the start view puts a station: it fits Germany into the map, minus the padding set in
- * MapPage (on desktop the filter card's bottom edge plus 12 px on top).
+ * MapPage (the filter card's bottom edge plus 12 px on top).
  */
 async function locate(page: Page, [lon, lat]: readonly [number, number], isMobile: boolean) {
   const box = (await map(page).boundingBox())!;
@@ -55,9 +55,10 @@ async function locate(page: Page, [lon, lat]: readonly [number, number], isMobil
     x: (lo + 180) / 360,
     y: 0.5 - Math.log(Math.tan(Math.PI / 4 + (la * Math.PI) / 360)) / (2 * Math.PI),
   });
-  const { top, bottom, left, right } = isMobile
-    ? { top: 140, bottom: 40, left: 8, right: 8 }
-    : { top: card.y + card.height + 12 - box.y, bottom: 24, left: 24, right: 24 };
+  const top = card.y + card.height + 12 - box.y;
+  const { bottom, left, right } = isMobile
+    ? { bottom: 40, left: 8, right: 8 }
+    : { bottom: 24, left: 24, right: 24 };
   const sw = mercator(5.9, 47.3);
   const ne = mercator(15.0, 55.05);
   const w = box.width - left - right;
@@ -99,38 +100,123 @@ const token = (page: Page, name: string) =>
     return `rgb(${r}, ${g}, ${b})`;
   }, name);
 
-test("the Tag switch writes tag, drops von and bis and asks for /tageskarte; Zeitraum drops tag", async ({
+test("the Karte has no day mode: no Tag switch, and a tag in the URL is dropped", async ({
   page,
 }) => {
   const requests = await mockApi(page);
-  await page.goto("/karte?g=fern&von=2026-03&bis=2026-09");
+  await page.goto(`/karte?g=fern&von=2026-03&bis=2026-09&tag=${DAY}`);
   await expect(map(page)).toHaveAttribute("data-ready", "true");
+  await expect(page).toHaveURL(/\/karte\?g=fern&von=2026-03&bis=2026-09$/);
   await expect(page.getByLabel("Zeitraum von")).toBeVisible();
-  expect(dayRequests(requests)).toHaveLength(0);
-
-  await mode(page).getByRole("button", { name: "Tag", exact: true }).click();
-  // The last day of the data, and nothing of the period is left.
-  await expect(page).toHaveURL(/\/karte\?g=fern&tag=2026-09-30$/);
-  await expect(page.getByLabel("Zeitraum von")).toHaveCount(0);
-  await expect(page.getByLabel("Zeitraum bis")).toHaveCount(0);
-  await expect(mode(page).getByRole("button", { name: "Tag", exact: true })).toHaveAttribute(
-    "aria-pressed",
-    "true",
-  );
-  await expect
-    .poll(() => dayRequests(requests).map((u) => u.search))
-    .toEqual(["?tag=2026-09-30&gattung=fern"]);
-
-  await mode(page).getByRole("button", { name: "Zeitraum", exact: true }).click();
-  await expect(page).toHaveURL(/\/karte\?g=fern$/);
-  await expect(page.getByLabel("Zeitraum von")).toBeVisible();
+  await expect(page.getByRole("group", { name: "Zeitraum oder Tag" })).toHaveCount(0);
   await expect(page.getByLabel("Tag auswählen")).toHaveCount(0);
+  await expect(chips(page)).toHaveCount(0);
+  expect(dayRequests(requests)).toHaveLength(0);
 });
 
-test("the metric switch writes k in day mode without a new request", async ({ page }) => {
+test("the Live-Lage page has no Gattung and no period, ignores g, von and bis and keeps them in the URL", async ({
+  page,
+}) => {
+  const requests = await mockApi(page);
+  await page.goto(`/lage?g=fern&von=2026-03&bis=2026-09&tag=${DAY}&k=p90`);
+  await expect(page).toHaveURL(
+    new RegExp(`/lage\\?g=fern&von=2026-03&bis=2026-09&tag=${DAY}&k=p90$`),
+  );
+  await expect(map(page)).toHaveAttribute("data-ready", "true");
+  await expect(page.getByLabel("Gattung:")).toHaveCount(0);
+  await expect(page.getByLabel("Zeitraum von")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /^Bahnhof/ })).toBeVisible();
+  // The kept Gattung does not show: the legend names all trains.
+  await openLegend(page);
+  await expect(legend(page)).toContainText("Alle Gattungen");
+  const asked = dayRequests(requests);
+  expect(asked).toHaveLength(1);
+  expect(asked[0].searchParams.has("gattung")).toBe(false);
+  expect(requests.filter((u) => u.pathname === "/karte")).toHaveLength(0);
+});
+
+test("Karte, Live-Lage and back to the Karte keep the Gattung and the period", async ({ page }) => {
+  await mockApi(page);
+  await page.goto("/karte?g=fern&von=2026-03&bis=2026-09");
+  await expect(map(page)).toHaveAttribute("data-ready", "true");
+  const nav = page.getByRole("navigation", { name: "Hauptnavigation" });
+  await nav.getByRole("link", { name: "Live-Lage" }).click();
+  await expect(page).toHaveURL(/\/lage\?g=fern&von=2026-03&bis=2026-09$/);
+  await expect(map(page)).toHaveAttribute("data-ready", "true");
+  await nav.getByRole("link", { name: "Karte" }).click();
+  await expect(page).toHaveURL(/\/karte\?g=fern&von=2026-03&bis=2026-09$/);
+  await expect(page.getByLabel("Zeitraum von")).toHaveValue("2026-03");
+});
+
+test.describe("the last 7 days", () => {
+  const press = (page: Page, name: string) =>
+    chips(page).getByRole("button", { name, exact: true });
+
+  test("are the newest day and the six before it, and the newest one removes tag", async ({
+    page,
+  }) => {
+    const requests = await open(page);
+    // The data ends on Wednesday 2026-09-30, so there is no today.
+    const names = ["Mi 30", "Di 29", "Mo 28", "So 27", "Sa 26", "Fr 25", "Do 24"];
+    await expect(chips(page).getByRole("button")).toHaveText(names);
+    for (const name of names)
+      await expect(press(page, name)).toHaveAttribute("aria-pressed", "false");
+
+    await press(page, "Di 29").click();
+    await expect(page).toHaveURL(/\/lage\?tag=2026-09-29$/);
+    await expect(press(page, "Di 29")).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByLabel("Tag auswählen")).toHaveValue("2026-09-29");
+
+    await press(page, "Mi 30").click();
+    await expect(page).toHaveURL(/\/lage$/);
+    await expect(press(page, "Mi 30")).toHaveAttribute("aria-pressed", "true");
+    await expect(press(page, "Di 29")).toHaveAttribute("aria-pressed", "false");
+    await expect(page.getByLabel("Tag auswählen")).toHaveValue("2026-09-30");
+    await expect
+      .poll(() => dayRequests(requests).map((u) => u.searchParams.get("tag")))
+      .toEqual([DAY, "2026-09-29", "2026-09-30"]);
+  });
+
+  test("start with Heute, skip the days the data does not have yet and open the page on it", async ({
+    page,
+  }) => {
+    await openToday(page, "");
+    // 2026-10-01 lies between the last complete day and today: it has no map, so no chip.
+    await expect(chips(page).getByRole("button")).toHaveText([
+      "Heute",
+      "Mi 30",
+      "Di 29",
+      "Mo 28",
+      "So 27",
+      "Sa 26",
+      "Fr 25",
+    ]);
+    await expect(press(page, "Heute")).toHaveAttribute("aria-pressed", "true");
+    await press(page, "Mi 30").click();
+    await expect(page).toHaveURL(/\/lage\?tag=2026-09-30$/);
+    await expect(press(page, "Heute")).toHaveAttribute("aria-pressed", "false");
+    await press(page, "Heute").click();
+    await expect(page).toHaveURL(/\/lage$/);
+    await expect(press(page, "Heute")).toHaveAttribute("aria-pressed", "true");
+  });
+
+  test("do not go back before the first day of the data", async ({ page }) => {
+    await openToday(page, "", "live", () => ({ ...noToday(), erster_tag: "2026-09-27" }));
+    await expect(chips(page).getByRole("button")).toHaveText(["Mi 30", "Di 29", "Mo 28", "So 27"]);
+  });
+
+  test("the date field takes the newest day out of the URL too", async ({ page }) => {
+    await open(page);
+    await page.getByLabel("Tag auswählen").fill("2026-09-30");
+    await expect(page).toHaveURL(/\/lage$/);
+    await expect(press(page, "Mi 30")).toHaveAttribute("aria-pressed", "true");
+  });
+});
+
+test("the metric switch writes k without a new request", async ({ page }) => {
   const requests = await open(page);
   await page.getByRole("button", { name: "Typische Verspätung" }).click();
-  await expect(page).toHaveURL(new RegExp(`/karte\\?tag=${DAY}&k=median$`));
+  await expect(page).toHaveURL(new RegExp(`/lage\\?tag=${DAY}&k=median$`));
   expect(dayRequests(requests)).toHaveLength(1);
 });
 
@@ -142,7 +228,7 @@ test("the day picker is limited to the days of the data and writes tag", async (
   await expect(picker).toHaveAttribute("max", "2026-09-30");
   await expect(picker).toHaveValue(DAY);
   await picker.fill("2026-09-10");
-  await expect(page).toHaveURL(/\/karte\?tag=2026-09-10$/);
+  await expect(page).toHaveURL(/\/lage\?tag=2026-09-10$/);
   await expect
     .poll(() => dayRequests(requests).map((u) => u.searchParams.get("tag")))
     .toEqual([DAY, "2026-09-10"]);
@@ -159,7 +245,7 @@ test("typing a date key by key writes only complete days inside the data", async
   // Day and month are the same, so the field's segment order does not matter. The year passes
   // through 0002, 0020 and 0202 on the way, which lie before the first day of the data.
   await picker.pressSequentially("09092026");
-  await expect(page).toHaveURL(/\/karte\?tag=2026-09-09$/);
+  await expect(page).toHaveURL(/\/lage\?tag=2026-09-09$/);
   await expect(picker).toHaveValue("2026-09-09");
   await expect
     .poll(() => dayRequests(requests).map((u) => u.searchParams.get("tag")))
@@ -207,7 +293,7 @@ test("a failed /datenstand shows the error banner instead of loading for ever", 
     (route) =>
       calls++ === 0 ? route.fulfill({ status: 500, headers: CORS, body: "" }) : route.fallback(),
   );
-  await page.goto(`/karte?tag=${DAY}`);
+  await page.goto(`/lage?tag=${DAY}`);
   await expect(page.getByRole("alert")).toContainText("Daten konnten nicht geladen werden.");
   await page.getByRole("button", { name: "Erneut versuchen" }).click();
   await expect(page.getByRole("alert")).toHaveCount(0);
@@ -215,26 +301,31 @@ test("a failed /datenstand shows the error banner instead of loading for ever", 
   await expect(germany(page)).toContainText("Di., 15.09.2026");
 });
 
-test("a day outside the data moves to its edge, an impossible day is dropped", async ({ page }) => {
-  await mockApi(page);
-  await page.goto("/karte?tag=2030-01-01");
-  await expect(page).toHaveURL(/\/karte\?tag=2026-09-30$/);
-  await page.goto("/karte?tag=2020-01-01");
-  await expect(page).toHaveURL(/\/karte\?tag=2024-07-01$/);
-  await page.goto("/karte?tag=2026-02-31");
-  await expect(page).toHaveURL(/\/karte$/);
-  await expect(page.getByLabel("Zeitraum von")).toBeVisible();
+test("without a tag the page opens on the newest day; a day outside the data moves to its edge", async ({
+  page,
+}) => {
+  const requests = await mockApi(page);
+  await page.goto("/lage");
+  await expect(page).toHaveURL(/\/lage$/);
+  await expect(page.getByLabel("Tag auswählen")).toHaveValue("2026-09-30");
+  await expect
+    .poll(() => dayRequests(requests).map((u) => u.searchParams.get("tag")))
+    .toEqual(["2026-09-30"]);
+  // After the newest day: the newest day, which is the default and so not written.
+  await page.goto("/lage?tag=2030-01-01");
+  await expect(page).toHaveURL(/\/lage$/);
+  await page.goto("/lage?tag=2020-01-01");
+  await expect(page).toHaveURL(/\/lage\?tag=2024-07-01$/);
+  // An impossible day is no tag at all.
+  await page.goto("/lage?tag=2026-02-31");
+  await expect(page).toHaveURL(/\/lage$/);
+  await expect(page.getByLabel("Tag auswählen")).toHaveValue("2026-09-30");
 });
 
-test("a link with von and bis and a tag keeps only the tag", async ({ page }) => {
-  await mockApi(page);
-  await page.goto(`/karte?von=2026-03&bis=2026-09&tag=${DAY}&k=p90`);
-  await expect(page).toHaveURL(new RegExp(`/karte\\?tag=${DAY}&k=p90$`));
-});
-
-test("the other pages drop tag", async ({ page }) => {
+test("the other pages and the Karte drop tag", async ({ page }) => {
   await mockApi(page);
   for (const path of [
+    "/karte",
     "/muster/heatmap",
     "/muster/rankings",
     "/muster/zeitverlauf",
@@ -293,7 +384,7 @@ test.describe("stations are coloured by the class the API gives", () => {
       undefined,
       day,
     );
-    await page.goto(`/karte?tag=${DAY}`);
+    await page.goto(`/lage?tag=${DAY}`);
     await expect(map(page)).toHaveAttribute("data-ready", "true");
     for (const [shift, [button]] of metrics.entries()) {
       await page.getByRole("button", { name: button, exact: true }).click();
@@ -382,15 +473,14 @@ test.describe("the legend", () => {
   test.describe("English", () => {
     test.use({ locale: "en-US" });
 
-    test("the switch, the steps and the card read English", async ({ page }) => {
+    test("the chips, the steps and the card read English", async ({ page }) => {
       await mockApi(page);
-      await page.goto(`/karte?tag=${DAY}`);
+      await page.goto(`/lage?tag=${DAY}`);
       await expect(map(page)).toHaveAttribute("data-ready", "true");
+      await expect(page.getByRole("heading", { level: 1 })).toHaveText("Live situation");
       await expect(
-        page
-          .getByRole("group", { name: "Period or day" })
-          .getByRole("button", { name: "Day", exact: true }),
-      ).toHaveAttribute("aria-pressed", "true");
+        page.getByRole("group", { name: "Recent days" }).getByRole("button").first(),
+      ).toHaveText("Wed 30");
       await openLegend(page);
       const l = page.getByRole("region", { name: "Legend" });
       for (const text of ["much better", "as usual", "much worse", "no comparison possible"])
@@ -400,6 +490,8 @@ test.describe("the legend", () => {
       await expect(card.getByRole("img")).toHaveAccessibleName(
         "Thunderstorm: much worse than usual",
       );
+      await expect(card).toContainText("Long-distance · 44.6% on time · usual 43.0%");
+      await expect(card).toContainText("Regional · 76.9% on time · usual 79.0%");
     });
   });
 });
@@ -418,6 +510,44 @@ test.describe("the Germany card", () => {
     await expect(card.getByRole("img")).toHaveAccessibleName("Wolkig: wie üblich");
     await page.getByRole("button", { name: "Ausfälle", exact: true }).click();
     await expect(card).toContainText("5,9 % ausgefallen · üblich 4,2 %");
+  });
+
+  test("has a Fern and a Regional line under the main line, each against its usual", async ({
+    page,
+  }) => {
+    await open(page);
+    const card = germany(page);
+    await expect(card).toContainText("Fernverkehr · 44,6 % pünktlich · üblich 43,0 %");
+    await expect(card).toContainText("Regionalverkehr · 76,9 % pünktlich · üblich 79,0 %");
+    await page.getByRole("button", { name: "Ausfälle", exact: true }).click();
+    await expect(card).toContainText("Fernverkehr · 8,0 % ausgefallen · üblich 7,0 %");
+    await expect(card).toContainText("Regionalverkehr · 5,4 % ausgefallen · üblich 4,0 %");
+    // The main line is the one of all trains and stays first.
+    await expect(card.locator("p").nth(1)).toContainText("5,9 % ausgefallen · üblich 4,2 %");
+  });
+
+  test("a category without a usual says so, and one the API leaves out has no line", async ({
+    page,
+  }) => {
+    await open(page, "tag=2026-04-04");
+    await expect(germany(page)).toContainText(
+      "Fernverkehr · 44,6 % pünktlich · kein Vergleich möglich",
+    );
+    const day = (tag: string) => ({ ...tageskarteFixture(tag), deutschland_fern: null });
+    await mockApi(
+      page,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      day,
+    );
+    await page.goto(`/lage?tag=${DAY}`);
+    await expect(germany(page)).toContainText("Regionalverkehr · 76,9 % pünktlich");
+    await expect(germany(page)).not.toContainText("Fernverkehr");
   });
 
   test("has a symbol for each of the five ranks", async ({ page }) => {
@@ -447,7 +577,7 @@ test.describe("the Germany card", () => {
     );
     for (const [i, label] of labels.entries()) {
       rank = i + 1;
-      await page.goto(`/karte?tag=${DAY}`);
+      await page.goto(`/lage?tag=${DAY}`);
       await expect(germany(page).getByRole("img")).toHaveAccessibleName(label);
     }
   });
@@ -466,6 +596,7 @@ test.describe("the Germany card", () => {
   test("shows an empty state when Germany has no values", async ({ page }) => {
     await open(page, "tag=2026-03-01");
     await expect(germany(page)).toContainText("Keine Daten für diesen Tag");
+    await expect(germany(page)).not.toContainText("Fernverkehr");
     await expect(germany(page)).toContainText("Datenlücke: 24 h fehlen");
     await expect(germany(page).getByRole("img")).toHaveCount(0);
   });
@@ -503,9 +634,16 @@ test.describe("the station panel", () => {
     await open(page, `tag=${DAY}&bhf=8000700`);
     await expect(panel(page)).toContainText("kein Vergleich möglich");
     await expect(panel(page)).not.toContainText("üblich");
-    await page.goto(`/karte?tag=${DAY}&bhf=8000999`);
+    await page.goto(`/lage?tag=${DAY}&bhf=8000999`);
     await expect(panel(page)).toContainText("Wenig Daten (n = 9)");
     await expect(panel(page)).not.toContainText("üblich");
+  });
+
+  test("a station outside the large ones says the page shows only those", async ({ page }) => {
+    await open(page, `tag=${DAY}&bhf=08002549`);
+    await expect(panel(page).getByRole("heading", { level: 2 })).toHaveText("Hamburg Hbf");
+    await expect(panel(page)).toContainText("Die Live-Lage zeigt nur die großen Bahnhöfe.");
+    await expect(panel(page)).not.toContainText("mit diesen Filtern");
   });
 
   test("Alle Details opens the station page, which drops tag", async ({ page }) => {
@@ -516,12 +654,12 @@ test.describe("the station panel", () => {
 });
 
 /**
- * The day map of a server that has a "today" from `sources`: live data at 14:37 (arrivals before
- * 14:00 counted), rest data at 09:37 (before 09:00), or both.
+ * The page on a server that has a "today" from `sources`: live data at 14:37 (arrivals before
+ * 14:00 counted), rest data at 09:37 (before 09:00), or both. Without a `tag` it opens on today.
  */
 async function openToday(
   page: Page,
-  query = `tag=${TODAY}`,
+  query = "",
   sources: Sources = "live",
   datenstand = () => datenstandHeute(sources),
   karte = (tag: string): ReturnType<typeof heuteKarte> | typeof NOT_FOUND =>
@@ -537,7 +675,7 @@ async function openToday(
     undefined,
   ] as const;
   const requests = await mockApi(page, ...none, karte, datenstand);
-  await page.goto(`/karte?${query}`);
+  await page.goto(query ? `/lage?${query}` : "/lage");
   await expect(map(page)).toHaveAttribute("data-ready", "true");
   return requests;
 }
@@ -549,9 +687,8 @@ const noToday = () => ({
   heute_stand: null,
   heute_stand_rest: null,
 });
-/** On today the card is named for the large stations when it counts only them. */
-const large = (page: Page) => page.getByRole("region", { name: "Große Bahnhöfe heute" });
-const everyone = (page: Page) => page.getByRole("region", { name: "Deutschland heute" });
+/** The card of today; it reads "Deutschland" like any day's. */
+const todayCard = (page: Page) => page.getByRole("region", { name: "Deutschland heute" });
 
 /** Hovers a station and returns the tooltip; the page was opened on a tall viewport. */
 async function tooltipOf(page: Page, station: readonly [number, number]) {
@@ -563,14 +700,14 @@ async function tooltipOf(page: Page, station: readonly [number, number]) {
 }
 
 test.describe("today", () => {
-  test("the day field reaches today, and Heute opens it", async ({ page }) => {
+  test("the day field reaches today, and Heute opens it without a tag", async ({ page }) => {
     const requests = await openToday(page, `tag=${DAY}`);
     const picker = page.getByLabel("Tag auswählen");
     await expect(picker).toHaveAttribute("max", TODAY);
     const button = page.getByRole("button", { name: "Heute", exact: true });
     await expect(button).toHaveAttribute("aria-pressed", "false");
     await button.click();
-    await expect(page).toHaveURL(new RegExp(`/karte\\?tag=${TODAY}$`));
+    await expect(page).toHaveURL(/\/lage$/);
     await expect(button).toHaveAttribute("aria-pressed", "true");
     await expect(picker).toHaveValue(TODAY);
     await expect
@@ -578,63 +715,67 @@ test.describe("today", () => {
       .toEqual([DAY, TODAY]);
   });
 
-  test("the Tag switch starts at today", async ({ page }) => {
-    await openToday(page, "");
-    await mode(page).getByRole("button", { name: "Tag", exact: true }).click();
-    await expect(page).toHaveURL(new RegExp(`/karte\\?tag=${TODAY}$`));
+  test("without a tag the page opens on today", async ({ page }) => {
+    const requests = await openToday(page);
+    await expect(page).toHaveURL(/\/lage$/);
+    await expect(page.getByLabel("Tag auswählen")).toHaveValue(TODAY);
+    await expect(page.getByRole("button", { name: "Heute", exact: true })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(dayRequests(requests).map((u) => u.searchParams.get("tag"))).toEqual([TODAY]);
   });
 
   test("a day after today moves to today", async ({ page }) => {
     await openToday(page, "tag=2030-01-01");
-    await expect(page).toHaveURL(new RegExp(`/karte\\?tag=${TODAY}$`));
+    await expect(page).toHaveURL(/\/lage$/);
   });
 
   test("a day between the last complete one and today has no data and moves to today", async ({
     page,
   }) => {
     const requests = await openToday(page, "tag=2026-10-01");
-    await expect(page).toHaveURL(new RegExp(`/karte\\?tag=${TODAY}$`));
+    await expect(page).toHaveURL(/\/lage$/);
     await expect(page.getByRole("alert")).toHaveCount(0);
     expect(dayRequests(requests).map((u) => u.searchParams.get("tag"))).not.toContain("2026-10-01");
   });
 
-  test("the card and the legend name the data time and the cut, the card the large stations", async ({
+  test("the card and the legend name the data time and the cut, the card Germany", async ({
     page,
   }) => {
     await openToday(page);
-    await expect(large(page)).toContainText("Große Bahnhöfe");
-    await expect(large(page)).toContainText("Heute, Stand 14:37 · bis 14:00");
-    await expect(large(page)).not.toContainText("Di., ");
+    await expect(todayCard(page)).toContainText("Deutschland");
+    await expect(todayCard(page)).toContainText("Heute, Stand 14:37 · bis 14:00");
+    await expect(todayCard(page)).not.toContainText("Di., ");
     await expect(germany(page)).toHaveCount(0);
     await openLegend(page);
     await expect(legend(page)).toContainText("Große Bahnhöfe live: Stand 14:37 · bis 14:00");
     await expect(legend(page)).toContainText("Heute · Alle Gattungen · Bahnhöfe auf der Karte: 6");
     await expect(legend(page)).not.toContainText("Übrige");
+    await expect(legend(page)).not.toContainText("Alle Bahnhöfe");
     await expect(legend(page)).toContainText("12 × Freitag");
   });
 
   test("with both sources the legend has a line for each and the card follows the live one", async ({
     page,
   }) => {
-    await openToday(page, `tag=${TODAY}`, "both");
+    await openToday(page, "", "both");
     await openLegend(page);
     await expect(legend(page)).toContainText("Große Bahnhöfe live: Stand 14:37 · bis 14:00");
-    await expect(legend(page)).toContainText("Übrige Bahnhöfe: Stand 09:37 · bis 09:00");
-    await expect(large(page)).toContainText("Heute, Stand 14:37 · bis 14:00");
-    await expect(everyone(page)).toHaveCount(0);
+    await expect(legend(page)).toContainText("Übrige große Bahnhöfe: Stand 09:37 · bis 09:00");
+    await expect(todayCard(page)).toContainText("Heute, Stand 14:37 · bis 14:00");
   });
 
   test("with only the rest the legend has one line and the card names Germany with its stand", async ({
     page,
   }) => {
-    await openToday(page, `tag=${TODAY}`, "rest");
+    await openToday(page, "", "rest");
     await openLegend(page);
-    await expect(legend(page)).toContainText("Alle Bahnhöfe: Stand 09:37 · bis 09:00");
+    await expect(legend(page)).toContainText("Große Bahnhöfe: Stand 09:37 · bis 09:00");
     await expect(legend(page)).not.toContainText("live");
     await expect(legend(page)).not.toContainText("Übrige");
-    await expect(everyone(page)).toContainText("Deutschland");
-    await expect(everyone(page)).toContainText("Heute, Stand 09:37 · bis 09:00");
-    await expect(large(page)).toHaveCount(0);
+    await expect(todayCard(page)).toContainText("Deutschland");
+    await expect(todayCard(page)).toContainText("Heute, Stand 09:37 · bis 09:00");
   });
 
   test("only rest data still gives the Heute button, which opens today", async ({ page }) => {
@@ -642,16 +783,16 @@ test.describe("today", () => {
     const button = page.getByRole("button", { name: "Heute", exact: true });
     await expect(page.getByLabel("Tag auswählen")).toHaveAttribute("max", TODAY);
     await button.click();
-    await expect(page).toHaveURL(new RegExp(`/karte\\?tag=${TODAY}$`));
+    await expect(page).toHaveURL(/\/lage$/);
     await expect(button).toHaveAttribute("aria-pressed", "true");
-    await expect(everyone(page)).toBeVisible();
+    await expect(todayCard(page)).toBeVisible();
   });
 
   test("the tooltip names the stand of the station's own source", async ({ page, isMobile }) => {
     test.skip(isMobile, "needs a hover");
     // Tall enough that the cards of the bottom left do not stand over Köln.
     await page.setViewportSize({ width: 1440, height: 1000 });
-    await openToday(page, `tag=${TODAY}`, "both");
+    await openToday(page, "", "both");
     const tip = await tooltipOf(page, STATIONS.koeln);
     await expect(tip).toHaveText(
       "Köln Hbf · 50 % · üblich 80 % · viel schlechter · Stand 14:37 · bis 14:00",
@@ -664,14 +805,14 @@ test.describe("today", () => {
   });
 
   test("the panel names the stand of the station's own source", async ({ page }) => {
-    await openToday(page, `tag=${TODAY}&bhf=8000600`, "both");
+    await openToday(page, `bhf=8000600`, "both");
     await expect(panel(page)).toContainText("n = 1.200 Halte · Heute, Stand 09:37 · bis 09:00");
-    await page.goto(`/karte?tag=${TODAY}&bhf=8000207`);
+    await page.goto(`/lage?bhf=8000207`);
     await expect(panel(page)).toContainText("n = 3.000 Halte · Heute, Stand 14:37 · bis 14:00");
   });
 
   test("a station without data today says so in the panel", async ({ page }) => {
-    await openToday(page, `tag=${TODAY}&bhf=8000555`);
+    await openToday(page, `bhf=8000555`);
     const p = panel(page);
     await expect(p.getByRole("heading", { level: 2 })).toHaveText("Problemhausen");
     await expect(p).toContainText("Heute liegen noch keine Daten für diesen Bahnhof vor.");
@@ -681,7 +822,7 @@ test.describe("today", () => {
   });
 
   test("a station with data today is shown as on any day", async ({ page }) => {
-    await openToday(page, `tag=${TODAY}&bhf=8000207`);
+    await openToday(page, `bhf=8000207`);
     await expect(panel(page)).toContainText("üblich 80 % · viel schlechter");
     await expect(panel(page)).toContainText("n = 3.000 Halte · Heute, Stand 14:37 · bis 14:00");
   });
@@ -700,7 +841,7 @@ test.describe("today", () => {
     await openToday(page);
     await openLegend(page);
     await expect(legend(page)).toContainText("noch keine Daten für heute");
-    await page.goto(`/karte?tag=${DAY}`);
+    await page.goto(`/lage?tag=${DAY}`);
     await expect(map(page)).toHaveAttribute("data-ready", "true");
     await openLegend(page);
     await expect(legend(page)).toContainText("sehr wenig Daten");
@@ -720,8 +861,10 @@ test.describe("today", () => {
     await open(page);
     await expect(page.getByLabel("Tag auswählen")).toHaveAttribute("max", "2026-09-30");
     await expect(page.getByRole("button", { name: "Heute", exact: true })).toHaveCount(0);
-    await page.goto("/karte?tag=2026-10-01");
-    await expect(page).toHaveURL(/\/karte\?tag=2026-09-30$/);
+    // The last complete day is the newest, so it is the default and not written.
+    await page.goto("/lage?tag=2026-10-01");
+    await expect(page).toHaveURL(/\/lage$/);
+    await expect(page.getByLabel("Tag auswählen")).toHaveValue("2026-09-30");
   });
 
   test("an open tab refetches today every 5 minutes and, when today is gone, lands on the last day", async ({
@@ -729,7 +872,7 @@ test.describe("today", () => {
   }) => {
     let today = true;
     await page.clock.install();
-    const requests = await openToday(page, `tag=${TODAY}`, "live", () =>
+    const requests = await openToday(page, "", "live", () =>
       today ? datenstandHeute() : noToday(),
     );
     const asked = () => dayRequests(requests).map((u) => u.searchParams.get("tag"));
@@ -739,7 +882,9 @@ test.describe("today", () => {
     // No refocus: the tab asks /datenstand itself, and the day moves to the last complete one.
     today = false;
     await page.clock.fastForward("05:01");
-    await expect(page).toHaveURL(/\/karte\?tag=2026-09-30$/);
+    await expect.poll(asked).toContain("2026-09-30");
+    await expect(page).toHaveURL(/\/lage$/);
+    await expect(page.getByLabel("Tag auswählen")).toHaveValue("2026-09-30");
     await expect(page.getByRole("alert")).toHaveCount(0);
   });
 
@@ -753,7 +898,7 @@ test.describe("today", () => {
     await page.clock.install();
     const requests = await openToday(
       page,
-      `tag=${TODAY}`,
+      "",
       "live",
       () => (notFound ? noToday() : datenstandHeute()),
       (tag) => {
@@ -767,7 +912,7 @@ test.describe("today", () => {
     const before = asked();
     midnight = true;
     await page.clock.fastForward("05:01");
-    await expect(page).toHaveURL(/\/karte\?tag=2026-09-30$/);
+    await expect(page.getByLabel("Tag auswählen")).toHaveValue("2026-09-30");
     await expect(page.getByRole("alert")).toHaveCount(0);
     // One request for the poll and one because of the 404; the poll alone would make one.
     expect(asked()).toBeGreaterThanOrEqual(before + 2);
@@ -779,7 +924,7 @@ test.describe("today", () => {
     await page.clock.fastForward("05:01");
     // Today's request is later than a wrongly armed poll of the past day, so the check can fail.
     await page.getByRole("button", { name: "Heute", exact: true }).click();
-    await expect(page).toHaveURL(new RegExp(`/karte\\?tag=${TODAY}$`));
+    await expect(page).toHaveURL(/\/lage$/);
     await expect
       .poll(() => dayRequests(requests).map((u) => u.searchParams.get("tag")))
       .toContain(TODAY);
@@ -816,24 +961,27 @@ test.describe("today", () => {
 
     test("the labels read English", async ({ page }) => {
       await openToday(page);
-      const card = page.getByRole("region", { name: "Large stations today" });
-      await expect(card).toContainText("Large stations");
+      const card = page.getByRole("region", { name: "Germany today" });
+      await expect(card).toContainText("Germany");
       await expect(card).toContainText("Today, as of 14:37 · up to 14:00");
       await expect(page.getByRole("button", { name: "Today", exact: true })).toHaveAttribute(
         "aria-pressed",
         "true",
       );
-      await page.goto(`/karte?tag=${TODAY}&bhf=8000555`);
+      await page.goto("/lage?bhf=8000555");
       await expect(panel(page)).toContainText("No data for this station yet today.");
     });
 
     test("the legend lines and the rest-only card read English", async ({ page }) => {
-      await openToday(page, `tag=${TODAY}`, "both");
+      await openToday(page, "", "both");
       await openLegend(page);
       const l = page.getByRole("region", { name: "Legend" });
       await expect(l).toContainText("Large stations live: as of 14:37 · up to 14:00");
-      await expect(l).toContainText("Other stations: as of 09:37 · up to 09:00");
-      await openToday(page, `tag=${TODAY}`, "rest");
+      await expect(l).toContainText("Other large stations: as of 09:37 · up to 09:00");
+      await openToday(page, "", "rest");
+      await openLegend(page);
+      await expect(l).toContainText("Large stations: as of 09:37 · up to 09:00");
+      await expect(l).not.toContainText("live");
       await expect(page.getByRole("region", { name: "Germany today" })).toContainText(
         "Today, as of 09:37 · up to 09:00",
       );
@@ -844,7 +992,7 @@ test.describe("today", () => {
 test.describe("375 px", () => {
   test.use({ viewport: { width: 375, height: 700 } });
 
-  test("the day map has no sideways scroll, with the legend open too", async ({ page }) => {
+  test("the page has no sideways scroll, with the legend open too", async ({ page }) => {
     await open(page);
     await fontsReady(page);
     await openLegend(page);
@@ -868,9 +1016,22 @@ test.describe("375 px", () => {
     expect(cardBox.y).toBeGreaterThanOrEqual(top.y + top.height);
   });
 
-  test("the switch and the day picker are reachable by their roles", async ({ page }) => {
+  test("the chips scroll in one row with the other filters and all seven are reachable", async ({
+    page,
+  }) => {
     await open(page);
-    await expect(mode(page).getByRole("button", { name: "Tag", exact: true })).toBeVisible();
+    await fontsReady(page);
+    await expect(chips(page).getByRole("button")).toHaveCount(7);
     await expect(page.getByLabel("Tag auswählen")).toBeAttached();
+    const rows = new Set<number>();
+    for (const chip of await chips(page).getByRole("button").all()) {
+      await chip.scrollIntoViewIfNeeded();
+      await expect(chip).toBeVisible();
+      rows.add(Math.round((await chip.boundingBox())!.y));
+    }
+    // One row: the chips do not wrap, the row scrolls sideways inside the card.
+    expect(rows.size).toBe(1);
+    const scrolls = await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth);
+    expect(scrolls).toBe(true);
   });
 });

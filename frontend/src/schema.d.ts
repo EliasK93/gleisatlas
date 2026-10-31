@@ -164,7 +164,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Tageskarte */
+        /**
+         * Tageskarte
+         * @description The day against its normal at the large stations (all trains), Germany per category too.
+         */
         get: operations["getTageskarte"];
         put?: never;
         post?: never;
@@ -516,6 +519,8 @@ export interface components {
             /** Fehlende Stunden */
             fehlende_stunden: number;
             deutschland: components["schemas"]["Deutschland"] | null;
+            deutschland_fern: components["schemas"]["Deutschland"] | null;
+            deutschland_regional: components["schemas"]["Deutschland"] | null;
             /** N */
             n: number;
             /** Ohne Koordinaten */
@@ -931,7 +936,6 @@ export interface operations {
         parameters: {
             query: {
                 tag: string;
-                gattung?: "alle" | "regional" | "fern";
             };
             header?: never;
             path?: never;

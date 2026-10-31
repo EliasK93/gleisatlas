@@ -98,6 +98,29 @@ test.describe("desktop", () => {
     await expect(note).toContainText("Kein Angebot der Deutschen Bahn");
     await expect(note).not.toContainText("piebro");
   });
+
+  test("Live-Lage is a link after Karte, current on its page and keeps the metric", async ({
+    page,
+  }) => {
+    await page.goto("/lage?k=median");
+    const nav = page.getByRole("navigation", { name: "Hauptnavigation" });
+    const live = nav.getByRole("link", { name: "Live-Lage" });
+    await expect(live).toHaveAttribute("aria-current", "page");
+    await expect(live).toHaveAttribute("href", "/lage?k=median");
+    await expect(nav.getByRole("link", { name: "Karte" })).not.toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    await expect(nav.getByRole("link")).toHaveText([
+      "Karte",
+      "Live-Lage",
+      "Wochentag × Uhrzeit",
+      "Rankings",
+      "Zeitverlauf",
+    ]);
+    // It is built, so the list of unbuilt pages does not have it any more.
+    await expect(nav.getByText("Live-Lage", { exact: true })).toHaveCount(1);
+  });
 });
 
 test.describe("mobile", () => {
@@ -113,6 +136,7 @@ test.describe("mobile", () => {
     await expect(nav.getByRole("link", { name: "Mehr" })).toBeVisible();
     await expect(nav.getByRole("link", { name: "Karte" })).toHaveAttribute("href", "/karte");
     await expect(nav.getByRole("link", { name: /Planen/ })).toHaveCount(0);
+    await expect(nav.getByRole("link")).toHaveText(["Karte", "Live-Lage", "Muster", "Mehr"]);
     await expect(
       page.getByRole("link", { name: "Wochentag × Uhrzeit", includeHidden: true }),
     ).toBeHidden();
@@ -120,6 +144,23 @@ test.describe("mobile", () => {
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
       true,
     );
+  });
+
+  test("the Live-Lage tab leads to /lage and is current there", async ({ page }) => {
+    await page.goto("/lage?k=p90");
+    const nav = page.getByRole("navigation", { name: "Hauptnavigation" });
+    await expect(nav.getByRole("link", { name: "Live-Lage" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    await expect(nav.getByRole("link", { name: "Karte" })).not.toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    await nav.getByRole("link", { name: "Muster" }).click();
+    await expect(page).toHaveURL(/\/muster\/heatmap\?k=p90$/);
+    await nav.getByRole("link", { name: "Live-Lage" }).click();
+    await expect(page).toHaveURL(/\/lage\?k=p90$/);
   });
 
   test("the Muster switch moves between Heatmap, Rankings and Zeitverlauf", async ({ page }) => {
@@ -168,6 +209,9 @@ test.describe("mobile", () => {
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Mehr");
     const main = page.getByRole("main");
     await expect(main.getByText("Umstieg prüfen", { exact: true })).toBeVisible();
+    // Planen moved here from the tab bar; Live-Lage is built and has its own tab.
+    await expect(main.getByText("Planen", { exact: true })).toBeVisible();
+    await expect(main.getByText("Live-Lage")).toHaveCount(0);
     const note = main.getByTestId("data-note");
     await expect(note.getByText("Datenstand: Sept. 2026 · 5.219 Bahnhöfe")).toBeVisible();
     await expect(note).toContainText("Kein Angebot der Deutschen Bahn");

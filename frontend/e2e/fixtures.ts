@@ -437,7 +437,8 @@ const NO_CLASS: Klasse = { puenktlich: null, ausfallquote: null, median: null, p
  * 12 min P90. Six stations with the classes the API would give (1 much better … 5 much worse):
  * Köln in the worse classes, Frankfurt in the better ones, Problemhausen worse again, Üblingen as
  * usual, Ohnevergleich without a normal and Kleinstadt with 9 stops, both without a class.
- * Germany reads 78.9 % against 83.3 %. Special days: 2026-03-14 has 6 missing hours and so no
+ * Germany reads 78.9 % against 83.3 %, Fern 44.6 % against 43.0 % and Regional 76.9 % against
+ * 79.0 %. Special days: 2026-03-14 has 6 missing hours and so no
  * weather symbol, 2026-03-01 has no stops at all and 2026-04-04 too few reference days for any
  * normal or class.
  */
@@ -453,6 +454,8 @@ export function tageskarteFixture(tag: string): Tageskarte {
       referenztage: [],
       fehlende_stunden: gap,
       deutschland: null,
+      deutschland_fern: null,
+      deutschland_regional: null,
       n: 0,
       ohne_koordinaten: 0,
       stationen: [],
@@ -488,26 +491,39 @@ export function tageskarteFixture(tag: string): Tageskarte {
         ? { puenktlich: cls[0], ausfallquote: cls[1], median: cls[2], p90: cls[3] }
         : NO_CLASS,
   });
+  // Germany or one category of it: no normal and no symbol on a day without enough reference days,
+  // no symbol on a day with missing hours.
+  const germany = (
+    n: number,
+    puenktlich: number,
+    ausfallquote: number,
+    median: number,
+    p90: number,
+    usual: [number, number, number, number],
+    rank: [number, number, number, number],
+  ) => ({
+    n,
+    puenktlich,
+    ausfallquote,
+    median,
+    p90,
+    normal:
+      tag === "2026-04-04"
+        ? NO_NORMAL
+        : { puenktlich: usual[0], ausfallquote: usual[1], median: usual[2], p90: usual[3] },
+    wetter:
+      tag === "2026-04-04" || gap > 0
+        ? NO_CLASS
+        : { puenktlich: rank[0], ausfallquote: rank[1], median: rank[2], p90: rank[3] },
+  });
   return {
     tag,
     referenztage: tag === "2026-04-04" ? refs.slice(0, 5) : refs,
     fehlende_stunden: gap,
-    deutschland: {
-      n: 120000,
-      puenktlich: 0.789,
-      ausfallquote: 0.059,
-      median: 1,
-      p90: 11,
-      normal:
-        tag === "2026-04-04"
-          ? NO_NORMAL
-          : { puenktlich: 0.833, ausfallquote: 0.042, median: 1, p90: 9 },
-      // Germany has no symbol without a normal or on a day with missing hours.
-      wetter:
-        tag === "2026-04-04" || gap > 0
-          ? { puenktlich: null, ausfallquote: null, median: null, p90: null }
-          : { puenktlich: 5, ausfallquote: 5, median: 3, p90: 5 },
-    },
+    deutschland: germany(120000, 0.789, 0.059, 1, 11, [0.833, 0.042, 1, 9], [5, 5, 3, 5]),
+    // Fern and Regional add up to the stops of Germany.
+    deutschland_fern: germany(20000, 0.446, 0.08, 4, 20, [0.43, 0.07, 4, 18], [2, 3, 3, 2]),
+    deutschland_regional: germany(100000, 0.769, 0.054, 1, 10, [0.79, 0.04, 1, 9], [4, 5, 3, 4]),
     n: 120000,
     ohne_koordinaten: 2,
     stationen: [
@@ -602,10 +618,7 @@ export async function mockApi(
     eva: string | null,
     gattung: string,
   ) => Tagesverlauf | typeof NOT_FOUND | null = tagesverlaufFixture,
-  tageskarte: (
-    tag: string,
-    gattung: string,
-  ) => Tageskarte | typeof NOT_FOUND | null = tageskarteFixture,
+  tageskarte: (tag: string) => Tageskarte | typeof NOT_FOUND | null = tageskarteFixture,
   datenstand: () => Datenstand = () => DATENSTAND,
 ): Promise<URL[]> {
   const requests: URL[] = [];
@@ -628,7 +641,7 @@ export async function mockApi(
       else if (name === "karte") body = karte();
       else if (name === "tageskarte") {
         const q = url.searchParams;
-        body = tageskarte(q.get("tag") ?? "", q.get("gattung") ?? "alle");
+        body = tageskarte(q.get("tag") ?? "");
       } else if (name === "datenstand") body = datenstand();
       else if (name === "rankings") {
         const q = url.searchParams;
