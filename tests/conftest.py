@@ -86,6 +86,9 @@ def client(
     monkeypatch.setattr(main, "LINIEN_PATH", str(data / "linien.parquet"))
     monkeypatch.setattr(main, "DAYS_PATH", str(data / "days.parquet"))
     monkeypatch.setattr(main, "TAGE_PATH", str(data / "tage.parquet"))
+    monkeypatch.setattr(main, "DAY_HOURS_PATH", str(data / "day_hours.parquet"))
+    monkeypatch.setattr(main, "HEUTE_PATH", str(tmp_path / "missing-heute.parquet"))
+    monkeypatch.setattr(main, "HEUTE_REST_PATH", str(tmp_path / "missing-heute-rest.parquet"))
     write_monate(tmp_path / "monate.parquet", monkeypatch, [("2026-09", 0, 2), ("2026-10", 3, 2)])
     return TestClient(main.app)
 

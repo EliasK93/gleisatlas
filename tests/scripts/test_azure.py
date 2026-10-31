@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from backend import main
 from scripts import azure
 from scripts.azure import DATA_FILES, budget_start, narrow_csp
 
@@ -65,6 +66,10 @@ def az_calls(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> list[list[str]]
 
 def uploads(calls: list[list[str]]) -> list[str]:
     return [c[c.index("--name") + 1] for c in calls if c[1:4] == ["storage", "blob", "upload"]]
+
+
+def test_the_uploaded_files_are_the_ones_the_api_downloads():
+    assert sorted(DATA_FILES) == sorted(Path(p).stem for p in main.DATA_FILES)
 
 
 def test_data_uploads_exactly_the_data_files_and_nothing_else(az_calls: list[list[str]]):

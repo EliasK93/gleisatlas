@@ -902,6 +902,39 @@
       },
       "type": "object",
       "title": "Fehlende Stunden Tage"
+     },
+     "heute": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Heute"
+     },
+     "heute_stand": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Heute Stand"
+     },
+     "heute_stand_rest": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Heute Stand Rest"
      }
     },
     "type": "object",
@@ -913,7 +946,10 @@
      "fahrplanwechsel",
      "erster_tag",
      "letzter_tag",
-     "fehlende_stunden_tage"
+     "fehlende_stunden_tage",
+     "heute",
+     "heute_stand",
+     "heute_stand_rest"
     ],
     "title": "Datenstand"
    },
@@ -1913,6 +1949,61 @@
       },
       "type": "array",
       "title": "Stationen"
+     },
+     "stand": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Stand"
+     },
+     "bis_stunde": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Bis Stunde"
+     },
+     "stand_rest": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Stand Rest"
+     },
+     "bis_stunde_rest": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Bis Stunde Rest"
+     },
+     "deutschland_live": {
+      "anyOf": [
+       {
+        "type": "boolean"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Deutschland Live"
      }
     },
     "type": "object",
@@ -1991,6 +2082,11 @@
      },
      "klasse": {
       "$ref": "#/components/schemas/Klasse"
+     },
+     "live": {
+      "type": "boolean",
+      "title": "Live",
+      "default": false
      }
     },
     "type": "object",
