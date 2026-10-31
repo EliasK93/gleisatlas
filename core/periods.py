@@ -1,6 +1,8 @@
 """Calendar facts about the data: German local time, timetable changes and the start of full
 station coverage."""
 
+# pyright: reportUnknownMemberType=false
+# (Polars' filter, select and sort stubs are partially unknown under strict mode.)
 from collections.abc import Mapping
 from datetime import date, datetime, timedelta
 
@@ -31,3 +33,16 @@ def full_coverage_start(stations_per_month: Mapping[str, int]) -> str | None:
         return None
     top = max(stations_per_month.values())
     return next(m for m in sorted(stations_per_month) if 2 * stations_per_month[m] >= top)
+
+
+def large_stations(days: pl.LazyFrame, full_start: str) -> pl.LazyFrame:
+    """The distinct `eva`, sorted, with stops on a day of the last month before `full_start`
+    ('YYYY-MM'): the stations the source covered before it took every station in."""
+    year, month = int(full_start[:4]), int(full_start[5:])
+    first = date(year - (month == 1), (month - 2) % 12 + 1, 1)
+    return (
+        days.filter(pl.col("day").is_between(first, date(year, month, 1), closed="left"))
+        .select("eva")
+        .unique()
+        .sort("eva")
+    )
