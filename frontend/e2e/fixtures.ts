@@ -205,7 +205,27 @@ const DATENSTAND: Datenstand = {
   erster_tag: "2024-07-01",
   letzter_tag: "2026-09-30",
   fehlende_stunden_tage: { "2026-03-14": 6 },
+  heute: null,
+  heute_stand: null,
+  heute_stand_rest: null,
 };
+
+/** The collector's "today": a day after the last complete one, with 2026-10-01 between them. */
+export const TODAY = "2026-10-02";
+/** The collector's run at 14:37 in Berlin (summer time), and piebro's newest snapshot at 09:37. */
+const LIVE_STAND = "2026-10-02T12:37:00+00:00";
+const REST_STAND = "2026-10-02T07:37:00+00:00";
+
+/** Where today's data comes from: the collector (large stations), piebro's raw day, or both. */
+export type Sources = "live" | "rest" | "both";
+
+/** /datenstand with a "today" from `sources`: live data up to 14:00, rest data up to 09:00. */
+export const datenstandHeute = (sources: Sources = "live"): Datenstand => ({
+  ...DATENSTAND,
+  heute: TODAY,
+  heute_stand: sources === "rest" ? null : LIVE_STAND,
+  heute_stand_rest: sources === "live" ? null : REST_STAND,
+});
 
 const base = { n: 1240, ausfallquote: 0.02, median: 2, p90: 8, puenktlich: 0.75 };
 
@@ -456,6 +476,7 @@ export function tageskarteFixture(tag: string): Tageskarte {
     name,
     lat,
     lon,
+    live: false,
     n,
     puenktlich,
     ausfallquote,
@@ -511,6 +532,51 @@ export function tageskarteFixture(tag: string): Tageskarte {
   };
 }
 
+/**
+ * The day map of `TODAY` from `sources`, built on the 2026-09-15 stations. "live": the collector
+ * covers Köln and Frankfurt (cut 14); the rest of the stations have no stops yet. "rest": piebro's
+ * partial day covers all but Ohnevergleich and Kleinstadt (cut 9), and Germany counts those
+ * stations. "both": Köln and Frankfurt live, Problemhausen and Üblingen from the rest.
+ */
+export function heuteKarte(sources: Sources): Tageskarte {
+  const day = tageskarteFixture("2026-09-15");
+  const live = sources === "rest" ? [] : ["8000207", "8000105"];
+  const rest =
+    sources === "live"
+      ? []
+      : sources === "rest"
+        ? ["8000207", "8000105", "8000555", "8000600"]
+        : ["8000555", "8000600"];
+  const week = 7 * 86400000;
+  return {
+    ...day,
+    tag: TODAY,
+    referenztage: Array.from({ length: 12 }, (_, i) =>
+      new Date(Date.parse(`${TODAY}T00:00:00Z`) - (i + 1) * week).toISOString().slice(0, 10),
+    ),
+    stand: live.length ? LIVE_STAND : null,
+    bis_stunde: live.length ? 14 : null,
+    stand_rest: rest.length ? REST_STAND : null,
+    bis_stunde_rest: rest.length ? 9 : null,
+    deutschland_live: live.length > 0,
+    // The API lists a located station without stops with n = 0 and no values, normal or class.
+    stationen: day.stationen.map((s) =>
+      live.includes(s.eva) || rest.includes(s.eva)
+        ? { ...s, live: live.includes(s.eva) }
+        : {
+            ...s,
+            n: 0,
+            ausfallquote: 0,
+            median: null,
+            p90: null,
+            puenktlich: null,
+            normal: NO_NORMAL,
+            klasse: NO_CLASS,
+          },
+    ),
+  };
+}
+
 /** What a `zeitverlauf` or `tagesverlauf` callback returns for an unknown selection (a 404). */
 export const NOT_FOUND = "not-found";
 
@@ -540,6 +606,7 @@ export async function mockApi(
     tag: string,
     gattung: string,
   ) => Tageskarte | typeof NOT_FOUND | null = tageskarteFixture,
+  datenstand: () => Datenstand = () => DATENSTAND,
 ): Promise<URL[]> {
   const requests: URL[] = [];
   await page.route("https://tiles.openfreemap.org/**", (route) =>
@@ -562,7 +629,7 @@ export async function mockApi(
       else if (name === "tageskarte") {
         const q = url.searchParams;
         body = tageskarte(q.get("tag") ?? "", q.get("gattung") ?? "alle");
-      } else if (name === "datenstand") body = DATENSTAND;
+      } else if (name === "datenstand") body = datenstand();
       else if (name === "rankings") {
         const q = url.searchParams;
         body = rankings(q.get("typ") ?? "", q.get("metrik") ?? "", Number(q.get("min_n")));

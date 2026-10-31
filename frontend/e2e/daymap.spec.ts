@@ -1,5 +1,14 @@
 import { expect, test, type Page } from "@playwright/test";
-import { fontsReady, mockApi, tageskarteFixture } from "./fixtures";
+import {
+  datenstandHeute,
+  fontsReady,
+  heuteKarte,
+  mockApi,
+  NOT_FOUND,
+  TODAY,
+  tageskarteFixture,
+  type Sources,
+} from "./fixtures";
 
 const CORS = { "access-control-allow-origin": "*" };
 
@@ -503,6 +512,332 @@ test.describe("the station panel", () => {
     await open(page, `tag=${DAY}&bhf=8000207`);
     await panel(page).getByRole("link", { name: "Alle Details" }).click();
     await expect(page).toHaveURL(/\/bahnhof\/8000207$/);
+  });
+});
+
+/**
+ * The day map of a server that has a "today" from `sources`: live data at 14:37 (arrivals before
+ * 14:00 counted), rest data at 09:37 (before 09:00), or both.
+ */
+async function openToday(
+  page: Page,
+  query = `tag=${TODAY}`,
+  sources: Sources = "live",
+  datenstand = () => datenstandHeute(sources),
+  karte = (tag: string): ReturnType<typeof heuteKarte> | typeof NOT_FOUND =>
+    tag === TODAY ? heuteKarte(sources) : tageskarteFixture(tag),
+) {
+  const none = [
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+  ] as const;
+  const requests = await mockApi(page, ...none, karte, datenstand);
+  await page.goto(`/karte?${query}`);
+  await expect(map(page)).toHaveAttribute("data-ready", "true");
+  return requests;
+}
+
+/** /datenstand once the data went stale: no today any more. */
+const noToday = () => ({
+  ...datenstandHeute(),
+  heute: null,
+  heute_stand: null,
+  heute_stand_rest: null,
+});
+/** On today the card is named for the large stations when it counts only them. */
+const large = (page: Page) => page.getByRole("region", { name: "Große Bahnhöfe heute" });
+const everyone = (page: Page) => page.getByRole("region", { name: "Deutschland heute" });
+
+/** Hovers a station and returns the tooltip; the page was opened on a tall viewport. */
+async function tooltipOf(page: Page, station: readonly [number, number]) {
+  await fontsReady(page);
+  const at = await locate(page, station, false);
+  await page.mouse.move(at.x + 150, at.y + 150);
+  await page.mouse.move(at.x, at.y);
+  return page.getByRole("tooltip");
+}
+
+test.describe("today", () => {
+  test("the day field reaches today, and Heute opens it", async ({ page }) => {
+    const requests = await openToday(page, `tag=${DAY}`);
+    const picker = page.getByLabel("Tag auswählen");
+    await expect(picker).toHaveAttribute("max", TODAY);
+    const button = page.getByRole("button", { name: "Heute", exact: true });
+    await expect(button).toHaveAttribute("aria-pressed", "false");
+    await button.click();
+    await expect(page).toHaveURL(new RegExp(`/karte\\?tag=${TODAY}$`));
+    await expect(button).toHaveAttribute("aria-pressed", "true");
+    await expect(picker).toHaveValue(TODAY);
+    await expect
+      .poll(() => dayRequests(requests).map((u) => u.searchParams.get("tag")))
+      .toEqual([DAY, TODAY]);
+  });
+
+  test("the Tag switch starts at today", async ({ page }) => {
+    await openToday(page, "");
+    await mode(page).getByRole("button", { name: "Tag", exact: true }).click();
+    await expect(page).toHaveURL(new RegExp(`/karte\\?tag=${TODAY}$`));
+  });
+
+  test("a day after today moves to today", async ({ page }) => {
+    await openToday(page, "tag=2030-01-01");
+    await expect(page).toHaveURL(new RegExp(`/karte\\?tag=${TODAY}$`));
+  });
+
+  test("a day between the last complete one and today has no data and moves to today", async ({
+    page,
+  }) => {
+    const requests = await openToday(page, "tag=2026-10-01");
+    await expect(page).toHaveURL(new RegExp(`/karte\\?tag=${TODAY}$`));
+    await expect(page.getByRole("alert")).toHaveCount(0);
+    expect(dayRequests(requests).map((u) => u.searchParams.get("tag"))).not.toContain("2026-10-01");
+  });
+
+  test("the card and the legend name the data time and the cut, the card the large stations", async ({
+    page,
+  }) => {
+    await openToday(page);
+    await expect(large(page)).toContainText("Große Bahnhöfe");
+    await expect(large(page)).toContainText("Heute, Stand 14:37 · bis 14:00");
+    await expect(large(page)).not.toContainText("Di., ");
+    await expect(germany(page)).toHaveCount(0);
+    await openLegend(page);
+    await expect(legend(page)).toContainText("Große Bahnhöfe live: Stand 14:37 · bis 14:00");
+    await expect(legend(page)).toContainText("Heute · Alle Gattungen · Bahnhöfe auf der Karte: 6");
+    await expect(legend(page)).not.toContainText("Übrige");
+    await expect(legend(page)).toContainText("12 × Freitag");
+  });
+
+  test("with both sources the legend has a line for each and the card follows the live one", async ({
+    page,
+  }) => {
+    await openToday(page, `tag=${TODAY}`, "both");
+    await openLegend(page);
+    await expect(legend(page)).toContainText("Große Bahnhöfe live: Stand 14:37 · bis 14:00");
+    await expect(legend(page)).toContainText("Übrige Bahnhöfe: Stand 09:37 · bis 09:00");
+    await expect(large(page)).toContainText("Heute, Stand 14:37 · bis 14:00");
+    await expect(everyone(page)).toHaveCount(0);
+  });
+
+  test("with only the rest the legend has one line and the card names Germany with its stand", async ({
+    page,
+  }) => {
+    await openToday(page, `tag=${TODAY}`, "rest");
+    await openLegend(page);
+    await expect(legend(page)).toContainText("Alle Bahnhöfe: Stand 09:37 · bis 09:00");
+    await expect(legend(page)).not.toContainText("live");
+    await expect(legend(page)).not.toContainText("Übrige");
+    await expect(everyone(page)).toContainText("Deutschland");
+    await expect(everyone(page)).toContainText("Heute, Stand 09:37 · bis 09:00");
+    await expect(large(page)).toHaveCount(0);
+  });
+
+  test("only rest data still gives the Heute button, which opens today", async ({ page }) => {
+    await openToday(page, `tag=${DAY}`, "rest");
+    const button = page.getByRole("button", { name: "Heute", exact: true });
+    await expect(page.getByLabel("Tag auswählen")).toHaveAttribute("max", TODAY);
+    await button.click();
+    await expect(page).toHaveURL(new RegExp(`/karte\\?tag=${TODAY}$`));
+    await expect(button).toHaveAttribute("aria-pressed", "true");
+    await expect(everyone(page)).toBeVisible();
+  });
+
+  test("the tooltip names the stand of the station's own source", async ({ page, isMobile }) => {
+    test.skip(isMobile, "needs a hover");
+    // Tall enough that the cards of the bottom left do not stand over Köln.
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await openToday(page, `tag=${TODAY}`, "both");
+    const tip = await tooltipOf(page, STATIONS.koeln);
+    await expect(tip).toHaveText(
+      "Köln Hbf · 50 % · üblich 80 % · viel schlechter · Stand 14:37 · bis 14:00",
+    );
+    const other = await locate(page, STATIONS.ueblingen, false);
+    await page.mouse.move(other.x, other.y);
+    await expect(tip).toHaveText(
+      "Üblingen · 81 % · üblich 80 % · wie üblich · Stand 09:37 · bis 09:00",
+    );
+  });
+
+  test("the panel names the stand of the station's own source", async ({ page }) => {
+    await openToday(page, `tag=${TODAY}&bhf=8000600`, "both");
+    await expect(panel(page)).toContainText("n = 1.200 Halte · Heute, Stand 09:37 · bis 09:00");
+    await page.goto(`/karte?tag=${TODAY}&bhf=8000207`);
+    await expect(panel(page)).toContainText("n = 3.000 Halte · Heute, Stand 14:37 · bis 14:00");
+  });
+
+  test("a station without data today says so in the panel", async ({ page }) => {
+    await openToday(page, `tag=${TODAY}&bhf=8000555`);
+    const p = panel(page);
+    await expect(p.getByRole("heading", { level: 2 })).toHaveText("Problemhausen");
+    await expect(p).toContainText("Heute liegen noch keine Daten für diesen Bahnhof vor.");
+    await expect(p).not.toContainText("üblich");
+    await expect(p).not.toContainText("Wenig Daten");
+    await expect(p.getByRole("link", { name: "Alle Details" })).toBeVisible();
+  });
+
+  test("a station with data today is shown as on any day", async ({ page }) => {
+    await openToday(page, `tag=${TODAY}&bhf=8000207`);
+    await expect(panel(page)).toContainText("üblich 80 % · viel schlechter");
+    await expect(panel(page)).toContainText("n = 3.000 Halte · Heute, Stand 14:37 · bis 14:00");
+  });
+
+  test("the tooltip of a station without data today", async ({ page, isMobile }) => {
+    test.skip(isMobile, "needs a hover");
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await openToday(page);
+    const tip = await tooltipOf(page, STATIONS.problemhausen);
+    await expect(tip).toHaveText("Problemhausen · noch keine Daten für heute");
+  });
+
+  test("the legend has a key for the stations without data today, a past day has none", async ({
+    page,
+  }) => {
+    await openToday(page);
+    await openLegend(page);
+    await expect(legend(page)).toContainText("noch keine Daten für heute");
+    await page.goto(`/karte?tag=${DAY}`);
+    await expect(map(page)).toHaveAttribute("data-ready", "true");
+    await openLegend(page);
+    await expect(legend(page)).toContainText("sehr wenig Daten");
+    await expect(legend(page)).not.toContainText("noch keine Daten für heute");
+  });
+
+  test("a past day keeps its date labels", async ({ page }) => {
+    await openToday(page, `tag=${DAY}`);
+    await expect(germany(page)).toContainText("Deutschland");
+    await expect(germany(page)).toContainText("Di., 15.09.2026");
+    await expect(germany(page)).not.toContainText("Stand");
+  });
+
+  test("without a today there is no Heute button and the days end at the last complete one", async ({
+    page,
+  }) => {
+    await open(page);
+    await expect(page.getByLabel("Tag auswählen")).toHaveAttribute("max", "2026-09-30");
+    await expect(page.getByRole("button", { name: "Heute", exact: true })).toHaveCount(0);
+    await page.goto("/karte?tag=2026-10-01");
+    await expect(page).toHaveURL(/\/karte\?tag=2026-09-30$/);
+  });
+
+  test("an open tab refetches today every 5 minutes and, when today is gone, lands on the last day", async ({
+    page,
+  }) => {
+    let today = true;
+    await page.clock.install();
+    const requests = await openToday(page, `tag=${TODAY}`, "live", () =>
+      today ? datenstandHeute() : noToday(),
+    );
+    const asked = () => dayRequests(requests).map((u) => u.searchParams.get("tag"));
+    expect(asked()).toEqual([TODAY]);
+    await page.clock.fastForward("05:01");
+    await expect.poll(asked).toEqual([TODAY, TODAY]);
+    // No refocus: the tab asks /datenstand itself, and the day moves to the last complete one.
+    today = false;
+    await page.clock.fastForward("05:01");
+    await expect(page).toHaveURL(/\/karte\?tag=2026-09-30$/);
+    await expect(page.getByRole("alert")).toHaveCount(0);
+  });
+
+  test("a tab left open across midnight asks /datenstand at once when today's map is gone", async ({
+    page,
+  }) => {
+    // Yesterday's "today" is a 404 from the first refetch on; /datenstand knows that only after a
+    // request that comes after the 404, so the tab has to ask again because of it.
+    let midnight = false;
+    let notFound = false;
+    await page.clock.install();
+    const requests = await openToday(
+      page,
+      `tag=${TODAY}`,
+      "live",
+      () => (notFound ? noToday() : datenstandHeute()),
+      (tag) => {
+        if (tag !== TODAY) return tageskarteFixture(tag);
+        if (!midnight) return heuteKarte("live");
+        notFound = true;
+        return NOT_FOUND;
+      },
+    );
+    const asked = () => requests.filter((u) => u.pathname === "/datenstand").length;
+    const before = asked();
+    midnight = true;
+    await page.clock.fastForward("05:01");
+    await expect(page).toHaveURL(/\/karte\?tag=2026-09-30$/);
+    await expect(page.getByRole("alert")).toHaveCount(0);
+    // One request for the poll and one because of the 404; the poll alone would make one.
+    expect(asked()).toBeGreaterThanOrEqual(before + 2);
+  });
+
+  test("a past day is not polled", async ({ page }) => {
+    await page.clock.install();
+    const requests = await openToday(page, `tag=${DAY}`);
+    await page.clock.fastForward("05:01");
+    // Today's request is later than a wrongly armed poll of the past day, so the check can fail.
+    await page.getByRole("button", { name: "Heute", exact: true }).click();
+    await expect(page).toHaveURL(new RegExp(`/karte\\?tag=${TODAY}$`));
+    await expect
+      .poll(() => dayRequests(requests).map((u) => u.searchParams.get("tag")))
+      .toContain(TODAY);
+    expect(
+      dayRequests(requests)
+        .map((u) => u.searchParams.get("tag"))
+        .filter((d) => d === DAY),
+    ).toHaveLength(1);
+  });
+
+  test("a failed background refetch of /datenstand leaves the working map alone", async ({
+    page,
+  }) => {
+    await page.clock.install();
+    await openToday(page, `tag=${DAY}`);
+    let failed = 0;
+    await page.route(
+      (url) => url.pathname === "/datenstand",
+      (route) => {
+        failed++;
+        return route.fulfill({ status: 500, headers: CORS, body: "" });
+      },
+    );
+    await page.clock.fastForward("05:01");
+    await expect.poll(() => failed).toBeGreaterThan(0);
+    // Time for the failure to reach the page.
+    await page.waitForTimeout(300);
+    await expect(page.getByRole("alert")).toHaveCount(0);
+    await expect(germany(page)).toContainText("Di., 15.09.2026");
+  });
+
+  test.describe("English", () => {
+    test.use({ locale: "en-US" });
+
+    test("the labels read English", async ({ page }) => {
+      await openToday(page);
+      const card = page.getByRole("region", { name: "Large stations today" });
+      await expect(card).toContainText("Large stations");
+      await expect(card).toContainText("Today, as of 14:37 · up to 14:00");
+      await expect(page.getByRole("button", { name: "Today", exact: true })).toHaveAttribute(
+        "aria-pressed",
+        "true",
+      );
+      await page.goto(`/karte?tag=${TODAY}&bhf=8000555`);
+      await expect(panel(page)).toContainText("No data for this station yet today.");
+    });
+
+    test("the legend lines and the rest-only card read English", async ({ page }) => {
+      await openToday(page, `tag=${TODAY}`, "both");
+      await openLegend(page);
+      const l = page.getByRole("region", { name: "Legend" });
+      await expect(l).toContainText("Large stations live: as of 14:37 · up to 14:00");
+      await expect(l).toContainText("Other stations: as of 09:37 · up to 09:00");
+      await openToday(page, `tag=${TODAY}`, "rest");
+      await expect(page.getByRole("region", { name: "Germany today" })).toContainText(
+        "Today, as of 09:37 · up to 09:00",
+      );
+    });
   });
 });
 

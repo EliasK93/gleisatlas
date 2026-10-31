@@ -99,11 +99,17 @@ function Weather({ rank, gap }: { rank: keyof typeof SYMBOLS | null; gap: boolea
  */
 export function WeatherCard({
   tag,
+  today,
   metric,
   germany,
   gap,
 }: {
   tag: string;
+  /**
+   * On today: the label of the source the card counts ("Heute, Stand 14:37 · bis 14:00"), and
+   * whether that is the collector's large stations or every station that reports so far.
+   */
+  today?: { label: string; large: boolean };
   metric: Metric;
   germany: Deutschland | null;
   gap: number;
@@ -124,7 +130,9 @@ export function WeatherCard({
   }
   return (
     <section
-      aria-label={t("map.day.card")}
+      aria-label={t(
+        !today ? "map.day.card" : today.large ? "map.day.cardLive" : "map.day.cardToday",
+      )}
       className="rounded-xl border border-border bg-surface px-3 py-2.5 shadow-card md:px-3.5 md:py-3"
     >
       <div className="flex items-center gap-3">
@@ -132,9 +140,11 @@ export function WeatherCard({
           <Weather rank={germany.wetter[field] as keyof typeof SYMBOLS | null} gap={gap > 0} />
         )}
         <div className="min-w-0">
-          <p className="text-[13px] font-semibold">{t("map.day.germany")}</p>
+          <p className="text-[13px] font-semibold">
+            {t(today?.large ? "map.day.large" : "map.day.germany")}
+          </p>
           <p className="text-[12.5px] text-text-2">
-            {formatDay(tag)} · {line}
+            {today?.label ?? formatDay(tag)} · {line}
           </p>
         </div>
       </div>

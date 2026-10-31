@@ -234,6 +234,12 @@ export interface components {
             fehlende_stunden_tage: {
                 [key: string]: number;
             };
+            /** Heute */
+            heute: string | null;
+            /** Heute Stand */
+            heute_stand: string | null;
+            /** Heute Stand Rest */
+            heute_stand_rest: string | null;
         };
         /** Day */
         Day: {
@@ -516,6 +522,16 @@ export interface components {
             ohne_koordinaten: number;
             /** Stationen */
             stationen: components["schemas"]["TageskartenStation"][];
+            /** Stand */
+            stand?: string | null;
+            /** Bis Stunde */
+            bis_stunde?: number | null;
+            /** Stand Rest */
+            stand_rest?: string | null;
+            /** Bis Stunde Rest */
+            bis_stunde_rest?: number | null;
+            /** Deutschland Live */
+            deutschland_live?: boolean | null;
         };
         /** TageskartenStation */
         TageskartenStation: {
@@ -539,6 +555,11 @@ export interface components {
             lon: number;
             normal: components["schemas"]["Normal"];
             klasse: components["schemas"]["Klasse"];
+            /**
+             * Live
+             * @default false
+             */
+            live: boolean;
         };
         /** Tagesverlauf */
         Tagesverlauf: {

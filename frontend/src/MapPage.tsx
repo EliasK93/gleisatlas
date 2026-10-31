@@ -11,7 +11,7 @@ import workerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url";
 import { useEffect, useEffectEvent, useMemo, useRef, useState, type RefObject } from "react";
 import { Link, Navigate, useLocation, useSearchParams } from "react-router";
 import { clearParams, useSetParams } from "./useSetParams";
-import { api, must, useDatenstand } from "./api";
+import { api, LIVE_REFRESH, must, useDatenstand } from "./api";
 import { WeatherCard } from "./DayWeather";
 import { Filters } from "./Filters";
 import { t, tx } from "./i18n";
@@ -21,7 +21,9 @@ import {
   DEFS,
   deviation,
   formatDay,
+  formatLive,
   formatPeriod,
+  formatStand,
   int,
   legend,
   localLabel,
@@ -52,9 +54,9 @@ import {
 } from "./ui";
 
 type KartenStation = components["schemas"]["KartenStation"];
-/** A station of either map; only the day map knows its normal and its class. */
+/** A station of either map; only the day map knows its normal, its class and its source. */
 type Entry = KartenStation &
-  Partial<Pick<components["schemas"]["TageskartenStation"], "normal" | "klasse">>;
+  Partial<Pick<components["schemas"]["TageskartenStation"], "normal" | "klasse" | "live">>;
 type Tip = { text: string; x: number; y: number } | null;
 
 // Bundled worker per the MapLibre v6 docs for Vite.
@@ -87,10 +89,17 @@ const SCALE_TOKENS = ["r", "c"].flatMap((scale) => [1, 2, 3, 4, 5].map((i) => `$
  * One point per station with everything the layers need. Colours are the tokens of `theme`, so a
  * theme switch only has to rebuild this. The day map (`day`) colours by the deviation from the
  * API's class (`klasse`) on the `r` scale and draws a station with nothing to compare in the
- * neutral grey `c3`.
+ * neutral grey `c3`. On today a tooltip also names the stand of the station's source: `stands`
+ * for the collector's stations (`live`), the others take the rest.
  * ponytail: a metric switch rebuilds and re-sends all ~5k points; move to feature-state if it stutters
  */
-function toFeatures(stations: Entry[], metric: Metric, theme: Theme, day: boolean) {
+function toFeatures(
+  stations: Entry[],
+  metric: Metric,
+  theme: Theme,
+  day: boolean,
+  stands: { live?: string; rest?: string },
+) {
   // <html data-theme> already is `theme` when this runs; the tokens are read once per theme.
   const colours = (palette[theme] ??= Object.fromEntries(
     ["surface", "cancel", ...SCALE_TOKENS].map((n) => [n, token(n)]),
@@ -108,7 +117,9 @@ function toFeatures(stations: Entry[], metric: Metric, theme: Theme, day: boolea
       else if (v !== null) cls = classOf(metric, v);
       const fill = colours[cls ? `${day ? "r" : DEFS[metric].scale}${cls}` : day ? "c3" : "cancel"];
       let value = shown.text;
-      if (shown.low) value = t("map.lowShort");
+      // Only the live day lists a station without stops (one the collector does not cover).
+      if (day && s.n === 0) value = t("map.day.todayNone");
+      else if (shown.low) value = t("map.lowShort");
       else if (v === null) value = t("hm.onlyCancelledLegend");
       else if (day)
         value = dev
@@ -121,12 +132,13 @@ function toFeatures(stations: Entry[], metric: Metric, theme: Theme, day: boolea
       // The "~" tier of `show` is pale, the tier without a value very pale.
       const faint = shown.low || shown.approx;
       const alpha = shown.low ? VERY_PALE : faint ? PALE : 1;
+      const stand = s.n > 0 ? (s.live ? stands.live : stands.rest) : undefined;
       return {
         type: "Feature" as const,
         geometry: { type: "Point" as const, coordinates: [s.lon, s.lat] },
         properties: {
           eva: s.eva,
-          tip: t("map.tip", { name: s.name, value }),
+          tip: t("map.tip", { name: s.name, value }) + (stand ? ` · ${stand}` : ""),
           r: 3 + 7 * Math.sqrt(s.n / most),
           fill,
           // Little data: a hollow circle with a ring in the scale colour.
@@ -154,10 +166,13 @@ export default function MapPage() {
   const datenstand = status.data;
   const read = readFilters(params);
   // With a day the map is in day mode: the day replaces the period, and a day outside the data
-  // moves to its nearest edge (the middle of three ISO dates in order is the clamped one).
+  // moves to its nearest edge (the middle of three ISO dates in order is the clamped one). Any day
+  // after the last complete one moves to the live day, which is the only one served beyond it.
   const tag =
     read.tag && datenstand
-      ? [datenstand.erster_tag, read.tag, datenstand.letzter_tag].sort()[1]
+      ? read.tag > datenstand.letzter_tag && datenstand.heute
+        ? datenstand.heute
+        : [datenstand.erster_tag, read.tag, datenstand.letzter_tag].sort()[1]
       : read.tag;
   const f: FilterKeys = {
     ...read,
@@ -178,26 +193,52 @@ export default function MapPage() {
   });
   const dayMap = useQuery({
     queryKey: ["tageskarte", f.g, f.tag],
-    queryFn: () =>
-      api
-        .GET("/tageskarte", { params: { query: { tag: f.tag!, gattung: f.g ?? "alle" } } })
-        .then(must),
+    queryFn: async () => {
+      const answer = await api.GET("/tageskarte", {
+        params: { query: { tag: f.tag!, gattung: f.g ?? "alle" } },
+      });
+      // Today's map is gone (a tab left open across midnight): ask what the data covers now, so
+      // the clamp moves the day before the failure shows.
+      if (answer.response.status === 404 && f.tag === datenstand?.heute) await status.refetch();
+      return must(answer);
+    },
     // The day is clamped to the data first, so the request never names a day outside it.
     enabled: !!f.tag && !!datenstand,
     placeholderData: keepPreviousData,
+    // The live day grows while the tab is open.
+    refetchInterval: f.tag && f.tag === datenstand?.heute ? LIVE_REFRESH : false,
   });
   const q = f.tag ? dayMap : periodMap;
   const data = f.tag ? dayMap.data : periodMap.data;
   // Labels name the day the data on screen is for, which lags behind the URL while a day loads.
   const shownDay = dayMap.data?.tag ?? f.tag;
-  // The day map also needs /datenstand to clamp the day, so its failure is the map's error too.
-  const failed = q.isError || (!!f.tag && status.isError);
+  // The day map also needs /datenstand to clamp the day, so its failure is the map's error too,
+  // unless it already has it (a failed refresh of the data stand leaves a working map alone).
+  const failed = q.isError || (!!f.tag && status.isError && !datenstand);
+  // Today has up to two sources, each with a data time and a cut hour: the collector's run for the
+  // large stations (`stand`) and piebro's partial day for the others (`stand_rest`).
+  const d = f.tag ? dayMap.data : undefined;
+  const live = d?.stand && d.bis_stunde != null ? { stand: d.stand, cut: d.bis_stunde } : undefined;
+  const rest =
+    d?.stand_rest && d.bis_stunde_rest != null
+      ? { stand: d.stand_rest, cut: d.bis_stunde_rest }
+      : undefined;
+  const today = !!(live || rest);
+  const liveStand = live && formatStand(live.stand, live.cut);
+  const restStand = rest && formatStand(rest.stand, rest.cut);
   const period = f.tag
-    ? formatDay(shownDay!)
+    ? today
+      ? t("map.day.today")
+      : formatDay(shownDay!)
     : periodMap.data?.n
       ? formatPeriod(periodMap.data.von, periodMap.data.bis)
       : undefined;
   const station = f.bhf ? data?.stationen.find((s) => s.eva === f.bhf) : undefined;
+  // The panel names the stand of the station's own source.
+  const own = (station as Entry | undefined)?.live ? live : rest;
+  const panelPeriod = today && own ? formatLive(own.stand, own.cut) : period;
+  // The Germany card counts the collector's stations if there is a run, else all that report.
+  const source = d?.deutschland_live ? live : (rest ?? live);
 
   // Drop invalid or unknown keys once, so a shared link only carries what the page shows.
   const clean = writeFilters(f).toString();
@@ -219,6 +260,8 @@ export default function MapPage() {
         card={card}
         stations={data?.stationen}
         day={!!f.tag}
+        liveStand={liveStand}
+        restStand={restStand}
         metric={f.k}
         selected={station}
         onPick={(eva) => setParams(withParam("bhf", eva))}
@@ -250,6 +293,12 @@ export default function MapPage() {
         {f.tag && dayMap.data && (
           <WeatherCard
             tag={dayMap.data.tag}
+            today={
+              source && {
+                label: formatLive(source.stand, source.cut),
+                large: !!d?.deutschland_live,
+              }
+            }
             metric={f.k}
             germany={dayMap.data.deutschland}
             gap={dayMap.data.fehlende_stunden}
@@ -258,6 +307,10 @@ export default function MapPage() {
         <Legend
           metric={f.k}
           meta={meta}
+          fresh={[
+            liveStand && t("map.day.freshLive", { stand: liveStand }),
+            restStand && t(live ? "map.day.freshRest" : "map.day.freshAll", { stand: restStand }),
+          ].filter((line): line is string => !!line)}
           day={
             f.tag
               ? { weekday: weekdayOf(shownDay!), refs: dayMap.data?.referenztage.length }
@@ -287,7 +340,7 @@ export default function MapPage() {
           loaded={!!data}
           day={!!f.tag}
           category={categoryName(f.g)}
-          period={period}
+          period={panelPeriod}
           onClose={() => {
             setParams(withParam("bhf", ""));
             // The panel is about to go, with the focus inside it: hand the focus to the map.
@@ -303,6 +356,8 @@ function StationMap({
   card,
   stations,
   day,
+  liveStand,
+  restStand,
   metric,
   selected,
   onPick,
@@ -312,6 +367,9 @@ function StationMap({
   stations?: Entry[];
   /** True for the day map, which colours by the deviation from the normal. */
   day: boolean;
+  /** On today the stand of each source, which the tooltips name. */
+  liveStand?: string;
+  restStand?: string;
   metric: Metric;
   selected?: KartenStation;
   onPick: (eva: string) => void;
@@ -323,8 +381,9 @@ function StationMap({
   // The theme of the base style the map shows or is loading.
   const styled = useRef(resolved);
   const features = useMemo(
-    () => stations && toFeatures(stations, metric, resolved, day),
-    [stations, metric, resolved, day],
+    () =>
+      stations && toFeatures(stations, metric, resolved, day, { live: liveStand, rest: restStand }),
+    [stations, metric, resolved, day, liveStand, restStand],
   );
   // What a freshly loaded base style needs to draw the stations again.
   const current = useEffectEvent(() => ({
@@ -523,10 +582,13 @@ const CLASSES = [1, 2, 3, 4, 5] as const;
 function Legend({
   metric,
   meta,
+  fresh,
   day,
 }: {
   metric: Metric;
   meta: string;
+  /** On today one line per source: which stations it covers, its data time and its cut. */
+  fresh: string[];
   day?: { weekday: string; refs?: number };
 }) {
   const isNarrow = useNarrow();
@@ -576,6 +638,16 @@ function Legend({
               {t("map.day.noCompare")}
             </span>
           )}
+          {fresh.length > 0 && (
+            // Only today lists stations without stops: the ring they are drawn with
+            <span className="inline-flex items-center gap-1.5">
+              <i
+                className="size-2.5 rounded-full border-[1.5px] border-c3"
+                style={{ opacity: VERY_PALE }}
+              />
+              {t("map.day.todayNone")}
+            </span>
+          )}
           <span className="inline-flex items-center gap-1.5">
             <i
               className="size-2.5 rounded-full border-[1.5px] border-text-3"
@@ -599,6 +671,11 @@ function Legend({
             {t("map.day.refs", { n: day.refs, weekday: day.weekday, weeks: REFERENCE_WEEKS })}
           </p>
         )}
+        {fresh.map((line) => (
+          <p key={line} className="mt-1 text-xs text-text-2">
+            {line}
+          </p>
+        ))}
         <p className="mt-2 text-xs text-text-3">{meta}</p>
       </div>
     </section>
@@ -664,7 +741,9 @@ function StationPanel({
         {t("map.sub", { eva: t("filter.eva", { eva }), category })}
       </p>
 
-      {station && tiles ? (
+      {station && day && station.n === 0 ? (
+        <p className="my-3 text-text-2">{t("map.day.todayNoneLong")}</p>
+      ) : station && tiles ? (
         <>
           {tiles.some((x) => x.low) && (
             <p className="mt-3 flex items-center gap-1.5 text-xs font-[550] text-text-2">

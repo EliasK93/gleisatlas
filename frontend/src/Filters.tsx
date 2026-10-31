@@ -44,7 +44,9 @@ export function Filters({
   };
   const day = !!dayMap && !!f.tag;
   const first = datenstand.data?.erster_tag;
-  const last = datenstand.data?.letzter_tag;
+  // The live day, where there is one, is the newest day.
+  const heute = datenstand.data?.heute ?? undefined;
+  const last = heute ?? datenstand.data?.letzter_tag;
   // Uncontrolled: React would put the URL's day back after every key of a half-typed year. The
   // field follows the URL only when the URL's day changes by other means (a clamped link).
   const dayField = useRef<HTMLInputElement>(null);
@@ -78,26 +80,38 @@ export function Filters({
         />
       )}
       {day && (
-        <span className={chip(true)}>
-          {t("filter.chip", { label: t("map.mode.day") })}
-          <label className="hit">
-            <input
-              type="date"
-              aria-label={t("map.day.pick")}
-              ref={dayField}
-              defaultValue={f.tag}
-              min={first}
-              max={last}
-              onChange={(e) => {
-                // Only a complete day inside the data: while a year is typed the field passes
-                // through values like 0002-09-15, which must neither move the map nor query.
-                const v = e.target.value;
-                if (first && last && v >= first && v <= last) setParams(withParam("tag", v));
-              }}
-              className="cursor-pointer bg-transparent px-1 font-semibold"
-            />
-          </label>
-        </span>
+        <>
+          <span className={chip(true)}>
+            {t("filter.chip", { label: t("map.mode.day") })}
+            <label className="hit">
+              <input
+                type="date"
+                aria-label={t("map.day.pick")}
+                ref={dayField}
+                defaultValue={f.tag}
+                min={first}
+                max={last}
+                onChange={(e) => {
+                  // Only a day inside the data: while a year is typed the field passes
+                  // through values like 0002-09-15, which must neither move the map nor query.
+                  const v = e.target.value;
+                  if (first && last && v >= first && v <= last) setParams(withParam("tag", v));
+                }}
+                className="cursor-pointer bg-transparent px-1 font-semibold"
+              />
+            </label>
+          </span>
+          {heute && (
+            <button
+              type="button"
+              aria-pressed={f.tag === heute}
+              onClick={() => setParams(withParam("tag", heute))}
+              className={`${chip(f.tag === heute)} cursor-pointer`}
+            >
+              {t("map.day.today")}
+            </button>
+          )}
+        </>
       )}
       {!noPeriod && !day && (
         <span className={chip(!!(f.von || f.bis))}>

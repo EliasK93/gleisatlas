@@ -12,10 +12,17 @@ export function must<T>({ data, response }: { data?: T; response: Response }): T
   return data;
 }
 
-/** What the data covers. One request shared by the shell, the filter bar and the series. */
+/** How long a view of the live day stays fresh; the collector runs every 15 minutes. */
+export const LIVE_REFRESH = 5 * 60_000;
+
+/**
+ * What the data covers. One request shared by the shell, the filter bar and the series. While the
+ * server has a live day it is asked again, so an open tab notices the end of "today".
+ */
 export const useDatenstand = () =>
   useQuery({
     queryKey: ["datenstand"],
     queryFn: () => api.GET("/datenstand").then(must),
-    staleTime: Infinity,
+    staleTime: LIVE_REFRESH,
+    refetchInterval: (q) => (q.state.data?.heute ? LIVE_REFRESH : false),
   });

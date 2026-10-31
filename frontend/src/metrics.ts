@@ -173,6 +173,23 @@ const dayFormat = new Intl.DateTimeFormat(LOCALE, {
 /** "2026-03-10" → "Di., 10.03.2026" (en: "Tue, 03/10/2026"): the weekday with the date. */
 export const formatDay = (ymd: string) => dayFormat.format(new Date(`${ymd}T00:00:00Z`));
 
+const clock = new Intl.DateTimeFormat(LOCALE, {
+  hour: "2-digit",
+  minute: "2-digit",
+  hourCycle: "h23",
+  timeZone: "Europe/Berlin",
+});
+/** The data time and the cut of a source of today: "Stand 14:37 · bis 14:00"
+ * (en: "as of 14:37 · up to 14:00"). */
+export const formatStand = (stand: string, cut: number) =>
+  t("map.day.stand", {
+    time: clock.format(new Date(stand)),
+    cut: `${String(cut).padStart(2, "0")}:00`,
+  });
+/** "Heute, Stand 14:37 · bis 14:00" (en: "Today, as of 14:37 · up to 14:00"). */
+export const formatLive = (stand: string, cut: number) =>
+  t("map.day.live", { stand: formatStand(stand, cut) });
+
 // 2024-01-01 was a Monday, so day 0 = Monday like the API.
 const dayDate = (d: number) => new Date(Date.UTC(2024, 0, 1 + d));
 const dayLong = new Intl.DateTimeFormat(LOCALE, { weekday: "long", timeZone: "UTC" });
