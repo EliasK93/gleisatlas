@@ -6,7 +6,15 @@ import pytest
 from fastapi.testclient import TestClient
 
 from backend import main
-from tests.api.test_tageskarte_api import DAY, LAST, NO_NORMAL, tageskarte, varying, write_days
+from tests.api.test_tageskarte_api import (
+    DAY,
+    LAST,
+    NO_NORMAL,
+    tageskarte,
+    varying,
+    write_days,
+    write_stations,
+)
 from tests.conftest import BETA
 
 # "Today" is Tuesday 2026-06-02, the day after the last complete day. The collector ran at 12:37
@@ -95,8 +103,13 @@ def write_rest(tmp_path, monkeypatch, rows, stand=REST_STAND):
 
 @pytest.fixture
 def base(client: TestClient, tmp_path, monkeypatch) -> TestClient:
-    """Reference days, stations and the clock; no live or rest file yet."""
-    write_days(client, tmp_path, monkeypatch, varying)
+    """Reference days, stations and the clock; no live or rest file yet. Stations 1, 2 and BETA are
+    large; station 2 has stops in February only, so no past day lists it."""
+
+    def stops(d: date, eva: str) -> tuple[int, int, int]:
+        return (0, 0, 0) if eva == "2" and d.month != 2 else varying(d, eva)
+
+    write_days(client, tmp_path, monkeypatch, stops, evas=("1", "2", BETA))
     pl.DataFrame(reference_rows(), schema=DAY_HOURS_SCHEMA, orient="row").write_parquet(
         tmp_path / "day_hours.parquet"
     )
@@ -305,6 +318,17 @@ def test_with_both_sources_each_station_uses_its_own_values_and_cut(
     assert (de["n"], de["normal"]["puenktlich"]) == (100, pytest.approx(0.9))  # live stations only
 
 
+def test_a_rest_file_that_feeds_no_station_sends_no_rest_stand(
+    base: TestClient, tmp_path, monkeypatch
+):
+    # the collector covers station 1, the only one in the rest file: the legend has no other line
+    write_heute(tmp_path, monkeypatch, today_rows())
+    write_rest(tmp_path, monkeypatch, [(TODAY, 5, "regional", "1", 0, 5)])
+    body = tageskarte(base, TODAY)
+    assert datetime.fromisoformat(body["stand"]) == STAND
+    assert (body["stand_rest"], body["bis_stunde_rest"]) == (None, None)
+
+
 def test_a_rest_file_from_yesterday_or_without_rows_is_no_today(
     base: TestClient, tmp_path, monkeypatch
 ):
@@ -328,47 +352,48 @@ def test_past_days_say_nothing_of_today(base: TestClient, tmp_path, monkeypatch)
     assert [s["live"] for s in body["stationen"]] == [False]
 
 
-def test_a_gattung_with_no_live_stop_falls_back_to_the_rest_stations(
+def test_germany_per_category_follows_the_stations_decided_on_all_trains(
     base: TestClient, tmp_path, monkeypatch
 ):
-    """The live file has regional stops only; the rest file has 7 fern stops at station 2. The
-    fern map must not go blank: the card and the stations come from the rest file."""
+    """The live file has regional stops only; the rest file has 7 fern stops at station 2. Live
+    stations report today, so the fern line has no stops: the rest stations do not fill it."""
     write_heute(tmp_path, monkeypatch, today_rows())
     write_rest(tmp_path, monkeypatch, [*rest_rows(), (TODAY, 6, "fern", "2", 0, 7)])
-    body = tageskarte(base, TODAY, gattung="fern")
-    assert body["deutschland_live"] is False  # the card uses the rest stations
-    assert (body["deutschland"]["n"], body["n"]) == (7, 7)
-    # station 1 is live but has no fern stop: left out, as on a past day
-    assert [(s["eva"], s["n"], s["live"]) for s in body["stationen"]] == [("2", 7, False)]
+    body = tageskarte(base, TODAY)
+    assert body["deutschland_live"] is True
+    assert body["deutschland_fern"] is None
+    assert body["deutschland_regional"] == body["deutschland"]
+    assert station(body, "2")["n"] == 107  # the station itself shows all its trains
 
 
-def test_under_a_gattung_only_stations_no_source_covers_are_listed_without_data(
+def test_a_station_outside_the_large_set_never_appears_today(
     base: TestClient, tmp_path, monkeypatch
 ):
-    """g=fern: 1 (live) and 2 (rest) have regional stops only today, so they are left out, as on a
-    past day; 3 is in neither source and is listed with n = 0; 4 has the fern stops."""
-    pl.DataFrame(
-        {
-            "eva": ["1", "2", "3", "4"],
-            "name": ["Alpha", "Gamma", "Delta", "Epsilon"],
-            "n": 1,
-            "land": None,
-            "lat": [50.0, 51.0, 52.0, 53.0],
-            "lon": [7.0, 8.0, 9.0, 10.0],
-        },
-        schema_overrides={"land": pl.String},
-    ).write_parquet(tmp_path / "stations4.parquet")
-    monkeypatch.setattr(main, "STATIONS_PATH", str(tmp_path / "stations4.parquet"))
-    write_heute(tmp_path, monkeypatch, today_rows())
-    write_rest(tmp_path, monkeypatch, [*rest_rows(), (TODAY, 6, "fern", "4", 0, 7)])
-    body = tageskarte(base, TODAY, gattung="fern")
-    assert [(s["eva"], s["n"]) for s in body["stationen"]] == [("3", 0), ("4", 7)]
+    """Station 3 has coordinates and stops in both files but is no large station."""
+    write_stations(tmp_path, monkeypatch, ("1", "2", "3"))
+    big = [(TODAY, 5, "regional", "3", 0, 999)]
+    write_heute(tmp_path, monkeypatch, [*today_rows(), *big])
+    write_rest(tmp_path, monkeypatch, [*rest_rows(), *big])
+    body = tageskarte(base, TODAY)
+    assert [s["eva"] for s in body["stationen"]] == ["1", "2"]
+    assert (body["n"], body["deutschland"]["n"]) == (100, 100)  # the live stations only
 
 
-def test_today_is_filtered_by_gattung(base: TestClient, tmp_path, monkeypatch):
+def test_the_rest_fallback_covers_only_large_stations(base: TestClient, tmp_path, monkeypatch):
+    write_stations(tmp_path, monkeypatch, ("1", "2", "3"))
+    write_rest(tmp_path, monkeypatch, [*rest_rows(), (TODAY, 5, "regional", "3", 0, 999)])
+    body = tageskarte(base, TODAY)
+    assert body["deutschland_live"] is False
+    assert [s["eva"] for s in body["stationen"]] == ["1", "2"]
+    assert (body["n"], body["deutschland"]["n"]) == (105, 105)  # stations 1 and 2, not 3
+
+
+def test_today_has_a_fern_and_a_regional_line_that_add_up(base: TestClient, tmp_path, monkeypatch):
     write_rest(tmp_path, monkeypatch, [*rest_rows(), (TODAY, 6, "fern", "2", 0, 7)])
-    regional = tageskarte(base, TODAY, gattung="regional")
-    assert station(regional, "2")["n"] == 100  # the 7 fern stops are not counted
-    assert (regional["deutschland"]["n"], regional["n"]) == (105, 105)
-    alle = tageskarte(base, TODAY)
-    assert (station(alle, "2")["n"], alle["deutschland"]["n"]) == (107, 112)
+    body = tageskarte(base, TODAY)
+    assert (station(body, "2")["n"], body["deutschland"]["n"]) == (107, 112)
+    fern, regional = body["deutschland_fern"], body["deutschland_regional"]
+    assert (fern["n"], regional["n"]) == (7, 105)
+    assert fern["puenktlich"] == 1
+    assert fern["normal"] == NO_NORMAL  # the reference days have no fern stops
+    assert regional["normal"]["puenktlich"] == pytest.approx(0.85)

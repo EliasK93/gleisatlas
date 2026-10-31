@@ -22,7 +22,7 @@ from pydantic import BaseModel, Field
 
 from core.categories import FERN, REGIONAL
 from core.normal import FLOORS, deviation_class, normal, reference_days, weather
-from core.periods import full_coverage_start, local_time, timetable_changes
+from core.periods import full_coverage_start, large_stations, local_time, timetable_changes
 from core.rankings import Metric, counted, higher_is_better, rank
 from core.stats import CellStats, cell_stats, cell_stats_frame, delay_bins
 
@@ -191,10 +191,13 @@ class Tageskarte(BaseModel):
     tag: str  # 'YYYY-MM-DD', the planned arrival day
     referenztage: list[str]  # the days the normal rests on, nearest first
     fehlende_stunden: int  # hours of the day with incomplete data
-    deutschland: Deutschland | None  # None when the selection has no stops that day
-    n: int  # all stops of the day, also at stations that are not listed
+    deutschland: Deutschland | None  # all trains; None when the large stations have no stops
+    deutschland_fern: Deutschland | None  # the same for fern stops only; None without any
+    deutschland_regional: Deutschland | None  # ... and for regional stops only
+    n: int  # = deutschland.n: stops at the large stations, today those at the reporting ones
     ohne_koordinaten: int  # named stations with stops that day but no coordinates
-    stationen: list[TageskartenStation]  # today: every located station, n = 0 without data
+    # large stations only; today: all of them, n = 0 without data
+    stationen: list[TageskartenStation]
     stand: str | None = None  # today: the collector's run time, ISO UTC; None without live data
     bis_stunde: int | None = None  # arrivals planned before this local hour count (live stations)
     stand_rest: str | None = None  # today: the raw data's newest snapshot; None without it
@@ -417,6 +420,18 @@ def coverage_start() -> str | None:
     return full_coverage_start(dict(zip(df["month"], df["stations"], strict=True)))
 
 
+@lru_cache(maxsize=1)
+def _large_for(days_path: str, mtimes: tuple[int, int]) -> list[str]:  # mtimes: never stale
+    if (start := coverage_start()) is None:
+        return []
+    return collect(large_stations(pl.scan_parquet(days_path), start))["eva"].to_list()
+
+
+def large() -> list[str]:
+    """The EVAs of the large stations, sorted: those the source covered before full coverage."""
+    return _large_for(DAYS_PATH, (os.stat(DAYS_PATH).st_mtime_ns, os.stat(MONATE_PATH).st_mtime_ns))
+
+
 def period_start(von: str | None, bis: str | None) -> str | None:
     """The requested start, else the full-coverage start unless `bis` ends before it."""
     if von:
@@ -543,7 +558,9 @@ def karte_for(
 def located(evas: Iterable[str]) -> tuple[int, dict[str, dict]]:
     """For the named stations among `evas`: how many have no coordinates, and the rows of those
     that have, by EVA."""
-    named = named_stations().filter(pl.col("eva").is_in(pl.Series(list(evas)).implode()))
+    named = named_stations().filter(
+        pl.col("eva").is_in(pl.Series(list(evas), dtype=pl.String).implode())
+    )
     with_coords = named.drop_nulls("lat")
     return named.height - with_coords.height, {
         r["eva"]: r for r in with_coords.iter_rows(named=True)
@@ -868,8 +885,8 @@ def tagesverlauf(
 @app.get("/tageskarte", response_model=Tageskarte, operation_id="getTageskarte")
 def tageskarte(
     tag: Annotated[str, Query(pattern=r"^[0-9]{4}-[0-9]{2}-[0-9]{2}$")],
-    gattung: Gattung = "alle",
 ) -> Tageskarte:
+    """The day against its normal at the large stations (all trains), Germany per category too."""
     try:
         day = date.fromisoformat(tag)
     except ValueError:
@@ -887,7 +904,7 @@ def tageskarte(
     mtimes = tuple(os.stat(p).st_mtime_ns for p in paths)
     path = DAY_HOURS_PATH if is_today else DAYS_PATH
     sources = (live, rest) if is_today else (None, None)
-    return tageskarte_for(path, mtimes, gattung, day, *sources)
+    return tageskarte_for(path, mtimes, day, *sources)
 
 
 def counting(cells: Iterable[CellStats], m: str) -> list[float | None]:
@@ -927,19 +944,19 @@ def cells_of(frame: pl.LazyFrame, keys: list[str]) -> list[tuple[tuple, CellStat
 
 
 NO_STOPS = CellStats(n=0, cancellation_rate=0.0, median=None, p90=None, punctual_share=None)
+ALLE = "alle"  # the group of all trains next to REGIONAL and FERN
+CELL = ("day", "eva", "gruppe", "bucket")  # what the day map's counts are grouped by
 
 
-# ponytail: per-process cache like karte_for, one model per station (about 10 MB of Python objects
-# per entry), so only 4 entries. Measured on Windows with one Polars thread and days.parquet in
-# row groups of 50,000 rows: 20 distinct days settle at a working set of about 420 MB (peak 580
-# MB), one /karte on top peaks at 685 MB; cold about 2.4 s (the scan 0.3 s, the statistics in
-# Polars 0.9 s, mostly the sort of the 890k rows, the rest in Python). Revisit if memory or time
-# grows.
-@lru_cache(maxsize=4)
+# ponytail: per-process cache like karte_for, one model per large station (about 0.35 MB of Python
+# objects per entry), 16 entries so the seven day chips stay warm. Measured on Windows with one
+# Polars thread and days.parquet in row groups of 50,000 rows: a cold day takes 0.04 to 0.16 s,
+# today 0.11 s; 20 distinct days settle at a working set of about 310 MB (172 MB when idle).
+# Revisit if the large set grows to the whole network (about 10 MB and 2.4 s per entry then).
+@lru_cache(maxsize=16)
 def tageskarte_for(
     days_path: str,  # days.parquet; for today (live or rest) day_hours.parquet
     mtimes: tuple[int, ...],  # days, tage, stations, monate (+ day hours): no stale data
-    gattung: str,
     day: date,
     # Set for today, whose cells come from these files, each station from the live one if it is
     # in there, else from the rest one; its reference days are cut at that source's hour.
@@ -948,21 +965,20 @@ def tageskarte_for(
 ) -> Tageskarte:
     table = tage()
     gap_hours = dict(zip(table["day"], table["missing_hours"], strict=True))
-    first = table["day"][0]
-    if cov := coverage_start():
-        # Before full coverage far fewer stations report: those days say nothing about a day after.
-        if day >= (start := date.fromisoformat(f"{cov}-01")):
-            first = max(first, start)
-    refs = reference_days(day, first, table["day"][-1], {d for d, h in gap_hours.items() if h})
+    # The large stations are covered over the whole history: no clamp at full coverage
+    refs = reference_days(
+        day, table["day"][0], table["day"][-1], {d for d, h in gap_hours.items() if h}
+    )
     wanted = [day, *refs]
     is_today = bool(live or rest)
-    live_evas = set(live.rows["eva"]) if live else set()
-    rest_evas = set(rest.rows["eva"]) - live_evas if rest else set()
+    large_evas = set(large())
+    live_evas = set(live.rows["eva"]) & large_evas if live else set()
+    rest_evas = (set(rest.rows["eva"]) & large_evas) - live_evas if rest else set()
 
     def in_(evas: set[str]) -> pl.Expr:
         return pl.col("eva").is_in(pl.Series(sorted(evas), dtype=pl.String).implode())
 
-    sel = selection(pl.scan_parquet(days_path), gattung)
+    sel = pl.scan_parquet(days_path).filter(in_(large_evas))
     if is_today:
         keep = pl.lit(False)  # every station's reference days end where its own source ends
         for source, evas in ((live, live_evas), (rest, rest_evas)):
@@ -975,7 +991,7 @@ def tageskarte_for(
         .filter(
             pl.col("day").is_in(pl.Series(refs if is_today else wanted, dtype=pl.Date).implode())
         )
-        .group_by("day", "eva", "bucket")
+        .group_by(*CELL)
         .agg(n=pl.col("n").sum())
     )
     nation_src = grouped
@@ -986,8 +1002,9 @@ def tageskarte_for(
                 grouped,
                 *(
                     collect(
-                        selection(source.rows.lazy().filter(in_(evas)), gattung)
-                        .group_by("day", "eva", "bucket")
+                        source.rows.lazy()
+                        .filter(in_(evas))
+                        .group_by(*CELL)
                         .agg(n=pl.col("n").sum())
                     )
                     for source, evas in ((live, live_evas), (rest, rest_evas))
@@ -995,67 +1012,85 @@ def tageskarte_for(
                 ),
             ]
         )
-        # Germany: the live stations that report today (under this gattung), else the rest
-        # stations, against themselves on the reference days
+        # Germany: the live stations that report today, else the rest stations, against
+        # themselves on the reference days; decided once on all trains for all three lines
         today_cells = grouped.filter(pl.col("day") == day)
         reporting = today_cells.filter(in_(live_evas))["eva"].unique()
         card_live = not reporting.is_empty()
         if not card_live:
             reporting = today_cells.filter(in_(rest_evas))["eva"].unique()
         nation_src = grouped.filter(pl.col("eva").is_in(reporting.implode()))
-    nation = {
-        d: s
-        for (d,), s in cells_of(
-            nation_src.lazy().group_by("day", "bucket").agg(n=pl.col("n").sum()), ["day"]
-        )
-    }
+    # per gruppe, and all trains as one more group
+    per_gruppe = nation_src.lazy().group_by("day", "gruppe", "bucket").agg(n=pl.col("n").sum())
+    every = (
+        per_gruppe.group_by("day", "bucket")
+        .agg(n=pl.col("n").sum())
+        .select("day", pl.lit(ALLE).alias("gruppe"), "bucket", "n")
+    )
+    nation = dict(cells_of(pl.concat([per_gruppe, every]), ["day", "gruppe"]))
     head = {
         "tag": day.isoformat(),
         "referenztage": [d.isoformat() for d in refs],
         "fehlende_stunden": gap_hours.get(day, 0),  # today is not in the day table
         "stand": live.stand.isoformat() if live else None,
         "bis_stunde": live.cut if live else None,
-        "stand_rest": rest.stand.isoformat() if rest else None,
-        "bis_stunde_rest": rest.cut if rest else None,
+        # the rest file counts only where it feeds a station: the collector may cover them all
+        "stand_rest": rest.stand.isoformat() if rest and rest_evas else None,
+        "bis_stunde_rest": rest.cut if rest and rest_evas else None,
         "deutschland_live": card_live if is_today else None,
     }
-    if day not in nation:
-        return Tageskarte(**head, deutschland=None, n=0, ohne_koordinaten=0, stationen=[])
+    if (day, ALLE) not in nation:
+        return Tageskarte(
+            **head,
+            deutschland=None,
+            deutschland_fern=None,
+            deutschland_regional=None,
+            n=0,
+            ohne_koordinaten=0,
+            stationen=[],
+        )
 
-    today: dict[str, CellStats] = {}
-    earlier: defaultdict[str, list[CellStats]] = defaultdict(list)
-    for (d, eva), cell in cells_of(grouped.lazy(), ["day", "eva"]):
-        if d == day:
-            today[eva] = cell
-        else:
-            earlier[eva].append(cell)
-    nation_refs = references_of(nation[d] for d in refs if d in nation)
-    unlocated, stations = located(today)
-    if is_today:
-        # Stations no source covers yet are drawn grey, as n = 0. A covered station without stops
-        # of this gattung is left out, as on a past day (live_evas and rest_evas are unfiltered).
-        covered = live_evas | rest_evas
-        stations = located(e for e in named_stations()["eva"] if e in today or e not in covered)[1]
-    return Tageskarte(
-        **head,
-        deutschland=Deutschland(
-            **to_stats(nation[day]).model_dump(),
-            normal=normal_of(nation_refs),
+    def germany(gruppe: str) -> Deutschland | None:
+        if (day, gruppe) not in nation:
+            return None
+        cell = nation[day, gruppe]
+        references = references_of(nation[d, gruppe] for d in refs if (d, gruppe) in nation)
+        return Deutschland(
+            **to_stats(cell).model_dump(),
+            normal=normal_of(references),
             # a day with missing hours is not ranked: the gap, not the railway, may be the reason
             wetter=Wetter(
                 **{
                     m: None
                     if gap_hours.get(day)
                     else weather(
-                        getattr(nation[day], a) if shown(nation[day], m) else None,
-                        nation_refs[m],
+                        getattr(cell, a) if shown(cell, m) else None,
+                        references[m],
                         higher_is_better(a),
                     )
                     for m, a in METRICS.items()
                 }
             ),
-        ),
-        n=nation[day].n,
+        )
+
+    today: dict[str, CellStats] = {}
+    earlier: defaultdict[str, list[CellStats]] = defaultdict(list)
+    per_station = grouped.lazy().group_by("day", "eva", "bucket").agg(n=pl.col("n").sum())
+    for (d, eva), cell in cells_of(per_station, ["day", "eva"]):
+        if d == day:
+            today[eva] = cell
+        else:
+            earlier[eva].append(cell)
+    unlocated, stations = located(today)
+    if is_today:
+        # Large stations no source covers yet are drawn grey, as n = 0.
+        stations = located(large_evas)[1]
+    return Tageskarte(
+        **head,
+        deutschland=germany(ALLE),
+        deutschland_fern=germany(FERN),
+        deutschland_regional=germany(REGIONAL),
+        n=nation[day, ALLE].n,
         ohne_koordinaten=unlocated,
         stationen=[
             TageskartenStation(

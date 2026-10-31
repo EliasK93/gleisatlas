@@ -720,6 +720,7 @@
   "/tageskarte": {
    "get": {
     "summary": "Tageskarte",
+    "description": "The day against its normal at the large stations (all trains), Germany per category too.",
     "operationId": "getTageskarte",
     "parameters": [
      {
@@ -730,21 +731,6 @@
        "type": "string",
        "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$",
        "title": "Tag"
-      }
-     },
-     {
-      "name": "gattung",
-      "in": "query",
-      "required": false,
-      "schema": {
-       "enum": [
-        "alle",
-        "regional",
-        "fern"
-       ],
-       "type": "string",
-       "default": "alle",
-       "title": "Gattung"
       }
      }
     ],
@@ -1935,6 +1921,26 @@
        }
       ]
      },
+     "deutschland_fern": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/Deutschland"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "deutschland_regional": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/Deutschland"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
      "n": {
       "type": "integer",
       "title": "N"
@@ -2012,6 +2018,8 @@
      "referenztage",
      "fehlende_stunden",
      "deutschland",
+     "deutschland_fern",
+     "deutschland_regional",
      "n",
      "ohne_koordinaten",
      "stationen"

@@ -30,19 +30,28 @@ def tageskarte(client: TestClient, tag: date = DAY, **params) -> dict:
 
 
 def write_days(
-    client: TestClient, tmp_path, monkeypatch, stops, gaps: tuple[date, ...] = (), evas=("1", BETA)
+    client: TestClient,
+    tmp_path,
+    monkeypatch,
+    stops,
+    gaps: tuple[date, ...] = (),
+    evas=("1", BETA),
+    fern=None,
 ) -> TestClient:
-    """`stops(day, eva)` gives the regional stops of a day: (on time, 20 min late, cancelled)."""
+    """`stops(day, eva)` gives the regional stops of a day: (on time, 20 min late, cancelled);
+    `fern` the same for the fern stops, none by default. Full coverage starts in March: the large
+    stations are those with stops in February (all of `evas`, unless `stops` gives none then)."""
     rows = []
     d = FIRST
     while d <= LAST:
         for eva in evas:
-            on_time, late, cancelled = stops(d, eva)
-            rows += [
-                (d, "regional", eva, 0, on_time),
-                (d, "regional", eva, 20, late),
-                (d, "regional", eva, None, cancelled),
-            ]
+            for gruppe, count in (("regional", stops), ("fern", fern)):
+                on_time, late, cancelled = count(d, eva) if count else (0, 0, 0)
+                rows += [
+                    (d, gruppe, eva, 0, on_time),
+                    (d, gruppe, eva, 20, late),
+                    (d, gruppe, eva, None, cancelled),
+                ]
         d += timedelta(1)
     pl.DataFrame(
         [r for r in rows if r[4]],
@@ -62,7 +71,24 @@ def write_days(
     ).write_parquet(tmp_path / "t.parquet")
     monkeypatch.setattr(main, "DAYS_PATH", str(tmp_path / "d.parquet"))
     monkeypatch.setattr(main, "TAGE_PATH", str(tmp_path / "t.parquet"))
+    rows = [("2026-02", 0, 1), ("2026-03", 0, 10), ("2026-04", 0, 10), ("2026-05", 0, 10)]
+    write_monate(tmp_path / "monate.parquet", monkeypatch, rows)
     return client
+
+
+def write_stations(tmp_path, monkeypatch, evas: tuple[str, ...]) -> None:
+    """A station table with coordinates for each of `evas`."""
+    pl.DataFrame(
+        {
+            "eva": list(evas),
+            "name": [f"Station {e}" for e in evas],
+            "n": 1,
+            "land": None,
+            "lat": 50.0,
+            "lon": 7.0,
+        }
+    ).write_parquet(tmp_path / "more.parquet")
+    monkeypatch.setattr(main, "STATIONS_PATH", str(tmp_path / "more.parquet"))
 
 
 def varying(d: date, eva: str) -> tuple[int, int, int]:
@@ -166,10 +192,58 @@ def test_a_gap_day_is_marked_and_a_day_without_stops_has_no_germany(
     assert len(body["referenztage"]) == 11
 
 
-def test_gattung_filters(client: TestClient, tmp_path, monkeypatch):
+def test_gattung_is_ignored(client: TestClient, tmp_path, monkeypatch):
     write_days(client, tmp_path, monkeypatch, varying)
-    assert tageskarte(client, gattung="fern")["n"] == 0
-    assert tageskarte(client, gattung="regional")["n"] == 210
+    body = tageskarte(client)
+    assert body["n"] == 210
+    for gattung in ("fern", "regional", "x"):
+        assert tageskarte(client, gattung=gattung) == body
+
+
+def test_a_station_outside_the_large_set_never_appears(client: TestClient, tmp_path, monkeypatch):
+    """Station 3 has stops from March on, none in February: it is not a large station."""
+
+    def stops(d: date, eva: str) -> tuple[int, int, int]:
+        return (0, 0, 0) if eva == "3" and d.month == 2 else varying(d, eva)
+
+    write_days(client, tmp_path, monkeypatch, stops, evas=("1", BETA, "3"))
+    write_stations(tmp_path, monkeypatch, ("1", BETA, "3"))
+    body = tageskarte(client)
+    assert [s["eva"] for s in body["stationen"]] == [BETA, "1"]
+    assert body["n"] == 210  # the 105 stops of station 3 are not in the day either
+    assert main.large() == [BETA, "1"]
+
+
+def test_germany_adds_up_from_fern_and_regional_and_each_has_a_normal(
+    client: TestClient, tmp_path, monkeypatch
+):
+    def fern(d: date, eva: str) -> tuple[int, int, int]:
+        return (20, 0, 0) if eva == "1" else (0, 0, 0)
+
+    write_days(client, tmp_path, monkeypatch, varying, fern=fern)
+    body = tageskarte(client)
+    de, ferne, regional = (
+        body[k] for k in ("deutschland", "deutschland_fern", "deutschland_regional")
+    )
+    assert (de["n"], ferne["n"], regional["n"]) == (230, 20, 210)
+    assert body["n"] == 230
+    assert (ferne["puenktlich"], ferne["normal"]["puenktlich"]) == (1, 1)
+    on_time = [varying(d, "1")[0] / 100 for d in thursdays(12) if d != HOLIDAY]
+    assert regional["normal"]["puenktlich"] == pytest.approx(median(on_time), abs=1e-12)
+    assert regional["normal"]["ausfallquote"] == pytest.approx(5 / 105)
+    assert ferne["normal"]["ausfallquote"] == 0
+    assert all(v is not None for v in (*ferne["wetter"].values(), *regional["wetter"].values()))
+    # a station keeps all its trains: 105 regional and 20 fern stops
+    assert next(s for s in body["stationen"] if s["eva"] == "1")["n"] == 125
+
+
+def test_a_category_without_stops_that_day_has_no_germany(
+    client: TestClient, tmp_path, monkeypatch
+):
+    write_days(client, tmp_path, monkeypatch, varying)
+    body = tageskarte(client)
+    assert body["deutschland_fern"] is None
+    assert body["deutschland_regional"] == body["deutschland"]
 
 
 @pytest.mark.parametrize(
@@ -189,9 +263,6 @@ def test_malformed_tag_is_422_and_a_day_out_of_range_404(
     write_days(client, tmp_path, monkeypatch, varying)
     assert client.get("/tageskarte", params={"tag": tag}).status_code == status
     assert client.get("/tageskarte").status_code == 422
-    assert (
-        client.get("/tageskarte", params={"tag": "2026-05-21", "gattung": "x"}).status_code == 422
-    )
 
 
 def test_large_responses_are_gzipped(client: TestClient, tmp_path, monkeypatch):
@@ -230,21 +301,12 @@ def test_germany_has_no_weather_on_a_gap_day_but_its_stations_keep_a_class(
     assert body["stationen"][0]["klasse"]["puenktlich"] == 1
 
 
-def test_the_reference_days_start_at_the_full_coverage_month(
-    client: TestClient, tmp_path, monkeypatch
-):
-    """Before the coverage month far fewer stations report, so those days say nothing about a
-    day after it, for Germany and for the stations alike."""
+def test_reference_days_reach_back_before_full_coverage(client: TestClient, tmp_path, monkeypatch):
+    """The large stations are covered over the whole history, so full coverage (March here) does
+    not cut the reference days."""
     write_days(client, tmp_path, monkeypatch, varying)
-    assert len(tageskarte(client)["referenztage"]) == 11  # the day lies before the coverage month
-    rows = [("2026-02", 0, 1), ("2026-03", 0, 1), ("2026-04", 0, 10), ("2026-05", 0, 10)]
-    write_monate(tmp_path / "monate.parquet", monkeypatch, rows)  # new mtime: a new cache entry
-    body = tageskarte(client)
-    assert body["referenztage"] == [d.isoformat() for d in thursdays(7) if d != HOLIDAY]
-    assert min(body["referenztage"]) >= "2026-04-01"
-    assert body["deutschland"]["normal"] == NO_NORMAL
-    assert body["deutschland"]["wetter"] == NO_NORMAL
-    assert body["stationen"][0]["normal"] == NO_NORMAL
+    body = tageskarte(client, date(2026, 3, 5))
+    assert body["referenztage"] == ["2026-02-26", "2026-02-19", "2026-02-12", "2026-02-05"]
 
 
 def klasse_with(client: TestClient, tmp_path, monkeypatch, refs, target) -> dict:
