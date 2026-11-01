@@ -272,7 +272,7 @@ export interface components {
             /** Puenktlich */
             puenktlich: number | null;
             normal: components["schemas"]["Normal"];
-            wetter: components["schemas"]["Wetter"];
+            klasse: components["schemas"]["Klasse"];
         };
         /** Gruppe */
         Gruppe: {
@@ -343,8 +343,9 @@ export interface components {
         };
         /**
          * Klasse
-         * @description How far a station's day is from its normal, in the usual variation of its reference days:
-         *     1 (much better), 2, 3 (as usual), 4, 5 (much worse). None without a shown value or a normal.
+         * @description How far a day is from its normal (a station's, a state's or Germany's), in the usual
+         *     variation of its reference days: 1 (much better), 2, 3 (as usual), 4, 5 (much worse).
+         *     None without a shown value or a normal.
          */
         Klasse: {
             /** Puenktlich */
@@ -355,6 +356,19 @@ export interface components {
             median: number | null;
             /** P90 */
             p90: number | null;
+        };
+        /**
+         * Land
+         * @description A federal state, valued like Germany from the large stations that feed Germany's value.
+         */
+        Land: {
+            /** Land */
+            land: string;
+            /** Bahnhoefe */
+            bahnhoefe: number;
+            alle: components["schemas"]["Deutschland"];
+            fern: components["schemas"]["Deutschland"] | null;
+            regional: components["schemas"]["Deutschland"] | null;
         };
         /** Monat */
         Monat: {
@@ -523,6 +537,8 @@ export interface components {
             deutschland_regional: components["schemas"]["Deutschland"] | null;
             /** N */
             n: number;
+            /** Laender */
+            laender: components["schemas"]["Land"][];
             /** Ohne Koordinaten */
             ohne_koordinaten: number;
             /** Stationen */
@@ -558,6 +574,8 @@ export interface components {
             lat: number;
             /** Lon */
             lon: number;
+            /** Land */
+            land: string | null;
             normal: components["schemas"]["Normal"];
             klasse: components["schemas"]["Klasse"];
             /**
@@ -599,21 +617,6 @@ export interface components {
             input?: unknown;
             /** Context */
             ctx?: Record<string, never>;
-        };
-        /**
-         * Wetter
-         * @description Rank of the day among the reference days: 1 (much better than usual) to 5 (much worse);
-         *     None where the day or the references give no value.
-         */
-        Wetter: {
-            /** Puenktlich */
-            puenktlich: number | null;
-            /** Ausfallquote */
-            ausfallquote: number | null;
-            /** Median */
-            median: number | null;
-            /** P90 */
-            p90: number | null;
         };
         /** Zeitverlauf */
         Zeitverlauf: {

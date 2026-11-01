@@ -76,14 +76,20 @@ def write_days(
     return client
 
 
-def write_stations(tmp_path, monkeypatch, evas: tuple[str, ...]) -> None:
+def write_stations(
+    tmp_path,
+    monkeypatch,
+    evas: tuple[str, ...],
+    lands: dict[str, str] | None = None,  # Wikidata state label by EVA; none for the others
+    names: dict[str, str] | None = None,  # name by EVA instead of "Station <eva>"
+) -> None:
     """A station table with coordinates for each of `evas`."""
     pl.DataFrame(
         {
             "eva": list(evas),
-            "name": [f"Station {e}" for e in evas],
+            "name": [(names or {}).get(e, f"Station {e}") for e in evas],
             "n": 1,
-            "land": None,
+            "land": [(lands or {}).get(e) for e in evas],
             "lat": 50.0,
             "lon": 7.0,
         }
@@ -141,7 +147,7 @@ def test_a_station_with_fewer_than_8_counting_days_has_no_normal(
         ((0, 100, 20), {"puenktlich": 5, "ausfallquote": 5, "median": 5, "p90": 3}),
     ],
 )
-def test_germany_weather_is_1_on_the_best_day_and_5_on_the_worst(
+def test_germany_class_is_1_on_the_best_day_and_5_on_the_worst(
     client: TestClient, tmp_path, monkeypatch, target, expected
 ):
     def stops(d: date, eva: str) -> tuple[int, int, int]:
@@ -149,7 +155,7 @@ def test_germany_weather_is_1_on_the_best_day_and_5_on_the_worst(
 
     write_days(client, tmp_path, monkeypatch, stops)
     de = tageskarte(client)["deutschland"]
-    assert de["wetter"] == expected
+    assert de["klasse"] == expected
     assert de["normal"]["median"] == 0
     assert de["normal"]["p90"] == 20
     assert de["normal"]["ausfallquote"] == pytest.approx(5 / 105)
@@ -232,7 +238,7 @@ def test_germany_adds_up_from_fern_and_regional_and_each_has_a_normal(
     assert regional["normal"]["puenktlich"] == pytest.approx(median(on_time), abs=1e-12)
     assert regional["normal"]["ausfallquote"] == pytest.approx(5 / 105)
     assert ferne["normal"]["ausfallquote"] == 0
-    assert all(v is not None for v in (*ferne["wetter"].values(), *regional["wetter"].values()))
+    assert all(v is not None for v in (*ferne["klasse"].values(), *regional["klasse"].values()))
     # a station keeps all its trains: 105 regional and 20 fern stops
     assert next(s for s in body["stationen"] if s["eva"] == "1")["n"] == 125
 
@@ -287,7 +293,7 @@ def test_large_responses_are_gzipped(client: TestClient, tmp_path, monkeypatch):
     assert len(r.json()["stationen"]) == 60
 
 
-def test_germany_has_no_weather_on_a_gap_day_but_its_stations_keep_a_class(
+def test_germany_has_no_class_on_a_gap_day_but_its_stations_keep_a_class(
     client: TestClient, tmp_path, monkeypatch
 ):
     def stops(d: date, eva: str) -> tuple[int, int, int]:
@@ -296,7 +302,7 @@ def test_germany_has_no_weather_on_a_gap_day_but_its_stations_keep_a_class(
     write_days(client, tmp_path, monkeypatch, stops, gaps=(DAY,))
     body = tageskarte(client)
     assert body["fehlende_stunden"] == 3
-    assert body["deutschland"]["wetter"] == NO_NORMAL
+    assert body["deutschland"]["klasse"] == NO_NORMAL
     assert body["deutschland"]["normal"]["puenktlich"] is not None
     assert body["stationen"][0]["klasse"]["puenktlich"] == 1
 
@@ -324,17 +330,17 @@ def klasse_with(client: TestClient, tmp_path, monkeypatch, refs, target) -> dict
 @pytest.mark.parametrize(
     "on_time, expected",
     [
-        (819, 3),  # 1.9 floors (1 pp) above the normal of 80 %
-        (821, 2),
-        (839, 2),
-        (841, 1),
-        (781, 3),
-        (779, 4),
-        (761, 4),
-        (759, 5),
+        (809, 3),  # 0.9 floors (1 pp) above the normal of 80 %
+        (811, 2),
+        (819, 2),
+        (821, 1),
+        (791, 3),
+        (789, 4),
+        (781, 4),
+        (779, 5),
     ],
 )
-def test_punctuality_class_cuts_at_2_and_4_floors_when_the_references_agree(
+def test_punctuality_class_cuts_at_1_and_2_floors_when_the_references_agree(
     client: TestClient, tmp_path, monkeypatch, on_time, expected
 ):
     klasse = klasse_with(client, tmp_path, monkeypatch, lambda d: (800, 5), (on_time, 5))
@@ -345,8 +351,8 @@ def test_the_spread_of_the_references_decides_when_it_exceeds_the_floor(
     client: TestClient, tmp_path, monkeypatch
 ):
     ladder = {d: 760 + 8 * i for i, d in enumerate(d for d in thursdays(12) if d != HOLIDAY)}
-    # normal 80 %, spread 3.6 pp; with only the floor 88 % would be 8 floors away
-    for on_time, expected in ((860, 3), (880, 2), (940, 2), (950, 1)):
+    # normal 80 %, spread 3.6 pp; with only the floor 84 % would be 4 floors away
+    for on_time, expected in ((830, 3), (840, 2), (860, 2), (880, 1)):
         main.tageskarte_for.cache_clear()
         klasse = klasse_with(
             client, tmp_path, monkeypatch, lambda d: (ladder.get(d, 800), 5), (on_time, 5)
@@ -382,3 +388,124 @@ def test_a_station_day_without_a_shown_value_has_no_class(
     (s,) = tageskarte(client)["stationen"]
     assert s["normal"]["puenktlich"] is not None
     assert s["klasse"] == NO_NORMAL
+
+
+def states(body: dict) -> dict[str, dict]:
+    return {land["land"]: land for land in body["laender"]}
+
+
+def test_the_states_add_up_to_germany_and_a_station_without_a_state_feeds_germany_only(
+    client: TestClient, tmp_path, monkeypatch
+):
+    write_days(client, tmp_path, monkeypatch, varying, evas=("1", "2", "3"))
+    write_stations(tmp_path, monkeypatch, ("1", "2", "3"), {"1": "Berlin", "2": "Bayern"})
+    body = tageskarte(client)
+    assert (body["n"], list(states(body))) == (315, ["be", "by"])  # sorted by code
+    assert sum(land["alle"]["n"] for land in body["laender"]) == 210
+    main.tageskarte_for.cache_clear()
+    write_stations(
+        tmp_path, monkeypatch, ("1", "2", "3"), {"1": "Berlin", "2": "Bayern", "3": "Sachsen"}
+    )
+    body = tageskarte(client)
+    assert list(states(body)) == ["be", "by", "sn"]
+    assert sum(land["alle"]["n"] for land in body["laender"]) == body["n"] == 315
+
+
+@pytest.mark.parametrize(
+    "target, expected",
+    [
+        ((100, 0, 0), {"puenktlich": 1, "ausfallquote": 1, "median": 3, "p90": 1}),
+        ((0, 100, 20), {"puenktlich": 5, "ausfallquote": 5, "median": 5, "p90": 3}),
+    ],
+)
+def test_a_state_class_is_1_on_the_best_day_and_5_on_the_worst(
+    client: TestClient, tmp_path, monkeypatch, target, expected
+):
+    def stops(d: date, eva: str) -> tuple[int, int, int]:
+        return target if d == DAY else varying(d, eva)
+
+    write_days(client, tmp_path, monkeypatch, stops, evas=("1", "2"))
+    write_stations(tmp_path, monkeypatch, ("1", "2"), {"1": "Berlin", "2": "Bayern"})
+    body = tageskarte(client)
+    for land in body["laender"]:
+        assert land["alle"]["klasse"] == expected
+        assert land["alle"]["normal"]["median"] == 0
+        assert land["alle"]["normal"]["p90"] == 20
+        assert land["alle"]["normal"]["ausfallquote"] == pytest.approx(5 / 105)
+    assert len(body["laender"]) == 2
+
+
+def test_each_state_is_classed_against_its_own_reference_days(
+    client: TestClient, tmp_path, monkeypatch
+):
+    """Berlin is always on time and Bayern always late, until the day, when both are half on
+    time: Germany's day is as usual, Berlin's its worst, Bayern's its best."""
+
+    def stops(d: date, eva: str) -> tuple[int, int, int]:
+        if d == DAY:
+            return (50, 50, 0)
+        return (100, 0, 0) if eva == "1" else (0, 100, 0)
+
+    write_days(client, tmp_path, monkeypatch, stops, evas=("1", "2"))
+    write_stations(tmp_path, monkeypatch, ("1", "2"), {"1": "Berlin", "2": "Bayern"})
+    body = tageskarte(client)
+    areas = {"de": body["deutschland"]} | {code: s["alle"] for code, s in states(body).items()}
+    seen = {  # the day's share on time, its normal and its class
+        code: (a["puenktlich"], a["normal"]["puenktlich"], a["klasse"]["puenktlich"])
+        for code, a in areas.items()
+    }
+    assert seen == {"de": (0.5, 0.5, 3), "be": (0.5, 1, 5), "by": (0.5, 0, 1)}
+
+
+def test_no_state_has_a_class_on_a_gap_day(client: TestClient, tmp_path, monkeypatch):
+    def fern(d: date, eva: str) -> tuple[int, int, int]:
+        return (20, 0, 0)
+
+    write_days(client, tmp_path, monkeypatch, varying, gaps=(DAY,), fern=fern, evas=("1", "2"))
+    write_stations(tmp_path, monkeypatch, ("1", "2"), {"1": "Berlin", "2": "Bayern"})
+    body = tageskarte(client)
+    assert len(body["laender"]) == 2
+    for land in body["laender"]:
+        for key in ("alle", "fern", "regional"):
+            assert land[key]["klasse"] == NO_NORMAL
+            assert land[key]["normal"]["puenktlich"] is not None
+
+
+def test_a_day_without_stops_has_no_states(client: TestClient, tmp_path, monkeypatch):
+    def stops(d: date, eva: str) -> tuple[int, int, int]:
+        return (0, 0, 0) if d == DAY else varying(d, eva)
+
+    write_days(client, tmp_path, monkeypatch, stops)
+    assert tageskarte(client)["laender"] == []
+
+
+def test_a_state_counts_station_names_not_evas(client: TestClient, tmp_path, monkeypatch):
+    """Berlin Hbf has two EVAs; with Alpha the state has two stations, not three."""
+    write_days(client, tmp_path, monkeypatch, varying, evas=("1", "2", "3"))
+    write_stations(
+        tmp_path,
+        monkeypatch,
+        ("1", "2", "3"),
+        {e: "Berlin" for e in "123"},
+        {"1": "Berlin Hbf", "2": "Berlin Hbf", "3": "Alpha"},
+    )
+    (berlin,) = tageskarte(client)["laender"]
+    assert (berlin["land"], berlin["bahnhoefe"], berlin["alle"]["n"]) == ("be", 2, 315)
+
+
+def test_a_station_carries_its_state_and_fern_and_regional_add_up_per_state(
+    client: TestClient, tmp_path, monkeypatch
+):
+    def fern(d: date, eva: str) -> tuple[int, int, int]:
+        return (20, 0, 0) if eva == "1" else (10, 0, 0)
+
+    write_days(client, tmp_path, monkeypatch, varying, fern=fern, evas=("1", "2", "3"))
+    write_stations(
+        tmp_path, monkeypatch, ("1", "2", "3"), {"1": "Berlin", "2": "Freie Hansestadt Bremen"}
+    )
+    body = tageskarte(client)
+    assert {s["eva"]: s["land"] for s in body["stationen"]} == {"1": "be", "2": "hb", "3": None}
+    assert sorted(states(body)) == ["be", "hb"]
+    for land in body["laender"]:
+        assert land["fern"]["n"] + land["regional"]["n"] == land["alle"]["n"]
+    assert (states(body)["be"]["fern"]["n"], states(body)["hb"]["fern"]["n"]) == (20, 10)

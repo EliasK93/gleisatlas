@@ -233,7 +233,7 @@ def test_the_germany_card_compares_the_same_stations_only(live: TestClient):
     assert de["normal"]["puenktlich"] == pytest.approx(0.9)
     assert de["normal"]["ausfallquote"] == 0
     assert de["puenktlich"] == 0.5
-    assert de["wetter"]["puenktlich"] == 5
+    assert de["klasse"]["puenktlich"] == 5
 
 
 def test_a_located_station_without_data_today_is_listed_with_nothing_shown(live: TestClient):
@@ -397,3 +397,44 @@ def test_today_has_a_fern_and_a_regional_line_that_add_up(base: TestClient, tmp_
     assert fern["puenktlich"] == 1
     assert fern["normal"] == NO_NORMAL  # the reference days have no fern stops
     assert regional["normal"]["puenktlich"] == pytest.approx(0.85)
+
+
+def with_states(tmp_path, monkeypatch) -> None:
+    """Alpha and Beta are in Berlin, Gamma in Bayern."""
+    pl.DataFrame(
+        {
+            "eva": ["1", "2", BETA],
+            "name": ["Alpha", "Gamma", "Beta"],
+            "n": 1,
+            "land": ["Berlin", "Bayern", "Berlin"],
+            "lat": [50.0, 51.0, None],
+            "lon": [7.0, 8.0, None],
+        },
+        schema_overrides={"lat": pl.Float64, "lon": pl.Float64},
+    ).write_parquet(tmp_path / "stations3.parquet")
+    monkeypatch.setattr(main, "STATIONS_PATH", str(tmp_path / "stations3.parquet"))
+
+
+def test_today_a_state_counts_only_the_stations_that_report(
+    live: TestClient, tmp_path, monkeypatch
+):
+    with_states(tmp_path, monkeypatch)
+    body = tageskarte(live, TODAY)
+    (berlin,) = body["laender"]  # Gamma and Beta do not report: no Bayern, no second station
+    assert (berlin["land"], berlin["bahnhoefe"]) == ("be", 1)
+    assert berlin["alle"]["n"] == body["deutschland"]["n"] == 100
+    assert berlin["alle"]["normal"]["puenktlich"] == pytest.approx(0.9)  # Beta's days stay out
+
+
+def test_today_the_states_add_up_to_germany_when_the_rest_stations_feed_it(
+    base: TestClient, tmp_path, monkeypatch
+):
+    write_rest(tmp_path, monkeypatch, rest_rows())
+    with_states(tmp_path, monkeypatch)
+    body = tageskarte(base, TODAY)
+    assert body["deutschland_live"] is False
+    assert [(land["land"], land["bahnhoefe"], land["alle"]["n"]) for land in body["laender"]] == [
+        ("be", 1, 5),
+        ("by", 1, 100),
+    ]
+    assert sum(land["alle"]["n"] for land in body["laender"]) == body["deutschland"]["n"] == 105

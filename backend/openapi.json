@@ -1044,8 +1044,8 @@
      "normal": {
       "$ref": "#/components/schemas/Normal"
      },
-     "wetter": {
-      "$ref": "#/components/schemas/Wetter"
+     "klasse": {
+      "$ref": "#/components/schemas/Klasse"
      }
     },
     "type": "object",
@@ -1056,7 +1056,7 @@
      "p90",
      "puenktlich",
      "normal",
-     "wetter"
+     "klasse"
     ],
     "title": "Deutschland"
    },
@@ -1336,7 +1336,52 @@
      "p90"
     ],
     "title": "Klasse",
-    "description": "How far a station's day is from its normal, in the usual variation of its reference days:\n1 (much better), 2, 3 (as usual), 4, 5 (much worse). None without a shown value or a normal."
+    "description": "How far a day is from its normal (a station's, a state's or Germany's), in the usual\nvariation of its reference days: 1 (much better), 2, 3 (as usual), 4, 5 (much worse).\nNone without a shown value or a normal."
+   },
+   "Land": {
+    "properties": {
+     "land": {
+      "type": "string",
+      "title": "Land"
+     },
+     "bahnhoefe": {
+      "type": "integer",
+      "title": "Bahnhoefe"
+     },
+     "alle": {
+      "$ref": "#/components/schemas/Deutschland"
+     },
+     "fern": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/Deutschland"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "regional": {
+      "anyOf": [
+       {
+        "$ref": "#/components/schemas/Deutschland"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     }
+    },
+    "type": "object",
+    "required": [
+     "land",
+     "bahnhoefe",
+     "alle",
+     "fern",
+     "regional"
+    ],
+    "title": "Land",
+    "description": "A federal state, valued like Germany from the large stations that feed Germany's value."
    },
    "Monat": {
     "properties": {
@@ -1945,6 +1990,13 @@
       "type": "integer",
       "title": "N"
      },
+     "laender": {
+      "items": {
+       "$ref": "#/components/schemas/Land"
+      },
+      "type": "array",
+      "title": "Laender"
+     },
      "ohne_koordinaten": {
       "type": "integer",
       "title": "Ohne Koordinaten"
@@ -2021,6 +2073,7 @@
      "deutschland_fern",
      "deutschland_regional",
      "n",
+     "laender",
      "ohne_koordinaten",
      "stationen"
     ],
@@ -2085,6 +2138,17 @@
       "type": "number",
       "title": "Lon"
      },
+     "land": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Land"
+     },
      "normal": {
       "$ref": "#/components/schemas/Normal"
      },
@@ -2108,6 +2172,7 @@
      "name",
      "lat",
      "lon",
+     "land",
      "normal",
      "klasse"
     ],
@@ -2237,63 +2302,6 @@
      "type"
     ],
     "title": "ValidationError"
-   },
-   "Wetter": {
-    "properties": {
-     "puenktlich": {
-      "anyOf": [
-       {
-        "type": "integer"
-       },
-       {
-        "type": "null"
-       }
-      ],
-      "title": "Puenktlich"
-     },
-     "ausfallquote": {
-      "anyOf": [
-       {
-        "type": "integer"
-       },
-       {
-        "type": "null"
-       }
-      ],
-      "title": "Ausfallquote"
-     },
-     "median": {
-      "anyOf": [
-       {
-        "type": "integer"
-       },
-       {
-        "type": "null"
-       }
-      ],
-      "title": "Median"
-     },
-     "p90": {
-      "anyOf": [
-       {
-        "type": "integer"
-       },
-       {
-        "type": "null"
-       }
-      ],
-      "title": "P90"
-     }
-    },
-    "type": "object",
-    "required": [
-     "puenktlich",
-     "ausfallquote",
-     "median",
-     "p90"
-    ],
-    "title": "Wetter",
-    "description": "Rank of the day among the reference days: 1 (much better than usual) to 5 (much worse);\nNone where the day or the references give no value."
    },
    "Zeitverlauf": {
     "properties": {

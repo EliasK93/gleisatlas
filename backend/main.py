@@ -21,9 +21,10 @@ from fastapi.middleware.gzip import GZipMiddleware
 from pydantic import BaseModel, Field
 
 from core.categories import FERN, REGIONAL
-from core.normal import FLOORS, deviation_class, normal, reference_days, weather
+from core.normal import FLOORS, deviation_class, normal, reference_days
 from core.periods import full_coverage_start, large_stations, local_time, timetable_changes
 from core.rankings import Metric, counted, higher_is_better, rank
+from core.stations import LAND_CODES
 from core.stats import CellStats, cell_stats, cell_stats_frame, delay_bins
 
 AGG_PATH = os.environ.get("AGGREGATE_PATH", "data/aggregate.parquet")
@@ -156,19 +157,10 @@ class Normal(BaseModel):
     p90: float | None
 
 
-class Wetter(BaseModel):
-    """Rank of the day among the reference days: 1 (much better than usual) to 5 (much worse);
-    None where the day or the references give no value."""
-
-    puenktlich: int | None
-    ausfallquote: int | None
-    median: int | None
-    p90: int | None
-
-
 class Klasse(BaseModel):
-    """How far a station's day is from its normal, in the usual variation of its reference days:
-    1 (much better), 2, 3 (as usual), 4, 5 (much worse). None without a shown value or a normal."""
+    """How far a day is from its normal (a station's, a state's or Germany's), in the usual
+    variation of its reference days: 1 (much better), 2, 3 (as usual), 4, 5 (much worse).
+    None without a shown value or a normal."""
 
     puenktlich: int | None
     ausfallquote: int | None
@@ -177,6 +169,7 @@ class Klasse(BaseModel):
 
 
 class TageskartenStation(KartenStation):
+    land: str | None  # code of the federal state ('be', 'by', ...); None where not known
     normal: Normal
     klasse: Klasse
     live: bool = False  # today only: the values come from the collector, not from the raw data
@@ -184,7 +177,17 @@ class TageskartenStation(KartenStation):
 
 class Deutschland(Stats):
     normal: Normal
-    wetter: Wetter
+    klasse: Klasse
+
+
+class Land(BaseModel):
+    """A federal state, valued like Germany from the large stations that feed Germany's value."""
+
+    land: str  # code, as in TageskartenStation.land
+    bahnhoefe: int  # distinct station names among those with stops that day
+    alle: Deutschland
+    fern: Deutschland | None
+    regional: Deutschland | None
 
 
 class Tageskarte(BaseModel):
@@ -195,6 +198,7 @@ class Tageskarte(BaseModel):
     deutschland_fern: Deutschland | None  # the same for fern stops only; None without any
     deutschland_regional: Deutschland | None  # ... and for regional stops only
     n: int  # = deutschland.n: stops at the large stations, today those at the reporting ones
+    laender: list[Land]  # by code; only states with stops that day
     ohne_koordinaten: int  # named stations with stops that day but no coordinates
     # large stations only; today: all of them, n = 0 without data
     stationen: list[TageskartenStation]
@@ -945,6 +949,7 @@ def cells_of(frame: pl.LazyFrame, keys: list[str]) -> list[tuple[tuple, CellStat
 
 NO_STOPS = CellStats(n=0, cancellation_rate=0.0, median=None, p90=None, punctual_share=None)
 ALLE = "alle"  # the group of all trains next to REGIONAL and FERN
+DE = "de"  # the area of the whole country next to the states' codes
 CELL = ("day", "eva", "gruppe", "bucket")  # what the day map's counts are grouped by
 
 
@@ -1020,14 +1025,30 @@ def tageskarte_for(
         if not card_live:
             reporting = today_cells.filter(in_(rest_evas))["eva"].unique()
         nation_src = grouped.filter(pl.col("eva").is_in(reporting.implode()))
-    # per gruppe, and all trains as one more group
-    per_gruppe = nation_src.lazy().group_by("day", "gruppe", "bucket").agg(n=pl.col("n").sum())
-    every = (
-        per_gruppe.group_by("day", "bucket")
-        .agg(n=pl.col("n").sum())
-        .select("day", pl.lit(ALLE).alias("gruppe"), "bucket", "n")
+    # Germany ("de") and each state: per gruppe, and all trains as one more group
+    named = nation_src.join(
+        named_stations().select(
+            # a table without any state reads the column as all-null, not as strings
+            "eva",
+            "name",
+            pl.col("land").cast(pl.String).replace_strict(LAND_CODES, default=None),
+        ),
+        on="eva",
+        how="left",
     )
-    nation = dict(cells_of(pl.concat([per_gruppe, every]), ["day", "gruppe"]))
+    areas = pl.concat(
+        [
+            named.lazy().with_columns(area=pl.lit(DE)),
+            named.lazy().filter(pl.col("land").is_not_null()).with_columns(area=pl.col("land")),
+        ]
+    )
+    per_gruppe = areas.group_by("day", "area", "gruppe", "bucket").agg(n=pl.col("n").sum())
+    every = (
+        per_gruppe.group_by("day", "area", "bucket")
+        .agg(n=pl.col("n").sum())
+        .select("day", "area", pl.lit(ALLE).alias("gruppe"), "bucket", "n")
+    )
+    nation = dict(cells_of(pl.concat([per_gruppe, every]), ["day", "area", "gruppe"]))
     head = {
         "tag": day.isoformat(),
         "referenztage": [d.isoformat() for d in refs],
@@ -1039,40 +1060,48 @@ def tageskarte_for(
         "bis_stunde_rest": rest.cut if rest and rest_evas else None,
         "deutschland_live": card_live if is_today else None,
     }
-    if (day, ALLE) not in nation:
+    if (day, DE, ALLE) not in nation:
         return Tageskarte(
             **head,
             deutschland=None,
             deutschland_fern=None,
             deutschland_regional=None,
+            laender=[],
             n=0,
             ohne_koordinaten=0,
             stationen=[],
         )
 
-    def germany(gruppe: str) -> Deutschland | None:
-        if (day, gruppe) not in nation:
+    def area(code: str, gruppe: str) -> Deutschland | None:
+        if (day, code, gruppe) not in nation:
             return None
-        cell = nation[day, gruppe]
-        references = references_of(nation[d, gruppe] for d in refs if (d, gruppe) in nation)
+        cell = nation[day, code, gruppe]
+        references = references_of(
+            nation[d, code, gruppe] for d in refs if (d, code, gruppe) in nation
+        )
         return Deutschland(
             **to_stats(cell).model_dump(),
             normal=normal_of(references),
-            # a day with missing hours is not ranked: the gap, not the railway, may be the reason
-            wetter=Wetter(
-                **{
-                    m: None
-                    if gap_hours.get(day)
-                    else weather(
-                        getattr(cell, a) if shown(cell, m) else None,
-                        references[m],
-                        higher_is_better(a),
-                    )
-                    for m, a in METRICS.items()
-                }
-            ),
+            # a day with missing hours is not classed: the gap, not the railway, may be the reason
+            klasse=Klasse(**dict.fromkeys(METRICS))
+            if gap_hours.get(day)
+            else klasse_of(cell, references),
         )
 
+    # stations per state: names, so Berlin's split EVAs count once
+    names = named.filter(pl.col("day") == day, pl.col("land").is_not_null())
+    counts = dict(names.select("land", "name").unique().group_by("land").len().iter_rows())
+    laender = [
+        Land(
+            land=code,
+            bahnhoefe=counts[code],
+            alle=alle,
+            fern=area(code, FERN),
+            regional=area(code, REGIONAL),
+        )
+        for code in sorted(counts)
+        if (alle := area(code, ALLE))
+    ]
     today: dict[str, CellStats] = {}
     earlier: defaultdict[str, list[CellStats]] = defaultdict(list)
     per_station = grouped.lazy().group_by("day", "eva", "bucket").agg(n=pl.col("n").sum())
@@ -1087,14 +1116,16 @@ def tageskarte_for(
         stations = located(large_evas)[1]
     return Tageskarte(
         **head,
-        deutschland=germany(ALLE),
-        deutschland_fern=germany(FERN),
-        deutschland_regional=germany(REGIONAL),
-        n=nation[day, ALLE].n,
+        deutschland=area(DE, ALLE),
+        deutschland_fern=area(DE, FERN),
+        deutschland_regional=area(DE, REGIONAL),
+        laender=laender,
+        n=nation[day, DE, ALLE].n,
         ohne_koordinaten=unlocated,
         stationen=[
             TageskartenStation(
                 **station_fields(stations[eva], s),
+                land=LAND_CODES.get(stations[eva]["land"]),
                 normal=normal_of(references),
                 klasse=klasse_of(s, references),
                 live=eva in live_evas,
