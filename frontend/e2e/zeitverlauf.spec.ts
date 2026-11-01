@@ -128,7 +128,7 @@ test.describe("desktop", () => {
     await expect(dashed(page)).toHaveCount(6);
     await page.getByTestId("zv-2026-05").hover();
     await expect(tip(page)).toHaveText("Mai 26 · n = 20 · zu wenig Daten");
-    await page.getByRole("button", { name: "Verspätung", exact: true }).click();
+    await page.getByRole("button", { name: "Typische Verspätung", exact: true }).click();
     await page.getByTestId("zv-2026-05").hover();
     await expect(tip(page)).toHaveText("Mai 26 · n = 20 · zu wenig Daten");
     // The cancellation rate counts all stops, so it still has its value.
@@ -230,7 +230,7 @@ test.describe("desktop", () => {
   test("the delay metric draws the median line with a band up to P90", async ({ page }) => {
     await mockApi(page);
     await page.goto(MONTHLY);
-    await page.getByRole("button", { name: "Verspätung", exact: true }).click();
+    await page.getByRole("button", { name: "Typische Verspätung", exact: true }).click();
     await expect(page).toHaveURL(/[?&]k=median/);
     const svg = chart(page, "Verspätung pro Monat");
     await expect(svg).toBeVisible();
@@ -432,6 +432,62 @@ test.describe("day view", () => {
     await expect(svg.getByTestId("band")).toHaveCount(1);
     await expect(trend(page, "Verspätung pro Tag")).toHaveCount(1);
     await expect(chart(page, "Ausfallquote pro Tag")).toBeVisible();
+  });
+
+  test("the P90 view draws the P90 as the line, with the band reaching down to the median", async ({
+    page,
+  }) => {
+    await mockApi(page);
+    await page.goto("/muster/zeitverlauf?z=monat&k=median");
+    const medianPoint = chart(page, "Verspätung pro Monat").getByTestId("point").nth(1);
+    const medianY = Number(await medianPoint.getAttribute("cy"));
+    await page.goto("/muster/zeitverlauf?z=monat&k=p90");
+    await expect(page).toHaveURL(/\/muster\/zeitverlauf\?z=monat&k=p90$/);
+    const svg = chart(page, "Verspätung pro Monat");
+    await expect(svg.getByTestId("band")).toHaveCount(2);
+    // The same month's point lies higher: the P90 is above the median.
+    const p90Y = Number(await svg.getByTestId("point").nth(1).getAttribute("cy"));
+    expect(p90Y).toBeLessThan(medianY);
+    await expect(
+      page.getByText("Linie: schlechteste 10 % (P90) · Band: hinunter zur typischen Verspätung"),
+    ).toBeVisible();
+    await page.goto("/muster/zeitverlauf?k=p90");
+    await expect(trend(page, "Verspätung pro Tag")).toHaveCount(1);
+    await expect(
+      page.getByText("Band: Trend hinunter zur typischen Verspätung (Median)"),
+    ).toBeVisible();
+    await page.getByRole("button", { name: "Als Tabelle anzeigen" }).click();
+    const heads = page.getByRole("table").getByRole("columnheader");
+    await expect(heads).toContainText([
+      "Tag",
+      "Typische Verspätung",
+      "Schlechteste 10 %",
+      "Ausfälle",
+    ]);
+  });
+
+  test("the cancellation view has the cancellation rate as its only chart", async ({ page }) => {
+    await mockApi(page);
+    await page.goto("/muster/zeitverlauf?k=ausfall");
+    await expect(page).toHaveURL(/\/muster\/zeitverlauf\?k=ausfall$/);
+    const svg = chart(page, "Ausfallquote pro Tag");
+    await expect(svg).toBeVisible();
+    await expect(svg.getByTestId("trend")).toHaveCount(1);
+    await expect(page.getByRole("img", { name: /pro Tag$/ })).toHaveCount(1);
+    await expect(
+      page.getByRole("heading", { level: 2, name: "Ausfallquote pro Tag" }),
+    ).toBeVisible();
+    await page.goto("/muster/zeitverlauf?z=monat&k=ausfall");
+    await expect(chart(page, "Ausfallquote pro Monat").getByTestId("bar")).toHaveCount(26);
+    await expect(page.getByRole("img", { name: /pro Monat$/ })).toHaveCount(1);
+    await page.getByRole("button", { name: "Als Tabelle anzeigen" }).click();
+    const heads = page.getByRole("table").getByRole("columnheader");
+    await expect(heads).toContainText([
+      "Monat",
+      "Ausfälle",
+      "Stichprobe (n)",
+      "Stunden mit Lücken",
+    ]);
   });
 
   test("the day with missing hours and the day with little data are dashed", async ({ page }) => {

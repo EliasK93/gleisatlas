@@ -81,7 +81,7 @@ test("?bhf= opens the panel; Schließen removes bhf and keeps the rest", async (
   await expect(p.getByRole("heading", { level: 2 })).toHaveText("Köln Hbf");
   await expect(p).toContainText("EVA 8000207 · Fernverkehr");
   await expect(p).toContainText(
-    "6 von 10 Ankünften sind pünktlich. An schlechten Tagen kommen Züge bis zu 21 min später.",
+    "6 von 10 Ankünften sind pünktlich. Die schlechtesten 10 % kommen mindestens 21 min zu spät.",
   );
   for (const v of ["67 %", "3 min", "21 min", "4,3 %"]) await expect(p).toContainText(v);
   await expect(p).toContainText("n = 33.744 Halte · Sept. 2026");
@@ -141,8 +141,12 @@ test("the metric switch writes k without refetching", async ({ page }) => {
     "true",
   );
   await expect(
-    page.getByText("Median: die Hälfte der Fahrten ist weniger verspätet"),
+    page.getByText(
+      "Median: Die Hälfte der Ankünfte ist weniger verspätet, die andere Hälfte mehr.",
+    ),
   ).toBeAttached();
+  // The legend names the metric and leaves the explanation to the switch.
+  await expect(legend(page).getByText("Median:")).toHaveCount(0);
   expect(requests.filter((u) => u.pathname === "/karte").length).toBe(before);
 });
 

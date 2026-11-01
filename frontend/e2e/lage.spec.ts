@@ -465,7 +465,7 @@ test.describe("the states", () => {
     for (const [button, text] of [
       ["Pünktlichkeit", "−30 %-Pkt."],
       ["Typische Verspätung", "+1 min"],
-      ["Schlechte Tage (P90)", "±0 min"],
+      ["Schlechteste 10 %", "±0 min"],
       ["Ausfälle", "+0,5 %-Pkt."],
     ])
       await test.step(button, async () => {
@@ -943,7 +943,7 @@ test.describe("the states", () => {
       for (const [button, text] of [
         ["Punctuality", "−30 pp"],
         ["Typical delay", "+1 min"],
-        ["Bad days (P90)", "±0 min"],
+        ["Worst 10%", "±0 min"],
         ["Cancellations", "+0.5 pp"],
       ]) {
         await page.getByRole("button", { name: button, exact: true }).click();
@@ -969,7 +969,7 @@ test.describe("stations are coloured by the class the API gives", () => {
   const metrics = [
     ["Pünktlichkeit", "puenktlich"],
     ["Typische Verspätung", "median"],
-    ["Schlechte Tage (P90)", "p90"],
+    ["Schlechteste 10 %", "p90"],
     ["Ausfälle", "ausfallquote"],
   ] as const;
   const order = [1, 2, 3, 4, 5, null];

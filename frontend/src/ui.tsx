@@ -1,5 +1,5 @@
 /** Pieces shared by the Discover pages: metric switch, value display, states and Teilen. */
-import { useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
+import { useEffect, useId, useState, useSyncExternalStore, type ReactNode } from "react";
 import { NavLink, useLocation } from "react-router";
 import { t, type MessageKey } from "./i18n";
 import { Icon } from "./Icon";
@@ -68,6 +68,7 @@ export function Segmented<T extends string | number>({
   value,
   onChange,
   tabs,
+  describedBy,
   className,
 }: {
   label: string;
@@ -75,6 +76,8 @@ export function Segmented<T extends string | number>({
   value: T;
   onChange: (v: T) => void;
   tabs?: boolean;
+  /** The id of the element that explains the switch. */
+  describedBy?: string;
   className: string;
 }) {
   return (
@@ -82,6 +85,7 @@ export function Segmented<T extends string | number>({
       <div
         role={tabs ? "tablist" : "group"}
         aria-label={label}
+        aria-describedby={describedBy}
         className="inline-flex gap-0.5 rounded-[9px] bg-surface-2 p-[3px] md:flex-wrap"
       >
         {options.map((o) => (
@@ -104,24 +108,42 @@ export function Segmented<T extends string | number>({
 
 const METRIC_OPTIONS = METRICS.map((m) => ({ value: m, label: t(`metric.${m}`) }));
 
-/** Segmented metric switch. */
-export const MetricSwitch = ({
+/**
+ * Segmented metric switch with a line under it that explains the selected metric. The line is
+ * as wide as the switch (`w-0 min-w-full`), so it wraps there and never widens its container.
+ */
+export function MetricSwitch({
   metric,
   onMetric,
   className,
+  helpOnPhone = true,
 }: {
   metric: Metric;
   onMetric: (m: Metric) => void;
   className: string;
-}) => (
-  <Segmented
-    label={t("metric.label")}
-    options={METRIC_OPTIONS}
-    value={metric}
-    onChange={onMetric}
-    className={className}
-  />
-);
+  /** False hides the line below 768 px; the switch stays described by it. */
+  helpOnPhone?: boolean;
+}) {
+  const help = useId();
+  return (
+    <div className="min-w-0">
+      <Segmented
+        label={t("metric.label")}
+        options={METRIC_OPTIONS}
+        value={metric}
+        onChange={onMetric}
+        describedBy={help}
+        className={className}
+      />
+      <p
+        id={help}
+        className={`mt-2.5 w-0 min-w-full text-xs text-text-3 md:mt-1.5 ${helpOnPhone ? "" : "max-md:hidden"}`}
+      >
+        {t(`metric.${metric}.help`)}
+      </p>
+    </div>
+  );
+}
 
 export const MAP = "/karte";
 export const LAGE = "/lage";

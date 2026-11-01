@@ -144,7 +144,7 @@ test.describe("grid (mobile)", () => {
       page.getByRole("button", { name: "Zurücksetzen", exact: true }),
       page.getByRole("button", { name: "Teilen" }),
       page.getByRole("button", { name: "Als Tabelle anzeigen" }),
-      ...["Pünktlichkeit", "Typische Verspätung", "Schlechte Tage (P90)", "Ausfälle"].map((name) =>
+      ...["Pünktlichkeit", "Typische Verspätung", "Schlechteste 10 %", "Ausfälle"].map((name) =>
         page.getByRole("button", { name, exact: true }),
       ),
     ];

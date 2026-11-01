@@ -73,7 +73,7 @@ test.describe("desktop", () => {
       von: "2026-01",
       bis: "2026-03",
     });
-    for (const name of ["Linien", "1.000", "Schlechte Tage (P90)"])
+    for (const name of ["Linien", "1.000", "Schlechteste 10 %"])
       await expect(pressed(page, name)).toBeVisible();
   });
 
@@ -144,15 +144,16 @@ test.describe("desktop", () => {
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Zeitverlauf");
   });
 
-  test("a line row keeps the P90 metric as the delay view and drops the cancellation one", async ({
-    page,
-  }) => {
+  test("a line row passes every metric on to the time series unchanged", async ({ page }) => {
     await mockApi(page);
     await page.goto("/muster/rankings?typ=linien&k=p90");
     const link = column(page, WORST).getByRole("link", { name: /RE 1/ }).first();
-    await expect(link).toHaveAttribute("href", "/muster/zeitverlauf?linie=RE+1%3A8000207&k=median");
+    await expect(link).toHaveAttribute("href", "/muster/zeitverlauf?linie=RE+1%3A8000207&k=p90");
     await page.goto("/muster/rankings?typ=linien&k=ausfall");
-    await expect(link).toHaveAttribute("href", "/muster/zeitverlauf?linie=RE+1%3A8000207");
+    await expect(link).toHaveAttribute(
+      "href",
+      "/muster/zeitverlauf?linie=RE+1%3A8000207&k=ausfall",
+    );
   });
 
   test("from 1280 px the two lists stand side by side and nothing overflows", async ({ page }) => {

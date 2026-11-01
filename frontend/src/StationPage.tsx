@@ -12,8 +12,8 @@ import {
   DEFS,
   formatPeriod,
   int,
+  METRICS,
   readFilters,
-  seriesMetric,
   share,
   tenths,
   withParam,
@@ -51,13 +51,6 @@ const HOURS = Array.from({ length: 24 }, (_, h) => h);
 const BIN_CLASS = [1, 1, 2, 3, 4, 5, 5];
 /** The tallest bar in px. */
 const BAR_MAX = 120;
-
-const TILES: { metric: Metric; title: MessageKey; term?: MessageKey }[] = [
-  { metric: "puenktlich", title: "metric.puenktlich", term: "station.term.puenktlich" },
-  { metric: "median", title: "metric.median", term: "map.help.median" },
-  { metric: "p90", title: "metric.p90", term: "map.help.p90" },
-  { metric: "ausfall", title: "metric.ausfall" },
-];
 
 export default function StationPage() {
   const { eva = "" } = useParams();
@@ -233,7 +226,7 @@ function StationView({
   onMetric: (m: Metric) => void;
 }) {
   const meta = t("hm.meta", { n: int(data.n), period: period ?? "" });
-  const tiles = TILES.map((x) => ({ ...x, shown: show(x.metric, data.gesamt ?? undefined, "") }));
+  const tiles = METRICS.map((m) => ({ m, shown: show(m, data.gesamt ?? undefined, "") }));
   return (
     <div className="flex flex-col gap-4">
       {tiles.some((x) => x.shown.low) && (
@@ -247,7 +240,7 @@ function StationView({
         aria-label={t("station.tiles")}
         className="grid grid-cols-2 gap-3 lg:grid-cols-4 lg:gap-4"
       >
-        {tiles.map(({ metric: m, title, term, shown }) => {
+        {tiles.map(({ m, shown }) => {
           const cancel = m === "ausfall";
           return (
             <li
@@ -264,17 +257,13 @@ function StationView({
                     ✕
                   </span>
                 )}
-                {term ? (
-                  // ponytail: a native title is hover-only; use a popover when touch users need the explanation
-                  <span
-                    title={t(term)}
-                    className="cursor-help underline decoration-text-3 decoration-dotted underline-offset-[3px]"
-                  >
-                    {t(title)}
-                  </span>
-                ) : (
-                  t(title)
-                )}
+                {/* ponytail: a native title is hover-only; use a popover when touch users need the explanation */}
+                <span
+                  title={t(`metric.${m}.help`)}
+                  className="cursor-help underline decoration-text-3 decoration-dotted underline-offset-[3px]"
+                >
+                  {t(`metric.${m}`)}
+                </span>
               </div>
               <div
                 className={`text-[32px] leading-[1.1] font-[650] tracking-[-0.02em] tabular-nums ${
@@ -563,11 +552,7 @@ function Lines({ eva, f }: { eva: string; f: FilterKeys }) {
                   ref={i === LINES_FIRST ? firstNew : undefined}
                   to={{
                     pathname: ZEITVERLAUF,
-                    search: writeFilters({
-                      k: seriesMetric(f.k),
-                      g: f.g,
-                      linie: l.linie,
-                    }).toString(),
+                    search: writeFilters({ k: f.k, g: f.g, linie: l.linie }).toString(),
                   }}
                   className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-2 rounded-lg border border-border p-3 hover:bg-surface-2 md:grid-cols-[minmax(0,1.3fr)_minmax(0,1.2fr)_52px_72px_104px] md:gap-y-0 md:rounded-none md:border-0 md:border-b md:px-1 md:py-2.5"
                 >

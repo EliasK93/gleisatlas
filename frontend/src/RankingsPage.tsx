@@ -12,7 +12,6 @@ import {
   MIN_NS,
   readFilters,
   readRank,
-  seriesMetric,
   withParam,
   withRank,
   writeFilters,
@@ -178,10 +177,10 @@ function Lists({
     1,
   );
   // Station rows keep the filters; the rankings keys are this page's own. A line row opens the
-  // time series of that line in the same category and, where it has one, the same delay view.
+  // time series of that line in the same category and metric.
   const search = writeFilters(filters).toString();
   const lineSearch = (linie: string) =>
-    writeFilters({ k: seriesMetric(filters.k), g: filters.g, linie }).toString();
+    writeFilters({ k: filters.k, g: filters.g, linie }).toString();
   const shown = narrow ? COLUMNS.filter((c) => c.key === tab) : COLUMNS;
   return (
     <>

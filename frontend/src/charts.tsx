@@ -75,7 +75,9 @@ export function tipOf(r: Row, metric: Metric) {
   const low = !!show(metric, s, "").low;
   if (!s) parts.push(t("zv.noData"));
   else if (!low)
-    for (const k of metric === "median" ? (["median", "p90"] as const) : [metric]) {
+    for (const k of metric === "median" || metric === "p90"
+      ? (["median", "p90"] as const)
+      : [metric]) {
       const v = DEFS[k].value(s);
       parts.push(
         v === null ? t("hm.onlyCancelledLegend") : t(`metric.${k}.cell`, { v: DEFS[k].format(v) }),

@@ -33,7 +33,6 @@ import {
   formatPeriod,
   int,
   readFilters,
-  seriesMetric,
   withParam,
   writeFilters,
   type Filters as FilterKeys,
@@ -43,6 +42,7 @@ import type { components } from "./schema";
 import {
   EmptyCard,
   ErrorBanner,
+  MetricSwitch,
   Segmented,
   ShareButton,
   show,
@@ -57,12 +57,6 @@ import { clearParams, useSetParams } from "./useSetParams";
 type Monat = components["schemas"]["Monat"];
 type Tag = components["schemas"]["Tag"];
 type Gaps = components["schemas"]["Datenstand"]["fehlende_stunden"];
-
-/** Series are stored in the URL as the page's two views: punctuality, or delay with its band. */
-const VIEWS = [
-  { value: "puenktlich", label: t("metric.puenktlich") },
-  { value: "median", label: t("zv.delay") },
-] as const;
 
 /** The resolution switch; the month view is `z=monat`, the day view has no key. */
 const RESOLUTIONS = [
@@ -113,6 +107,14 @@ const dayRows = (days: Tag[]): Row[] =>
 
 const trendOf = (metric: Metric) => (r: Row) => trendValue(r, metric);
 
+/** What each metric's line draws, in chart units. */
+const LINE: Record<Metric, (r: Row) => number | null> = {
+  puenktlich: percent,
+  median,
+  p90,
+  ausfall: cancelRate,
+};
+
 export default function ZeitverlaufPage() {
   const [params] = useSearchParams();
   const setParams = useSetParams();
@@ -124,7 +126,6 @@ export default function ZeitverlaufPage() {
     land: undefined,
     bhf: read.linie ? undefined : read.bhf,
     z: read.linie ? undefined : read.z,
-    k: seriesMetric(read.k),
   };
   // Days are the default; a line only exists per month.
   const day = !f.linie && f.z !== "monat";
@@ -235,7 +236,10 @@ function View({
   const [tip, setTip] = useTip();
   const day = isDay(rows[0]);
   const names = NAMES[day ? "day" : "month"];
-  const delay = metric === "median";
+  // Median and P90 share the delay chart; the cancellation rate is a chart of its own, which is
+  // the main one when it is the selected metric.
+  const delay = metric === "median" || metric === "p90";
+  const cancel = metric === "ausfall";
   const total = rows.reduce((sum, r) => sum + r.n, 0);
 
   // The timetable change labels sit above the coverage label, so two neighbours never overlap.
@@ -272,6 +276,66 @@ function View({
   );
   const cancelValues = rows.flatMap((r) => [cancelRate(r), trendValue(r, "ausfall")]);
   const [first, last] = [rows[0].key.slice(0, 7), rows[rows.length - 1].key.slice(0, 7)];
+  const mainName = cancel ? names.ausfall : delay ? names.delay : names.puenktlich;
+
+  /** The cancellation rate: lines per day, bars per month. */
+  const cancelChart = (main: boolean) => {
+    const height = main ? 260 : 150;
+    return (
+      <Sized height={height}>
+        {(width) => (
+          <Plot
+            id="zc"
+            label={names.ausfall}
+            rows={rows}
+            metric="ausfall"
+            width={width}
+            height={height}
+            top={main ? top : 8}
+            ticks={niceTicks([0, ...nonNull(cancelValues)])}
+            unit="unit.pct"
+          >
+            {(scale) => (
+              <>
+                {main && <Markers markers={markers} scale={scale} />}
+                {day ? (
+                  <>
+                    <Line
+                      rows={rows}
+                      metric="ausfall"
+                      scale={scale}
+                      value={cancelRate}
+                      cls={CANCEL}
+                    />
+                    <TrendLine rows={rows} scale={scale} value={trendOf("ausfall")} cls={CANCEL} />
+                  </>
+                ) : (
+                  rows.map((r, i) => {
+                    const v = cancelRate(r);
+                    if (v === null) return null;
+                    const w = Math.max((width - PAD.l - PAD.r) / rows.length - 3, 2);
+                    return (
+                      <rect
+                        key={r.key}
+                        data-testid="bar"
+                        x={scale.x(i) - w / 2}
+                        y={scale.y(v)}
+                        width={w}
+                        height={scale.y(0) - scale.y(v)}
+                        rx={2}
+                        fillOpacity={thin(r, "ausfall") ? 0.45 : 1}
+                        className="fill-cancel"
+                      />
+                    );
+                  })
+                )}
+              </>
+            )}
+          </Plot>
+        )}
+      </Sized>
+    );
+  };
 
   return (
     <div
@@ -283,15 +347,13 @@ function View({
         <div className="mb-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
           <div>
             <h2 id="zv-main" className="text-base font-[620]">
-              {delay ? names.delay : names.puenktlich}
+              {mainName}
             </h2>
             <p className="text-[13px] text-text-2">{title}</p>
           </div>
-          <Segmented
-            label={t("metric.label")}
-            options={[...VIEWS]}
-            value={metric}
-            onChange={onMetric}
+          <MetricSwitch
+            metric={metric}
+            onMetric={onMetric}
             className="-mx-4 -my-2 px-4 py-2 md:m-0 md:p-0"
           />
         </div>
@@ -300,12 +362,14 @@ function View({
         </p>
         {asTable ? (
           <Table rows={rows} metric={metric} />
+        ) : cancel ? (
+          cancelChart(true)
         ) : (
           <Sized height={260}>
             {(width) => (
               <Plot
                 id="zv"
-                label={delay ? names.delay : names.puenktlich}
+                label={mainName}
                 rows={rows}
                 metric={metric}
                 width={width}
@@ -325,19 +389,8 @@ function View({
                         hi={day ? trendOf("p90") : p90}
                       />
                     )}
-                    <Line
-                      rows={rows}
-                      metric={metric}
-                      scale={scale}
-                      value={delay ? median : percent}
-                    />
-                    {day && (
-                      <TrendLine
-                        rows={rows}
-                        scale={scale}
-                        value={trendOf(delay ? "median" : "puenktlich")}
-                      />
-                    )}
+                    <Line rows={rows} metric={metric} scale={scale} value={LINE[metric]} />
+                    {day && <TrendLine rows={rows} scale={scale} value={trendOf(metric)} />}
                   </>
                 )}
               </Plot>
@@ -348,7 +401,19 @@ function View({
           {!asTable && (
             <>
               {day && <span>{t("zv.legend.trend")}</span>}
-              {delay && <span>{t(day ? "zv.legend.bandDay" : "zv.legend.band")}</span>}
+              {delay && (
+                <span>
+                  {t(
+                    day
+                      ? metric === "p90"
+                        ? "zv.legend.bandDayP90"
+                        : "zv.legend.bandDay"
+                      : metric === "p90"
+                        ? "zv.legend.bandP90"
+                        : "zv.legend.band",
+                  )}
+                </span>
+              )}
               <span>{t("zv.legend.dashed")}</span>
               {widened && (
                 <span>
@@ -373,65 +438,12 @@ function View({
         </div>
       </section>
 
-      {!asTable && (
+      {!asTable && !cancel && (
         <section aria-labelledby="zv-cancel" className="card min-w-0">
           <h2 id="zv-cancel" className="mb-3 text-base font-[620]">
             {names.ausfall}
           </h2>
-          <Sized height={150}>
-            {(width) => (
-              <Plot
-                id="zc"
-                label={names.ausfall}
-                rows={rows}
-                metric="ausfall"
-                width={width}
-                height={150}
-                top={8}
-                ticks={niceTicks([0, ...nonNull(cancelValues)])}
-                unit="unit.pct"
-              >
-                {(scale) =>
-                  day ? (
-                    <>
-                      <Line
-                        rows={rows}
-                        metric="ausfall"
-                        scale={scale}
-                        value={cancelRate}
-                        cls={CANCEL}
-                      />
-                      <TrendLine
-                        rows={rows}
-                        scale={scale}
-                        value={trendOf("ausfall")}
-                        cls={CANCEL}
-                      />
-                    </>
-                  ) : (
-                    rows.map((r, i) => {
-                      const v = cancelRate(r);
-                      if (v === null) return null;
-                      const w = Math.max((width - PAD.l - PAD.r) / rows.length - 3, 2);
-                      return (
-                        <rect
-                          key={r.key}
-                          data-testid="bar"
-                          x={scale.x(i) - w / 2}
-                          y={scale.y(v)}
-                          width={w}
-                          height={scale.y(0) - scale.y(v)}
-                          rx={2}
-                          fillOpacity={thin(r, "ausfall") ? 0.45 : 1}
-                          className="fill-cancel"
-                        />
-                      );
-                    })
-                  )
-                }
-              </Plot>
-            )}
-          </Sized>
+          {cancelChart(false)}
         </section>
       )}
       <TipBox tip={tip} />
@@ -439,11 +451,18 @@ function View({
   );
 }
 
-/** Every row as a line: the accessible form of both charts. */
+/** The table's columns per metric: punctuality and delays each come with the cancellation rate. */
+const COLUMNS: Record<Metric, Metric[]> = {
+  puenktlich: ["puenktlich", "ausfall"],
+  median: ["median", "p90", "ausfall"],
+  p90: ["median", "p90", "ausfall"],
+  ausfall: ["ausfall"],
+};
+
+/** Every row as a line: the accessible form of the charts. */
 function Table({ rows, metric }: { rows: Row[]; metric: Metric }) {
   const day = isDay(rows[0]);
-  const keys: Metric[] =
-    metric === "median" ? ["median", "p90", "ausfall"] : ["puenktlich", "ausfall"];
+  const keys = COLUMNS[metric];
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-[13px] tabular-nums">

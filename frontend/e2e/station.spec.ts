@@ -61,7 +61,7 @@ test("four tiles with value, sentence, meta and a coloured edge", async ({ page 
   const rows: [Locator, string[], string][] = [
     [onTime, ["Pünktlichkeit", "67 %", "6 von 10 Ankünften pünktlich"], R4],
     [typical, ["Typische Verspätung", "3 min", "Die Hälfte der Züge ist weniger spät"], R3],
-    [bad, ["Schlechte Tage (P90)", "21 min", "9 von 10 Zügen sind höchstens so spät"], R5],
+    [bad, ["Schlechteste 10 %", "21 min", "1 von 10 Ankünften ist mindestens so spät"], R5],
     [cancelled, ["✕", "Ausfälle", "4,3 %", "etwa 1 von 23 Halten fällt aus"], CANCEL],
   ];
   for (const [tile, texts, colour] of rows) {
@@ -91,13 +91,17 @@ test("a filter change after another key keeps the page mounted", async ({ page }
   await expect(title).toHaveAttribute("data-mark", "kept");
 });
 
-test("the term explanations are native titles", async ({ page }) => {
+test("every tile's term is a native title with the metric's explanation", async ({ page }) => {
   await mockApi(page);
   await page.goto("/bahnhof/8000207");
-  await expect(tiles(page).first().locator("[title]")).toHaveAttribute(
-    "title",
-    "Ankunft weniger als 6 Minuten nach Plan (DB-Definition)",
-  );
+  const titles = [
+    "Anteil der Ankünfte weniger als 6 Minuten nach Plan (DB-Definition). Ausgefallene Halte zählen nicht mit.",
+    "Median: Die Hälfte der Ankünfte ist weniger verspätet, die andere Hälfte mehr.",
+    "Die verspätetsten 10 % der Ankünfte sind mindestens so spät (90. Perzentil, P90).",
+    "Anteil der Halte, die ausfallen. Sie zählen nie als Verspätung.",
+  ];
+  for (const [i, title] of titles.entries())
+    await expect(tiles(page).nth(i).locator("[title]")).toHaveAttribute("title", title);
 });
 
 test("the distribution has 7 delay bars and a separate ausgefallen bar", async ({ page }) => {
@@ -295,19 +299,17 @@ test("a line row links to the time series of that line, keeping category and del
   await expect(page.getByRole("img", { name: "Verspätung pro Monat" })).toBeVisible();
 });
 
-test("a line row keeps the P90 metric as the delay view and drops the cancellation one", async ({
-  page,
-}) => {
+test("a line row passes every metric on to the time series unchanged", async ({ page }) => {
   await mockApi(page);
   await page.goto("/bahnhof/8000207?k=p90");
   await expect(lines(page).first().getByRole("link")).toHaveAttribute(
     "href",
-    "/muster/zeitverlauf?linie=RE+1%3A8000207&k=median",
+    "/muster/zeitverlauf?linie=RE+1%3A8000207&k=p90",
   );
   await page.goto("/bahnhof/8000207?k=ausfall");
   await expect(lines(page).first().getByRole("link")).toHaveAttribute(
     "href",
-    "/muster/zeitverlauf?linie=RE+1%3A8000207",
+    "/muster/zeitverlauf?linie=RE+1%3A8000207&k=ausfall",
   );
 });
 

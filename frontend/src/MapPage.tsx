@@ -36,6 +36,7 @@ import {
   localLabel,
   APPROX_N,
   LOW_N,
+  METRICS,
   readFilters,
   REFERENCE_WEEKS,
   tenths,
@@ -469,6 +470,7 @@ export default function MapPage({ day = false }: { day?: boolean }) {
           metric={f.k}
           onMetric={(k) => setParams(withParam("k", k === "puenktlich" ? "" : k))}
           className="-mx-2.5 -my-2 px-2.5 py-2 md:m-0 md:p-0"
+          helpOnPhone={false}
         />
         <div className="-mb-2.5">
           <Filters lage={day} stationName={data ? station?.name : null} />
@@ -994,10 +996,8 @@ function Legend({
       </button>
       <div className={open ? "mt-1.5 md:mt-0" : "hidden md:block"}>
         <p className="text-[13px] font-semibold">
-          {t(`metric.${metric}`)}{" "}
-          <span className="text-xs font-normal text-text-3">
-            · {t(day ? "map.day.help" : `map.help.${metric}`)}
-          </span>
+          {t(`metric.${metric}`)}
+          {day && <span className="text-xs font-normal text-text-3"> · {t("map.day.help")}</span>}
         </p>
         <div aria-hidden="true" className="mt-2 mb-1 grid grid-cols-5 gap-0.5">
           {FILL[scale].map((c) => (
@@ -1066,13 +1066,6 @@ function Legend({
   );
 }
 
-const TILES: [Metric, "map.onTime" | `metric.${Metric}`][] = [
-  ["puenktlich", "map.onTime"],
-  ["median", "metric.median"],
-  ["p90", "metric.p90"],
-  ["ausfall", "metric.ausfall"],
-];
-
 function StationPanel({
   eva,
   station,
@@ -1100,7 +1093,7 @@ function StationPanel({
     staleTime: Infinity,
   });
   const name = station?.name ?? lookup.data?.name ?? t("filter.eva", { eva });
-  const tiles = station && TILES.map(([m, title]) => ({ m, title, ...show(m, station, name) }));
+  const tiles = station && METRICS.map((m) => ({ m, ...show(m, station, name) }));
   const [onTime, , bad] = tiles ?? [];
 
   // ponytail: fixed-height bottom sheet without drag or snap levels (design.md 2.1); add when users ask
@@ -1161,7 +1154,7 @@ function StationPanel({
                         ✕{" "}
                       </span>
                     )}
-                    {t(x.title)}
+                    {t(`metric.${x.m}`)}
                   </div>
                   <div className="text-[19px] font-[650] tabular-nums">{x.text}</div>
                   {day && (

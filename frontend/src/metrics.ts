@@ -289,10 +289,6 @@ export function writeFilters({
   return new URLSearchParams(Object.entries(keys).filter((e): e is [string, string] => !!e[1]));
 }
 
-/** The time series has two views: punctuality, or delay (median with a P90 band). */
-export const seriesMetric = (k: Metric): Metric =>
-  k === "median" || k === "p90" ? "median" : "puenktlich";
-
 /** The rankings page's own URL keys: what it lists and the minimum sample. */
 export const MIN_NS = [100, 500, 1000, 5000] as const;
 export type Rank = { typ: "linien" | "bahnhoefe"; min: number };
