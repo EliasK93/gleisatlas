@@ -71,7 +71,7 @@ Details in [day-history.md](day-history.md).
 - [ ] A day-level Zeitraum on the Karte, up to the last complete day
 - [ ] An hour slider for the Rückblick
 - [ ] A larger station set than the 131 (decide first how the days before full coverage are handled and the selection rule, for example at least 3 per state)
-- [ ] Decide which metrics (Pünktlichkeit, Typische Verspätung, P90, Ausfälle) each page offers, and keep the pages alike
+- [x] Every page offers the four metrics (Pünktlichkeit, Typische Verspätung, Schlechteste 10 %, Ausfälle) through the same switch with an explanation line under it, and `k` survives every page change (re-check: `npm --prefix frontend run test:e2e`, `frontend/e2e/metric-help.spec.ts`, and in `zeitverlauf.spec.ts` the tests "the P90 view draws the P90 as the line, with the band reaching down to the median" and "the cancellation view has the cancellation rate as its only chart")
 
 ## M8 Line detail page (v0.3)
 - [ ] Line detail page with the line's stations and statistics

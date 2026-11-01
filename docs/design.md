@@ -76,7 +76,7 @@ Grid: 12 columns, content width max. 1200 px (map full-bleed), gutter 24 px desk
 
 ### 2.1 Map (start page)
 **Desktop:** The map fills the whole content area to the right of the sidebar. Floating elements (cards on `surface` with a light shadow, 12 px from the edge):
-- top left: metric switch (segments: *Pünktlichkeit · Typische Verspätung (Median) · Schlechte Tage (P90) · Ausfälle*) + filter chips.
+- top left: metric switch (segments: *Pünktlichkeit · Typische Verspätung (Median) · Schlechteste 10 % · Ausfälle*) + filter chips.
 - bottom left: **legend** (5-step scale with class limits as text, plus "◌ hohl = wenig Daten", "Punktgröße = Anzahl Halte"). On Live-Lage (see [day-history.md](day-history.md) §2) the scale carries the five step names instead of class limits, a sentence says what "wie üblich" means (no numbers: the limits differ per station), and the Germany card stands above it in the same 300 px column.
 - right: **station panel** (360 px) appears after a click: name, identifier, 4 mini tiles, a sentence ("8 von 10 Ankünften sind pünktlich"), button "Alle Details". The map stays visible and usable.
 - bottom right: zoom, attribution. "My position" is left out (not needed before the trip).
@@ -206,7 +206,7 @@ One horizontal track per connection on a **time axis shared by all results** (e.
 ```
 - **Thin tick** = scheduled arrival.
 - **Strong bar** = half of the trips (scheduled arrival to median → "typical").
-- **Light bar** up to P90 ("on bad days").
+- **Light bar** up to P90 ("the worst 10 %").
 - **Fine line (whisker)** up to P95/max.
 - **Deadline** as a dashed vertical line across *all* rows → you see immediately whose band the line crosses.
 - Band colour = scale class of the connection (probability before the deadline or punctuality).
@@ -224,13 +224,13 @@ One horizontal track per connection on a **time axis shared by all results** (e.
 - **Share:** the button copies the current URL, toast "Link kopiert".
 - **Command palette (⌘K / Ctrl+K):** jump to a station, line or page.
 - **Keyboard and accessibility:** focus ring 2 px `--accent`, every chart has an "Als Tabelle anzeigen" alternative, contrast ≥ 4.5:1 for text, touch targets ≥ 44 px on mobile.
-- **Term tooltips:** dotted-underlined technical terms (median, P90, pünktlich) explain themselves on hover: "P90: 9 von 10 Fahrten sind höchstens so spät."
+- **Term tooltips:** dotted-underlined technical terms (median, P90, pünktlich) explain themselves on hover: "Die verspätetsten 10 % der Ankünfte sind mindestens so spät (90. Perzentil, P90)."
 
 ---
 
 ## 6. Making statistical uncertainty understandable
 
-1. **Language:** "typisch" (median), "an schlechten Tagen / 9 von 10" (P90), "pünktlich = weniger als 6 Minuten zu spät (DB-Definition)". Technical term in parentheses or tooltip.
+1. **Language:** "typisch" (median), "schlechteste 10 %" (P90), "pünktlich = weniger als 6 Minuten zu spät (DB-Definition)". Technical term in parentheses or tooltip.
 2. **n and period on every metric** as a meta line in `--text-3`, 12 px: `n = 1 240 Fahrten · Nov 25 – Sep 26`. Unobtrusive, but always in the same place.
 3. **Thresholds for a thin data basis:**
    - n < 15: the element becomes **hollow/hatched**, value in `--text-3`, badge "◌ Wenig Daten". Excluded from rankings (minimum n).

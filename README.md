@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/EliasK93/gleisatlas/actions/workflows/gate.yml/badge.svg)](https://github.com/EliasK93/gleisatlas/actions/workflows/gate.yml) [![Tests](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/EliasK93/3b48a1a6b1af4d54d8e76c88ed1e72d4/raw/tests.json)](https://github.com/EliasK93/gleisatlas/actions/workflows/gate.yml) [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE) ![Platform](https://img.shields.io/badge/platform-Web-blue)
 
-Web app that shows the punctuality, typical delay, bad days and cancellations of German rail traffic by station, line, weekday and hour, from 27 months of public Deutsche Bahn data (2024-07 to 2026-09). The data is aggregated with [Python](https://www.python.org) and [Polars](https://pola.rs) and served by [FastAPI](https://fastapi.tiangolo.com); the UI is built with [React](https://react.dev), [TypeScript](https://www.typescriptlang.org), [Vite](https://vite.dev), [Tailwind](https://tailwindcss.com) and [MapLibre](https://maplibre.org), and is set up for [Azure](https://azure.microsoft.com). It reads in German or English, in a light or a dark theme. Historical statistics, no forecast or guarantee.
+Web app that shows the punctuality, typical delay, the worst 10% of arrivals and cancellations of German rail traffic by station, line, weekday and hour, from 27 months of public Deutsche Bahn data (2024-07 to 2026-09). The data is aggregated with [Python](https://www.python.org) and [Polars](https://pola.rs) and served by [FastAPI](https://fastapi.tiangolo.com); the UI is built with [React](https://react.dev), [TypeScript](https://www.typescriptlang.org), [Vite](https://vite.dev), [Tailwind](https://tailwindcss.com) and [MapLibre](https://maplibre.org), and is set up for [Azure](https://azure.microsoft.com). It reads in German or English, in a light or a dark theme. Historical statistics, no forecast or guarantee.
 
 <table>
 <tr>
@@ -21,7 +21,7 @@ Web app that shows the punctuality, typical delay, bad days and cancellations of
 
 ## Features
 
-- **Map**: about 5,400 stations on a map of Germany, coloured by punctuality, typical delay, bad days (P90) or cancellations.
+- **Map**: about 5,400 stations on a map of Germany, coloured by punctuality, typical delay, worst 10% (P90) or cancellations.
 - **Station page**: key figures, the delay distribution, the weekday × hour pattern, the split by train category, the lines at the station and a sparkline by month.
 - **Weekday × hour heatmap**: when trains are least and most punctual, with a short summary.
 - **Rankings**: stations or lines, worst and best, with a minimum sample so that chance doesn't win.

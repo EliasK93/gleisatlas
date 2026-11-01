@@ -72,7 +72,7 @@ The viewer chooses the look (System, Hell, Dunkel) and the UI language (Deutsch,
 
 ## 7 Open decisions
 
-None. The English terms are set (Punctuality, Typical delay, Bad days (P90), Cancellations, Regional, Long-distance).
+None. The English terms are set (Punctuality, Typical delay, Worst 10%, Cancellations, Regional, Long-distance).
 
 ## 8 Known shortcuts
 
