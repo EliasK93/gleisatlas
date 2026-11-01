@@ -69,6 +69,7 @@ export default function StationPage() {
     ...readFilters(params),
     bhf: undefined,
     tag: undefined,
+    land: undefined,
     linie: undefined,
     z: undefined,
   };

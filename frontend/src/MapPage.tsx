@@ -1,10 +1,16 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import {
   AttributionControl,
+  LngLat,
+  LngLatBounds,
   Map as MapLibre,
   NavigationControl,
   setWorkerUrl,
+  type ExpressionSpecification,
+  type FilterSpecification,
   type GeoJSONSource,
+  type GeoJSONSourceSpecification,
+  type MapMouseEvent,
 } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import workerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url";
@@ -12,10 +18,11 @@ import { useEffect, useEffectEvent, useMemo, useRef, useState, type RefObject } 
 import { Link, Navigate, useLocation, useSearchParams } from "react-router";
 import { clearParams, useSetParams } from "./useSetParams";
 import { api, LIVE_REFRESH, must, useDatenstand } from "./api";
-import { WeatherCard } from "./DayWeather";
+import { AreaCard, stateTip } from "./AreaCard";
 import { Filters } from "./Filters";
 import { t, tx } from "./i18n";
 import { Icon } from "./Icon";
+import { ANCHORS, landName } from "./laender";
 import {
   classOf,
   DEFS,
@@ -40,6 +47,7 @@ import {
 } from "./metrics";
 import { useTheme, type Theme } from "./prefs";
 import type { components } from "./schema";
+import { StateMarkers, type Tip } from "./StateMarkers";
 import {
   EmptyCard,
   ErrorBanner,
@@ -54,10 +62,10 @@ import {
 } from "./ui";
 
 type KartenStation = components["schemas"]["KartenStation"];
-/** A station of either map; only the day map knows its normal, its class and its source. */
+type Land = components["schemas"]["Land"];
+/** A station of either map; only the day map knows its normal, its class, its source and its state. */
 type Entry = KartenStation &
-  Partial<Pick<components["schemas"]["TageskartenStation"], "normal" | "klasse" | "live">>;
-type Tip = { text: string; x: number; y: number } | null;
+  Partial<Pick<components["schemas"]["TageskartenStation"], "normal" | "klasse" | "live" | "land">>;
 
 // Bundled worker per the MapLibre v6 docs for Vite.
 setWorkerUrl(workerUrl);
@@ -73,7 +81,17 @@ const GERMANY: [[number, number], [number, number]] = [
 /** Base map labels appear from this zoom on, so the stations dominate the overview. */
 const LABEL_ZOOM = 7;
 const FOCUS_ZOOM = 9;
-/** Free space between the filter card and the start view of Germany on desktop. */
+/** The Live-Lage page shows its state cards and areas until one zoom step past the start view. */
+const DETAIL_STEP = 1;
+/** The closest a state's fit zooms in, so a city state (Berlin, Hamburg, Bremen) keeps its surroundings. */
+const STATE_ZOOM = 8;
+/** The state areas fade out from the detail zoom to this one, where the base map's own borders take over. */
+const AREAS_GONE = 8;
+/** The dots' opacity under the state cards. */
+const FADED = 0.2;
+/** The opacity of the wash outside Germany. */
+const MASK = 0.6;
+/** Free space between a measured card and the start view of Germany. */
 const CARD_GAP = 12;
 /** Opacity of the dots with "~" values and of the hollow rings; both stay visible on either base map. */
 const PALE = 0.5;
@@ -82,6 +100,137 @@ const NO_STATIONS = { type: "FeatureCollection" as const, features: [] };
 
 const token = (name: string) =>
   getComputedStyle(document.documentElement).getPropertyValue(`--${name}`).trim();
+
+/**
+ * Room for the floating cards on top of the map `box`: on desktop the filter card's measured bottom
+ * edge; on a phone the measured top edge of the bottom card stack, if given (`stack`).
+ */
+function padding(card: HTMLElement, box: HTMLElement, stack?: HTMLElement | null) {
+  const bottom = stack
+    ? box.getBoundingClientRect().bottom - stack.getBoundingClientRect().top + CARD_GAP
+    : 40;
+  return narrow.matches
+    ? { top: 140, bottom, left: 8, right: 8 }
+    : {
+        top: card.getBoundingClientRect().bottom - box.getBoundingClientRect().top + CARD_GAP,
+        bottom: 24,
+        left: 24,
+        right: 24,
+      };
+}
+
+/** Each dot's own opacity times `fade`, which is below 1 under the state cards. */
+function setFade(m: MapLibre, fade: number) {
+  m.setPaintProperty("stations", "circle-opacity", [
+    "*",
+    fade,
+    ["get", "alpha"],
+    ["-", 1, ["get", "hollow"]],
+  ]);
+  m.setPaintProperty("stations", "circle-stroke-opacity", ["*", fade, ["get", "alpha"]]);
+}
+
+/** The state shapes of `public/laender.geojson`. */
+type Shapes = GeoJSONSourceSpecification["data"];
+
+/** The bounds of all polygons of the state `code` in `shapes`; none if the shapes lack it. */
+function shapeBounds(shapes: Shapes | null | undefined, code: string) {
+  const file = shapes as
+    | { features: { properties: { code: string }; geometry: { coordinates: unknown[] } }[] }
+    | null
+    | undefined;
+  const shape = file?.features.find((f) => f.properties.code === code);
+  if (!shape) return;
+  const bounds = new LngLatBounds();
+  const xy = shape.geometry.coordinates.flat(Infinity) as number[];
+  for (let i = 0; i < xy.length; i += 2) bounds.extend([xy[i], xy[i + 1]]);
+  return bounds;
+}
+
+/** An opacity of `from` at the detail zoom `z0` that falls to 0 at AREAS_GONE. */
+const fadeOut = (z0: number, from: number): ExpressionSpecification => [
+  "interpolate",
+  ["linear"],
+  ["zoom"],
+  z0,
+  from,
+  Math.max(AREAS_GONE, z0 + 0.5),
+  0,
+];
+
+/** Moves the fade of the state areas to the detail zoom `z0`; without the areas it does nothing. */
+function fadeAreas(m: MapLibre, z0: number) {
+  if (!m.getLayer("mask")) return;
+  m.setPaintProperty("mask", "fill-opacity", fadeOut(z0, MASK));
+  m.setPaintProperty("laender-line", "line-opacity", fadeOut(z0, 1));
+  m.setPaintProperty("de-edge", "line-opacity", fadeOut(z0, 1));
+}
+
+/**
+ * The Live-Lage overview's state areas from `shapes` (16 states plus the `mask`, a large
+ * rectangle with Germany cut out), under the base map's labels and the dots: a wash outside
+ * Germany, a transparent fill per state that tints while hovered (feature-state `hover`), thin
+ * state lines and Germany's outline. All but the fill fade out above the detail zoom `z0`.
+ */
+function addAreas(m: MapLibre, shapes: Shapes, z0: number) {
+  if (m.getSource("laender")) return;
+  const before =
+    m.getStyle().layers.find((l) => l.type === "symbol")?.id ??
+    (m.getLayer("stations") ? "stations" : undefined);
+  const states: FilterSpecification = ["!=", ["get", "code"], "mask"];
+  const outside: FilterSpecification = ["==", ["get", "code"], "mask"];
+  m.addSource("laender", { type: "geojson", data: shapes, promoteId: "code" });
+  m.addLayer(
+    {
+      id: "mask",
+      type: "fill",
+      source: "laender",
+      filter: outside,
+      paint: { "fill-color": token("mask") },
+    },
+    before,
+  );
+  m.addLayer(
+    {
+      id: "laender",
+      type: "fill",
+      source: "laender",
+      filter: states,
+      paint: {
+        "fill-color": token("accent"),
+        "fill-opacity": [
+          "case",
+          ["boolean", ["feature-state", "hover"], false],
+          Number(token("tint")),
+          0,
+        ],
+      },
+    },
+    before,
+  );
+  m.addLayer(
+    {
+      id: "laender-line",
+      type: "line",
+      source: "laender",
+      filter: states,
+      paint: { "line-color": token("state-line"), "line-width": 0.8 },
+    },
+    before,
+  );
+  m.addLayer(
+    {
+      id: "de-edge",
+      type: "line",
+      source: "laender",
+      filter: outside,
+      paint: { "line-color": token("text-3"), "line-width": 1.5 },
+    },
+    before,
+  );
+  fadeAreas(m, z0);
+}
+
 const palette: Partial<Record<Theme, Record<string, string>>> = {};
 const SCALE_TOKENS = ["r", "c"].flatMap((scale) => [1, 2, 3, 4, 5].map((i) => `${scale}${i}`));
 
@@ -166,6 +315,13 @@ export default function MapPage({ day = false }: { day?: boolean }) {
   const setParams = useSetParams();
   const root = useRef<HTMLDivElement>(null);
   const card = useRef<HTMLDivElement>(null);
+  const stack = useRef<HTMLDivElement>(null);
+  const back = useRef<HTMLButtonElement>(null);
+  // A state was picked: its card's back button takes the focus once it is there, since the
+  // picked card goes with the zoom.
+  const focusBack = useRef(false);
+  // Counts the picks of the state already picked, each of which fits it again.
+  const [refits, setRefits] = useState(0);
   const status = useDatenstand();
   const datenstand = status.data;
   const read = readFilters(params);
@@ -186,6 +342,8 @@ export default function MapPage({ day = false }: { day?: boolean }) {
   const f: FilterKeys = {
     ...read,
     tag,
+    // Only a state's code; an unknown one is dropped from the URL like any invalid key.
+    land: day && read.land && Object.hasOwn(ANCHORS, read.land) ? read.land : undefined,
     linie: undefined,
     z: undefined,
   };
@@ -245,6 +403,15 @@ export default function MapPage({ day = false }: { day?: boolean }) {
   const panelPeriod = today && own ? formatLive(own.stand, own.cut) : period;
   // The Germany card counts the collector's stations if there is a run, else all that report.
   const source = d?.deutschland_live ? live : (rest ?? live);
+  // The picked state and its values, if the day lists it.
+  const picked = f.land;
+  const land = d?.laender.find((l) => l.land === picked);
+
+  useEffect(() => {
+    if (!focusBack.current || !back.current) return;
+    focusBack.current = false;
+    back.current.focus();
+  });
 
   // Drop invalid or unknown keys once, so a shared link only carries what the page shows.
   const clean = writeFilters(f).toString();
@@ -264,6 +431,8 @@ export default function MapPage({ day = false }: { day?: boolean }) {
     <div ref={root} className="absolute inset-0 overflow-hidden">
       <StationMap
         card={card}
+        stack={day ? stack : undefined}
+        panel={!!f.bhf}
         stations={data?.stationen}
         day={day}
         liveStand={liveStand}
@@ -271,6 +440,15 @@ export default function MapPage({ day = false }: { day?: boolean }) {
         metric={f.k}
         selected={station}
         onPick={(eva) => setParams(withParam("bhf", eva))}
+        laender={d?.laender}
+        today={today}
+        land={picked}
+        refits={refits}
+        onLand={(code) => {
+          focusBack.current = true;
+          if (code === picked) setRefits((n) => n + 1);
+          else setParams(withParam("land", code));
+        }}
       />
 
       <div
@@ -297,16 +475,37 @@ export default function MapPage({ day = false }: { day?: boolean }) {
         </div>
       </div>
 
-      <div className="absolute bottom-4 left-2.5 z-10 flex flex-col gap-2.5 md:bottom-6 md:left-3 md:w-[300px]">
-        {day && dayMap.data && (
-          <WeatherCard
-            tag={dayMap.data.tag}
+      <div
+        ref={stack}
+        className="absolute bottom-4 left-2.5 z-10 flex flex-col gap-2.5 md:bottom-6 md:left-3 md:w-[300px]"
+      >
+        {d && (
+          <AreaCard
+            {...(picked
+              ? {
+                  title: landName(picked),
+                  // A state the day does not list has no stations and no values.
+                  count: land?.bahnhoefe ?? 0,
+                  onBack: () => {
+                    setParams(withParam("land", ""));
+                    // The button goes with the state's card: hand the focus to the map.
+                    root.current?.querySelector("canvas")?.focus();
+                  },
+                  backRef: back,
+                  area: land?.alle ?? null,
+                  fern: land?.fern ?? null,
+                  regional: land?.regional ?? null,
+                }
+              : {
+                  title: t("map.day.germany"),
+                  area: d.deutschland,
+                  fern: d.deutschland_fern,
+                  regional: d.deutschland_regional,
+                })}
+            tag={d.tag}
             today={source && formatLive(source.stand, source.cut)}
             metric={f.k}
-            germany={dayMap.data.deutschland}
-            fern={dayMap.data.deutschland_fern}
-            regional={dayMap.data.deutschland_regional}
-            gap={dayMap.data.fehlende_stunden}
+            gap={d.fehlende_stunden}
           />
         )}
         <Legend
@@ -362,6 +561,8 @@ export default function MapPage({ day = false }: { day?: boolean }) {
 
 function StationMap({
   card,
+  stack,
+  panel,
   stations,
   day,
   liveStand,
@@ -369,9 +570,18 @@ function StationMap({
   metric,
   selected,
   onPick,
+  laender,
+  today,
+  land,
+  refits,
+  onLand,
 }: {
   /** The floating filter card, which the start view keeps clear of. */
   card: RefObject<HTMLElement | null>;
+  /** The bottom card stack, which the start view keeps clear of on a phone (Live-Lage only). */
+  stack?: RefObject<HTMLElement | null>;
+  /** The station panel is open, which a state's fit keeps clear of on desktop. */
+  panel: boolean;
   stations?: Entry[];
   /** True for the day map, which colours by the deviation from the normal. */
   day: boolean;
@@ -381,10 +591,37 @@ function StationMap({
   metric: Metric;
   selected?: KartenStation;
   onPick: (eva: string) => void;
+  /** The day map's states, drawn as cards and areas at the overview. */
+  laender?: Land[];
+  today: boolean;
+  /** The picked state, which the map zooms to (again with each new `refits`); none zooms back to Germany. */
+  land?: string;
+  refits: number;
+  onLand: (land: string) => void;
 }) {
   const box = useRef<HTMLDivElement>(null);
   const [map, setMap] = useState<MapLibre | null>(null);
   const [tip, setTip] = useState<Tip>(null);
+  // Zoomed in past the overview: no state cards, full dots that take hover and click. The ref is
+  // the same for the map's own event handlers.
+  const [detail, setDetail] = useState(false);
+  const detailNow = useRef(false);
+  const fade = day && !detail ? FADED : 1;
+  // The state under the mouse or the hovered/focused card; its area is tinted at the overview.
+  const [hovered, setHovered] = useState<string | null>(null);
+  const tint = day && !detail ? hovered : null;
+  const tinted = useRef<string | null>(null);
+  // The camera of the last fit of Germany, the start view, and the state the camera was fitted to.
+  const home = useRef({ z: 0, c: { lng: 0, lat: 0 } });
+  const fitted = useRef<{ land?: string; refits: number }>({ refits: 0 });
+  // The state shapes (none if they failed to load) and the zoom of the picked state's fit.
+  const [fitShapes, setFitShapes] = useState<Shapes | null>();
+  const stateZoom = useRef<number | undefined>(undefined);
+  // The zoom past which the cards go and the dots are full: one step past the start view, or the
+  // picked state's fit if that is lower, so the whole state shows its dots.
+  const detailAt = useEffectEvent(() =>
+    Math.min(home.current.z + DETAIL_STEP, stateZoom.current ?? Infinity),
+  );
   const { resolved } = useTheme();
   // The theme of the base style the map shows or is loading.
   const styled = useRef(resolved);
@@ -397,6 +634,8 @@ function StationMap({
   const current = useEffectEvent(() => ({
     data: features ?? NO_STATIONS,
     eva: selected?.eva ?? "",
+    day,
+    fade,
   }));
   // The station picked on the map itself, which needs no camera move.
   const clicked = useRef<string | null>(null);
@@ -406,26 +645,31 @@ function StationMap({
     clicked.current = eva;
     onPick(eva);
   });
+  const hoverArea = useEffectEvent((code: string, x: number, y: number) => {
+    setHovered(code);
+    if (laender && matchMedia("(hover: hover)").matches)
+      setTip({
+        text: stateTip(
+          code,
+          laender.find((l) => l.land === code),
+          metric,
+          today,
+        ),
+        x,
+        y,
+      });
+  });
+  const pickArea = useEffectEvent((code: string) => {
+    setTip(null);
+    onLand(code);
+  });
 
   useEffect(() => {
-    // Room for the floating filter card on top: on desktop its measured bottom edge.
-    const padding = () =>
-      narrow.matches
-        ? { top: 140, bottom: 40, left: 8, right: 8 }
-        : {
-            top:
-              card.current!.getBoundingClientRect().bottom -
-              box.current!.getBoundingClientRect().top +
-              CARD_GAP,
-            bottom: 24,
-            left: 24,
-            right: 24,
-          };
     const m = new MapLibre({
       container: box.current!,
       style: STYLE[styled.current],
       bounds: GERMANY,
-      fitBoundsOptions: { padding: padding() },
+      fitBoundsOptions: { padding: padding(card.current!, box.current!, stack?.current) },
       attributionControl: false,
       locale: {
         "Map.Title": t("map.region"),
@@ -446,6 +690,21 @@ function StationMap({
       "bottom-right",
     );
     m.addControl(new NavigationControl({ showCompass: false }), "bottom-right");
+    // The Live-Lage page's state areas, fetched once and kept for every base style.
+    let shapes: Shapes | undefined;
+    let gone = false;
+    if (current().day)
+      fetch(`${import.meta.env.BASE_URL}laender.geojson`)
+        .then((r) => r.json())
+        .then((json: Shapes) => {
+          if (gone) return;
+          shapes = json;
+          setFitShapes(json);
+          // The style is in already: add them now, else style.load does.
+          if (m.getLayer("stations")) addAreas(m, json, detailAt());
+        })
+        // The state cards work without the areas, and a state's fit falls back to its stations.
+        .catch(() => setFitShapes(null));
     // Runs for every base style, so a theme switch (which drops our source and layers) gets them back.
     m.on("style.load", () => {
       for (const l of m.getStyle().layers)
@@ -455,6 +714,10 @@ function StationMap({
           if (field) m.setLayoutProperty(l.id, "text-field", localLabel(field));
         }
       const now = current();
+      if (shapes) addAreas(m, shapes, detailAt());
+      // A new base style drops the feature-state: the state tinted at the switch keeps its tint.
+      if (shapes && tinted.current)
+        m.setFeatureState({ source: "laender", id: tinted.current }, { hover: true });
       m.addSource("stations", { type: "geojson", data: now.data });
       m.addLayer({
         id: "stations",
@@ -464,12 +727,11 @@ function StationMap({
         paint: {
           "circle-radius": ["get", "r"],
           "circle-color": ["get", "fill"],
-          "circle-opacity": ["*", ["get", "alpha"], ["-", 1, ["get", "hollow"]]],
-          "circle-stroke-opacity": ["get", "alpha"],
           "circle-stroke-color": ["get", "stroke"],
           "circle-stroke-width": ["+", 1, ["*", 0.5, ["get", "hollow"]]],
         },
       });
+      setFade(m, now.fade);
       m.addLayer({
         id: "selected",
         type: "circle",
@@ -485,40 +747,90 @@ function StationMap({
     });
     m.on("load", () => setMap(m));
     const hover = matchMedia("(hover: hover)").matches;
+    // At the Live-Lage overview the faded dots take no hover and no click; the state areas do.
+    const dots = () => !current().day || detailNow.current;
     m.on("mousemove", "stations", (e) => {
+      if (!dots()) return;
       m.getCanvas().style.cursor = "pointer";
       const text = e.features?.[0]?.properties.tip;
       if (hover && text) setTip({ text, x: e.point.x, y: e.point.y });
     });
     m.on("mouseleave", "stations", () => {
+      if (!dots()) return;
       m.getCanvas().style.cursor = "";
       setTip(null);
     });
     m.on("click", "stations", (e) => {
       const eva = e.features?.[0]?.properties.eva;
-      if (!eva) return;
+      if (!eva || !dots()) return;
       // The panel opening narrows the card; a click on the map must not move the camera.
       watch.disconnect();
       pick(String(eva));
     });
-    // The card's height changes while the page loads (period list, font) and with the width: fit
-    // again as long as the camera still sits where the last fit put it and nobody picked a station.
-    let home = { z: m.getZoom(), c: m.getCenter() };
+    // MapLibre also turns events on the state cards (markers inside its container) into map events
+    // at the pointer, which may lie over a neighbouring state: the areas take only the canvas's.
+    const areas = (e: MapMouseEvent) =>
+      !detailNow.current && e.originalEvent.target === m.getCanvas();
+    m.on("mousemove", "laender", (e) => {
+      const code = e.features?.[0]?.properties.code;
+      if (!areas(e) || !code) return;
+      m.getCanvas().style.cursor = "pointer";
+      hoverArea(String(code), e.point.x, e.point.y);
+    });
+    m.on("mouseleave", "laender", (e) => {
+      if (!areas(e)) return;
+      m.getCanvas().style.cursor = "";
+      setHovered(null);
+      setTip(null);
+    });
+    m.on("click", "laender", (e) => {
+      const code = e.features?.[0]?.properties.code;
+      if (areas(e) && code) pickArea(String(code));
+    });
+    // The cards' heights change while the page loads (period list, font, the day's card) and with
+    // the width: fit again as long as the camera still sits where the last fit put it and nobody
+    // picked a station or a state (whose zoom starts on the next frame, so the camera may not have
+    // moved yet).
+    home.current = { z: m.getZoom(), c: m.getCenter() };
     const refit = () => {
       // A callback queued before the cleanup can run once the page's elements are gone.
-      if (!card.current || !box.current) return;
-      const { z, c } = home;
+      if (!card.current || !box.current || fitted.current.land) return;
+      const { z, c } = home.current;
       if (m.getZoom() !== z || m.getCenter().lng !== c.lng || m.getCenter().lat !== c.lat) return;
-      m.fitBounds(GERMANY, { padding: padding(), animate: false });
-      home = { z: m.getZoom(), c: m.getCenter() };
+      m.fitBounds(GERMANY, {
+        padding: padding(card.current, box.current, stack?.current),
+        animate: false,
+      });
+      home.current = { z: m.getZoom(), c: m.getCenter() };
+      fadeAreas(m, detailAt());
     };
+    m.on("zoom", () => {
+      // An eased zoom can end a rounding error short of its target.
+      const now = m.getZoom() > detailAt() - 1e-6;
+      if (now === detailNow.current) return;
+      detailNow.current = now;
+      // A keyboard zoom from a focused state card takes the card away: the focus goes to the map.
+      if (now && document.activeElement?.closest(".maplibregl-marker")) m.getCanvas().focus();
+      // A state's tooltip and tint, or a dot's, belong to the other side of the detail zoom.
+      setTip(null);
+      setHovered(null);
+      setDetail(now);
+    });
+    // Tests read where the camera ended: the zoom and the visible bounds as west,south,east,north.
+    const el = box.current!;
+    m.on("moveend", () => {
+      el.dataset.zoom = String(m.getZoom());
+      el.dataset.bounds = m.getBounds().toArray().flat().join();
+    });
     const watch = new ResizeObserver(refit);
     watch.observe(card.current!);
+    if (stack?.current) watch.observe(stack.current);
     return () => {
+      gone = true;
       watch.disconnect();
       m.remove();
     };
-  }, [card]);
+  }, [card, stack]);
 
   useEffect(() => {
     // Only a change after the map exists; the first style is already the right one.
@@ -532,6 +844,59 @@ function StationMap({
       el.dataset.ready = "true";
     });
   }, [map, resolved]);
+
+  useEffect(() => {
+    // While a new base style loads the layer is missing; style.load sets the latest fade.
+    if (map?.getLayer("stations")) setFade(map, fade);
+  }, [map, fade]);
+
+  useEffect(() => {
+    // Without the areas (not fetched yet, or a new base style loading) there is nothing to tint.
+    if (!map?.getSource("laender")) return;
+    if (tinted.current)
+      map.setFeatureState({ source: "laender", id: tinted.current }, { hover: false });
+    if (tint) map.setFeatureState({ source: "laender", id: tint }, { hover: true });
+    tinted.current = tint;
+  }, [map, tint]);
+
+  // Zoom to the picked state, or back to Germany once it is dropped: once per change or new pick of
+  // the same state, with data.
+  useEffect(() => {
+    const now = fitted.current;
+    // On the day map a state fits its shape, so it waits for the shapes (or their failure).
+    if (!map || !stations || (day && fitShapes === undefined)) return;
+    if (now.land === land && now.refits === refits) return;
+    fitted.current = { land, refits };
+    const room = padding(card.current!, box.current!, stack?.current);
+    // On desktop the open panel takes the right 360 px plus its 12 px margin and a 12 px gap.
+    const options = { padding: panel && !narrow.matches ? { ...room, right: 384 } : room };
+    if (!land) {
+      // The start view is the fit's target, not wherever an interrupted ease stops.
+      const target = map.cameraForBounds(GERMANY, options);
+      if (!target) return;
+      home.current = { z: target.zoom!, c: LngLat.convert(target.center!) };
+      stateZoom.current = undefined;
+      fadeAreas(map, detailAt());
+      map.fitBounds(GERMANY, options);
+      map.once("moveend", () => {
+        // The camera the ease ends on, which the refit compares exactly; only if it got there.
+        if (Math.abs(map.getZoom() - target.zoom!) < 1e-6)
+          home.current = { z: map.getZoom(), c: map.getCenter() };
+      });
+      return;
+    }
+    // The whole shape; without the shapes the state's stations, or for none that day its card's anchor.
+    const bounds = shapeBounds(fitShapes, land) ?? new LngLatBounds();
+    if (bounds.isEmpty())
+      for (const s of stations) if (s.land === land) bounds.extend([s.lon, s.lat]);
+    if (bounds.isEmpty()) bounds.extend(ANCHORS[land]);
+    const camera = map.cameraForBounds(bounds, { ...options, maxZoom: STATE_ZOOM });
+    if (!camera) return;
+    // The state's dots show in full from its fit on, even where that is short of the usual detail zoom.
+    stateZoom.current = camera.zoom;
+    fadeAreas(map, detailAt());
+    map.easeTo(camera);
+  }, [map, stations, day, fitShapes, land, refits, panel, card, stack]);
 
   useEffect(() => {
     const el = box.current;
@@ -571,6 +936,17 @@ function StationMap({
       <div className="absolute inset-0">
         <div ref={box} data-testid="map" className="size-full bg-surface-2" />
       </div>
+      {map && laender && !detail && (
+        <StateMarkers
+          map={map}
+          laender={laender}
+          today={today}
+          metric={metric}
+          onPick={onLand}
+          onTip={setTip}
+          onHover={setHovered}
+        />
+      )}
       {tip && (
         <div
           role="tooltip"

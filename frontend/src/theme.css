@@ -16,6 +16,17 @@
   --r3: #d8be5c;
   --r4: #ef8a47;
   --r5: #b2182b;
+  /* Text on a step colour (r1–r5, c3), each at least 4.5:1. */
+  --on-r1: #ffffff;
+  --on-r2: #141820;
+  --on-r3: #141820;
+  --on-r4: #141820;
+  --on-r5: #ffffff;
+  --on-c3: #141820;
+  /* Live-Lage overview: the wash outside Germany, the opacity of a hovered state's tint (read as a number) and the state lines. */
+  --mask: #ffffff;
+  --tint: 0.14;
+  --state-line: #9aa1ad;
   --cancel: #5d6675;
   --c1: #d5d9e0;
   --c2: #aeb4bf;
@@ -46,6 +57,15 @@
   --r3: #e3cb6e;
   --r4: #f39a5c;
   --r5: #e5576a;
+  --on-r1: #0f1216;
+  --on-r2: #0f1216;
+  --on-r3: #0f1216;
+  --on-r4: #0f1216;
+  --on-r5: #0f1216;
+  --on-c3: #0f1216;
+  --mask: #0f1216;
+  --tint: 0.3;
+  --state-line: #4f5866;
   --cancel: #8a93a3;
   --c1: #3a404b;
   --c2: #555d6a;
@@ -76,6 +96,12 @@
   --color-r3: var(--r3);
   --color-r4: var(--r4);
   --color-r5: var(--r5);
+  --color-on-r1: var(--on-r1);
+  --color-on-r2: var(--on-r2);
+  --color-on-r3: var(--on-r3);
+  --color-on-r4: var(--on-r4);
+  --color-on-r5: var(--on-r5);
+  --color-on-c3: var(--on-c3);
   --color-cancel: var(--cancel);
   --color-c1: var(--c1);
   --color-c2: var(--c2);

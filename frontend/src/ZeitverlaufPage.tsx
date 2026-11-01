@@ -121,6 +121,7 @@ export default function ZeitverlaufPage() {
   const f: FilterKeys = {
     ...read,
     tag: undefined,
+    land: undefined,
     bhf: read.linie ? undefined : read.bhf,
     z: read.linie ? undefined : read.z,
     k: seriesMetric(read.k),

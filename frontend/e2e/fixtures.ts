@@ -438,9 +438,9 @@ const NO_CLASS: Klasse = { puenktlich: null, ausfallquote: null, median: null, p
  * Köln in the worse classes, Frankfurt in the better ones, Problemhausen worse again, Üblingen as
  * usual, Ohnevergleich without a normal and Kleinstadt with 9 stops, both without a class.
  * Germany reads 78.9 % against 83.3 %, Fern 44.6 % against 43.0 % and Regional 76.9 % against
- * 79.0 %. Special days: 2026-03-14 has 6 missing hours and so no
- * weather symbol, 2026-03-01 has no stops at all and 2026-04-04 too few reference days for any
- * normal or class.
+ * 79.0 %. Special days: 2026-03-14 has 6 missing hours and so no class for Germany and the
+ * states, 2026-03-01 has no stops at all and 2026-04-04 too few reference days for any normal or
+ * class.
  */
 export function tageskarteFixture(tag: string): Tageskarte {
   const gap = { "2026-03-14": 6, "2026-03-01": 24 }[tag] ?? 0;
@@ -457,6 +457,7 @@ export function tageskarteFixture(tag: string): Tageskarte {
       deutschland_fern: null,
       deutschland_regional: null,
       n: 0,
+      laender: [],
       ohne_koordinaten: 0,
       stationen: [],
     };
@@ -464,6 +465,7 @@ export function tageskarteFixture(tag: string): Tageskarte {
   const station = (
     eva: string,
     name: string,
+    land: string,
     lat: number,
     lon: number,
     n: number,
@@ -477,6 +479,7 @@ export function tageskarteFixture(tag: string): Tageskarte {
   ) => ({
     eva,
     name,
+    land,
     lat,
     lon,
     live: false,
@@ -491,8 +494,8 @@ export function tageskarteFixture(tag: string): Tageskarte {
         ? { puenktlich: cls[0], ausfallquote: cls[1], median: cls[2], p90: cls[3] }
         : NO_CLASS,
   });
-  // Germany or one category of it: no normal and no symbol on a day without enough reference days,
-  // no symbol on a day with missing hours.
+  // Germany, one category of it or a state: no normal and no class on a day without enough
+  // reference days, no class on a day with missing hours.
   const germany = (
     n: number,
     puenktlich: number,
@@ -500,7 +503,7 @@ export function tageskarteFixture(tag: string): Tageskarte {
     median: number,
     p90: number,
     usual: [number, number, number, number],
-    rank: [number, number, number, number],
+    cls: [number, number, number, number],
   ) => ({
     n,
     puenktlich,
@@ -511,10 +514,10 @@ export function tageskarteFixture(tag: string): Tageskarte {
       tag === "2026-04-04"
         ? NO_NORMAL
         : { puenktlich: usual[0], ausfallquote: usual[1], median: usual[2], p90: usual[3] },
-    wetter:
+    klasse:
       tag === "2026-04-04" || gap > 0
         ? NO_CLASS
-        : { puenktlich: rank[0], ausfallquote: rank[1], median: rank[2], p90: rank[3] },
+        : { puenktlich: cls[0], ausfallquote: cls[1], median: cls[2], p90: cls[3] },
   });
   return {
     tag,
@@ -525,12 +528,55 @@ export function tageskarteFixture(tag: string): Tageskarte {
     deutschland_fern: germany(20000, 0.446, 0.08, 4, 20, [0.43, 0.07, 4, 18], [2, 3, 3, 2]),
     deutschland_regional: germany(100000, 0.769, 0.054, 1, 10, [0.79, 0.04, 1, 9], [4, 5, 3, 4]),
     n: 120000,
+    // The states of the stations: Köln alone is Nordrhein-Westfalen (with Fern and Regional lines),
+    // Üblingen and Kleinstadt are Niedersachsen, and Bayern has no class.
+    laender: [
+      {
+        land: "nw",
+        bahnhoefe: 1,
+        alle: germany(3000, 0.5, 0.035, 4, 12, [0.8, 0.03, 3, 12], [5, 3, 4, 3]),
+        fern: germany(500, 0.4, 0.05, 6, 20, [0.6, 0.04, 4, 15], [4, 4, 4, 4]),
+        regional: germany(2500, 0.52, 0.032, 3, 11, [0.82, 0.03, 3, 11], [5, 3, 4, 3]),
+      },
+      {
+        land: "he",
+        bahnhoefe: 1,
+        alle: germany(2500, 0.9, 0.01, 1, 4, [0.8, 0.03, 3, 12], [1, 2, 2, 1]),
+        fern: null,
+        regional: null,
+      },
+      {
+        land: "ni",
+        bahnhoefe: 2,
+        alle: germany(1209, 0.81, 0.03, 3, 12, [0.8, 0.03, 3, 12], [3, 3, 3, 3]),
+        fern: null,
+        regional: null,
+      },
+      {
+        land: "mv",
+        bahnhoefe: 1,
+        alle: germany(1500, 0.74, 0.08, 3, 20, [0.8, 0.03, 3, 12], [4, 5, 3, 5]),
+        fern: null,
+        regional: null,
+      },
+      {
+        land: "by",
+        bahnhoefe: 1,
+        alle: {
+          ...germany(900, 0.7, 0.03, 3, 12, [0.8, 0.03, 3, 12], [3, 3, 3, 3]),
+          klasse: NO_CLASS,
+        },
+        fern: null,
+        regional: null,
+      },
+    ],
     ohne_koordinaten: 2,
     stationen: [
-      station("8000207", "Köln Hbf", 50.943, 6.959, 3000, 0.5, 0.035, 4, 12, [5, 3, 4, 3]),
+      station("8000207", "Köln Hbf", "nw", 50.943, 6.959, 3000, 0.5, 0.035, 4, 12, [5, 3, 4, 3]),
       station(
         "8000105",
         "Frankfurt (Main) Hbf",
+        "he",
         50.107,
         8.663,
         2500,
@@ -540,10 +586,23 @@ export function tageskarteFixture(tag: string): Tageskarte {
         4,
         [1, 2, 2, 1],
       ),
-      station("8000555", "Problemhausen", 53.0, 12.0, 1500, 0.74, 0.08, 3, 20, [4, 5, 3, 5]),
-      station("8000600", "Üblingen", 51.5, 9.5, 1200, 0.81, 0.03, 3, 12, [3, 3, 3, 3]),
-      station("8000700", "Ohnevergleich", 49.0, 11.0, 900, 0.7, 0.03, 3, 12, undefined, NO_NORMAL),
-      station("8000999", "Kleinstadt", 52.0, 10.0, 9, 0.89, 0, 1, 3),
+      station("8000555", "Problemhausen", "mv", 53.0, 12.0, 1500, 0.74, 0.08, 3, 20, [4, 5, 3, 5]),
+      station("8000600", "Üblingen", "ni", 51.5, 9.5, 1200, 0.81, 0.03, 3, 12, [3, 3, 3, 3]),
+      station(
+        "8000700",
+        "Ohnevergleich",
+        "by",
+        49.0,
+        11.0,
+        900,
+        0.7,
+        0.03,
+        3,
+        12,
+        undefined,
+        NO_NORMAL,
+      ),
+      station("8000999", "Kleinstadt", "ni", 52.0, 10.0, 9, 0.89, 0, 1, 3),
     ],
   };
 }

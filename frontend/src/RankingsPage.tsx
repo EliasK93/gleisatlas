@@ -60,6 +60,7 @@ export default function RankingsPage() {
     ...readFilters(params),
     bhf: undefined,
     tag: undefined,
+    land: undefined,
     linie: undefined,
     z: undefined,
   };

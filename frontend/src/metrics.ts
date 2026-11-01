@@ -18,7 +18,7 @@ const oneDecimal = new Intl.NumberFormat(LOCALE, {
   maximumFractionDigits: 1,
 });
 export const int = (v: number) => whole.format(v);
-const NBSP = String.fromCharCode(0xa0); // keeps value and unit on one line
+export const NBSP = String.fromCharCode(0xa0); // keeps value and unit on one line
 // The percent sign is spaced per language (German "87 %", English "87%"), so it comes from the catalog.
 export const withUnit = (v: string, unit: "unit.pct" | "unit.min") =>
   unit === "unit.pct" ? t("format.pct", { v }) : `${v}${NBSP}${t(unit)}`;
@@ -70,7 +70,7 @@ export const DEFS: Record<Metric, Def> = {
   },
 };
 
-/** The API's field for each metric (in `Normal`, `Wetter`, `Klasse`, `Trend`, the rankings' `metrik`). */
+/** The API's field for each metric (in `Normal`, `Klasse`, `Trend`, the rankings' `metrik`). */
 export const API_FIELD = {
   puenktlich: "puenktlich",
   median: "median",
@@ -109,6 +109,27 @@ export function deviation(
   if (cls === null || raw === null) return null;
   return { cls: cls as Class, normal: DEFS[m].format(display(m, raw)!) };
 }
+
+/**
+ * A day's value against its usual in the metric's unit, with a sign: "+1 min", "−30 %-Pkt."
+ * (en: "−30 pp"), "±0 min". It is the difference of the two figures as `figureText` shows them,
+ * so "1 min · üblich 2 min" reads "−1 min"; punctuality's then in whole points. Null without
+ * both raw values.
+ */
+export function offsetText(m: Metric, value: number | null, normal: number | null) {
+  if (value === null || normal === null) return null;
+  // figureText's rounding: punctuality with one decimal, the rest as the metric's scale.
+  const shown = (v: number) => (m === "puenktlich" ? Math.round(v * 1000) / 10 : display(m, v)!);
+  const diff = shown(value) - shown(normal);
+  const d = m === "puenktlich" ? Math.round(diff) : diff;
+  const sign = d > 0 ? "+" : d < 0 ? "−" : "±";
+  const v = m === "ausfall" ? oneDecimal.format(Math.abs(d)) : int(Math.abs(d));
+  return `${sign}${v}${NBSP}${t(DEFS[m].unit === "unit.pct" ? "unit.pp" : "unit.min")}`;
+}
+
+/** Today's calendar day in Germany as YYYY-MM-DD. */
+export const berlinToday = () =>
+  new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/Berlin" }).format(new Date());
 
 /** A share of all stops in whole percent; a non-zero share below 0.5 % reads "< 1 %", never "0 %". */
 export const share = (pct: number) => withUnit(pct > 0 && pct < 0.5 ? "< 1" : int(pct), "unit.pct");
@@ -198,9 +219,6 @@ const dayShort = new Intl.DateTimeFormat(LOCALE, { weekday: "short", timeZone: "
 export const weekdayOf = (ymd: string) => dayLong.format(new Date(`${ymd}T00:00:00Z`));
 export const dayName = (d: number, short = false) =>
   (short ? dayShort : dayLong).format(dayDate(d));
-/** "2026-09-30" → "Mi 30" (en: "Wed 30"): the short weekday and the day of the month. */
-export const formatChip = (ymd: string) =>
-  `${dayShort.format(new Date(`${ymd}T00:00:00Z`))} ${Number(ymd.slice(8))}`;
 /** "2026-03-01" shifted by `n` days. */
 export const addDays = (ymd: string, n: number) =>
   new Date(Date.parse(`${ymd}T00:00:00Z`) + n * 86400000).toISOString().slice(0, 10);
@@ -221,6 +239,8 @@ export type Filters = {
   bis?: string;
   /** One day; only the Live-Lage page uses it, and it is left out for the newest day. */
   tag?: string;
+  /** A federal state's code ("nw"); only the Live-Lage page uses it, and every other page drops it. */
+  land?: string;
   /** A line id; only the time series page uses it, and it wins over `bhf` there. Lines are monthly. */
   linie?: string;
   /** The time series' resolution: only "monat" is written, the day view is the default. */
@@ -236,6 +256,7 @@ export function readFilters(p: URLSearchParams): Filters {
   const von = p.get("von");
   const bis = p.get("bis");
   const tag = p.get("tag");
+  const land = p.get("land");
   const linie = p.get("linie");
   const z = p.get("z");
   return {
@@ -244,6 +265,7 @@ export function readFilters(p: URLSearchParams): Filters {
     von: von && MONTH.test(von) ? von : undefined,
     bis: bis && MONTH.test(bis) ? bis : undefined,
     tag: validDay(tag) ? tag : undefined,
+    land: land && /^[a-z]{2}$/.test(land) ? land : undefined,
     linie: linie && linie.length <= 200 ? linie : undefined,
     z: z === "monat" ? z : undefined,
     k: METRICS.find((m) => m === k) ?? "puenktlich",
@@ -251,9 +273,19 @@ export function readFilters(p: URLSearchParams): Filters {
 }
 
 /** The URL keys for `f`, without defaults: what readFilters accepted, nothing else. */
-export function writeFilters({ g, bhf, von, bis, tag, linie, z, k }: Filters): URLSearchParams {
+export function writeFilters({
+  g,
+  bhf,
+  von,
+  bis,
+  tag,
+  land,
+  linie,
+  z,
+  k,
+}: Filters): URLSearchParams {
   // The order is fixed, so a link built here equals the URL the page would write itself.
-  const keys = { g, bhf, von, bis, tag, linie, z, k: k === "puenktlich" ? undefined : k };
+  const keys = { g, bhf, von, bis, tag, land, linie, z, k: k === "puenktlich" ? undefined : k };
   return new URLSearchParams(Object.entries(keys).filter((e): e is [string, string] => !!e[1]));
 }
 

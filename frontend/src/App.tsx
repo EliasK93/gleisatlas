@@ -36,8 +36,9 @@ export default function App() {
     <Routes>
       <Route element={<Shell />}>
         <Route index element={<Redirect to={MAP} />} />
-        <Route path={MAP} element={<MapPage />} />
-        <Route path={LAGE} element={<MapPage day />} />
+        {/* Keyed, so switching between the two maps starts a fresh map with fresh zoom state. */}
+        <Route path={MAP} element={<MapPage key="karte" />} />
+        <Route path={LAGE} element={<MapPage key="lage" day />} />
         <Route path={stationPath(":eva")} element={<StationPage />} />
         <Route path="/muster" element={<Redirect to={HEATMAP} />} />
         <Route path={HEATMAP} element={<HeatmapPage />} />

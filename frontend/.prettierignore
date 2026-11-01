@@ -4,3 +4,4 @@ playwright-report
 test-results
 package-lock.json
 src/schema.d.ts
+public/laender.geojson

@@ -1,11 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
-import { Fragment, useEffect, useRef } from "react";
+import { Fragment, useEffect, useId, useRef } from "react";
 import { useSearchParams } from "react-router";
 import { clearParams, useSetParams } from "./useSetParams";
 import { api, must, useDatenstand } from "./api";
 import { t } from "./i18n";
 import { Icon } from "./Icon";
-import { addDays, formatChip, formatPeriod, readFilters, withParam, withPeriod } from "./metrics";
+import { addDays, berlinToday, formatPeriod, readFilters, withParam, withPeriod } from "./metrics";
 import { StationSearch } from "./StationSearch";
 
 const chip = (on: boolean) =>
@@ -16,8 +16,8 @@ const chip = (on: boolean) =>
  * Bahnhof chip and `noPeriod` the Zeitraum chip. `stationName` is the selected station's name when
  * the page already has it: a string uses it, `null` waits for the page's data, `undefined` looks
  * the station up. With a `linie` in the URL, a removable chip shows `lineTitle`. `lage` (the
- * Live-Lage page) shows a day instead of a period and a train type: a day field and the last
- * seven days as chips. Its newest day is the default and so never written as `tag`.
+ * Live-Lage page) shows a day instead of a period and a train type: a day field and chips for
+ * Heute, Gestern and Vorgestern. Its newest day is the default and so never written as `tag`.
  */
 export function Filters({
   noStation,
@@ -48,15 +48,23 @@ export function Filters({
   const heute = datenstand.data?.heute ?? undefined;
   const newest = heute ?? complete;
   const day = f.tag ?? newest;
-  // The newest day and the six before it, none before the first day of the data. A day between
-  // the last complete one and today has no map yet, so it gets no chip.
-  const recent: string[] = [];
-  if (lage && newest && complete && first)
-    for (let d = newest; recent.length < 7 && d >= first; d = addDays(d, -1))
-      if (d === newest || d <= complete) recent.push(d);
+  // Today, yesterday and the day before in Germany. A chip whose day has no map (today before the
+  // first data, a day after the last complete one) stays, disabled, and names the reason.
+  const recent =
+    lage && complete && first
+      ? (["map.day.today", "lage.yesterday", "lage.dayBefore"] as const).map((label, i) => {
+          const d = addDays(berlinToday(), -i);
+          const why =
+            d === heute || (d >= first && d <= complete)
+              ? undefined
+              : t(i === 0 ? "map.day.todayNone" : "lage.incomplete");
+          return { d, label: t(label), why };
+        })
+      : [];
   // Uncontrolled: React would put the URL's day back after every key of a half-typed year. The
   // field follows the URL only when the URL's day changes by other means (a clamped link).
   const dayField = useRef<HTMLInputElement>(null);
+  const reasons = useId();
   useEffect(() => {
     if (dayField.current && day && dayField.current.value !== day) dayField.current.value = day;
   }, [day]);
@@ -91,16 +99,27 @@ export function Filters({
             aria-label={t("lage.recent")}
             className="flex shrink-0 gap-2 md:flex-wrap"
           >
-            {recent.map((d) => (
-              <button
-                key={d}
-                type="button"
-                aria-pressed={d === day}
-                onClick={() => setParams(withParam("tag", d === newest ? "" : d))}
-                className={`${chip(d === day)} cursor-pointer`}
-              >
-                {d === heute ? t("map.day.today") : formatChip(d)}
-              </button>
+            {recent.map(({ d, label, why }, i) => (
+              <Fragment key={label}>
+                <button
+                  type="button"
+                  aria-pressed={!why && d === day}
+                  disabled={!!why}
+                  // The title for the mouse; a disabled button takes no focus and a touch shows no
+                  // title, so the reason is also hidden page text that a screen reader reaches.
+                  title={why}
+                  aria-describedby={why && `${reasons}-${i}`}
+                  onClick={() => setParams(withParam("tag", d === newest ? "" : d))}
+                  className={`${chip(!why && d === day)} cursor-pointer disabled:cursor-default disabled:opacity-55`}
+                >
+                  {label}
+                </button>
+                {why && (
+                  <span id={`${reasons}-${i}`} className="sr-only">
+                    {why}
+                  </span>
+                )}
+              </Fragment>
             ))}
           </div>
         </>
