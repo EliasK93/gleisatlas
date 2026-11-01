@@ -97,6 +97,7 @@ Documentation:
 | Code of this repository | Gleisatlas | MIT, see [LICENSE](LICENSE) |
 | Train data | Deutsche Bahn (DB Timetables API) via [piebro/deutsche-bahn-data](https://huggingface.co/datasets/piebro/deutsche-bahn-data); aggregated by Gleisatlas | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) |
 | Station coordinates and federal states | [Wikidata](https://www.wikidata.org) | CC0 |
+| State shapes on the Live-Lage map | [Natural Earth](https://www.naturalearthdata.com) admin-1 boundaries, simplified | Public domain |
 | Map tiles and style | © [OpenStreetMap](https://www.openstreetmap.org/copyright) contributors, [OpenMapTiles](https://openmaptiles.org), [OpenFreeMap](https://openfreemap.org) | OpenStreetMap data under ODbL; the attribution is on the map |
 | Libraries in the web app | React, React DOM, React Router, TanStack Query, openapi-fetch, MapLibre GL JS, the Inter font | MIT, BSD-3-Clause, SIL OFL 1.1; the full texts are in [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md) and on the site at `/licenses.txt` |
 | Libraries of the API and the pipeline (not shipped to the browser) | Polars, FastAPI, uvicorn; the pipeline adds huggingface-hub (direct dependencies in [pyproject.toml](pyproject.toml)) | MIT, MIT, BSD-3-Clause, Apache-2.0 |

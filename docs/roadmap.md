@@ -49,7 +49,7 @@ Details and the runbook in [deployment.md](deployment.md).
 ## M6 Daily history and the day map (v0.3)
 Details in [day-history.md](day-history.md). Built on a per-day delay histogram (about 36 MB over 27 months, measured on 2025-06 and 2026-09).
 - [x] Daily time series with a 28-day trend as the default; the monthly view stays as a switch (re-check: `uv run pytest -q`, `tests/api/test_tagesverlauf_api.py`, `tests/core/test_holidays.py`; `npm --prefix frontend run test:e2e`, the "day view" tests in `frontend/e2e/zeitverlauf.spec.ts`)
-- [x] Day map: the map coloured by one past day against each station's normal for that weekday (noise-aware classes), with a weather symbol for Germany (re-check: `uv run pytest -q`, `tests/core/test_normal.py`, `tests/api/test_tageskarte_api.py`; `npm --prefix frontend run test:e2e`, `frontend/e2e/lage.spec.ts`; the map is the page Live-Lage since the section below)
+- [x] Day map: the map coloured by one past day against each station's normal for that weekday (noise-aware classes), with a card for Germany showing its step and deviation (re-check: `uv run pytest -q`, `tests/core/test_normal.py`, `tests/api/test_tageskarte_api.py`; `npm --prefix frontend run test:e2e`, `frontend/e2e/lage.spec.ts`; the map is the page Live-Lage since the section below)
 
 ## M7 Fresh days (v0.3)
 Details in [pipeline.md](pipeline.md) (raw days) and [day-history.md](day-history.md) (coverage); the live source is decided in [adr/0002-live-source.md](adr/0002-live-source.md).
@@ -66,10 +66,12 @@ Details in [pipeline.md](pipeline.md) (raw days) and [day-history.md](day-histor
 
 ## Live-Lage
 Details in [day-history.md](day-history.md).
-- [x] Live-Lage as its own page `/lage` for the 131 large stations: today by default, a Rückblick to any day through the date field and 7 chips, the Germany card with Fern and Regional, the Karte without a Tag switch and the Karte's Gattung and period kept across the page (re-check: `uv run pytest -q`, `tests/api/test_tageskarte_api.py`, `tests/api/test_heute_api.py`, `tests/core/test_periods.py`; `npm --prefix frontend run test:e2e`, `frontend/e2e/lage.spec.ts`)
-- [ ] Bundesländer level of Live-Lage, with weather symbols
+- [x] Live-Lage as its own page `/lage` for the 131 large stations: today by default, a Rückblick to any day through the date field and three chips (Heute, Gestern, Vorgestern), the Germany card with Fern and Regional, the Karte without a Tag switch and the Karte's Gattung and period kept across the page (re-check: `uv run pytest -q`, `tests/api/test_tageskarte_api.py`, `tests/api/test_heute_api.py`, `tests/core/test_periods.py`; `npm --prefix frontend run test:e2e`, `frontend/e2e/lage.spec.ts`)
+- [x] Bundesländer level of Live-Lage: a card per state with its step colour and deviation, state areas from a Natural Earth file with a wash outside Germany and a hover tint, the same step and deviation on the Germany card, a click zooming to the state and its card (re-check: `uv run pytest -q`, `tests/core/test_core.py` (`test_land_codes_cover_the_16_states`), `tests/api/test_tageskarte_api.py` (`test_a_state_class_is_1_on_the_best_day_and_5_on_the_worst`), `tests/api/test_heute_api.py` (`test_today_a_state_counts_only_the_stations_that_report`); `npm --prefix frontend run test:e2e`, the block "the states" in `frontend/e2e/lage.spec.ts`)
 - [ ] A day-level Zeitraum on the Karte, up to the last complete day
 - [ ] An hour slider for the Rückblick
+- [ ] A larger station set than the 131 (decide first how the days before full coverage are handled and the selection rule, for example at least 3 per state)
+- [ ] Decide which metrics (Pünktlichkeit, Typische Verspätung, P90, Ausfälle) each page offers, and keep the pages alike
 
 ## M8 Line detail page (v0.3)
 - [ ] Line detail page with the line's stations and statistics
