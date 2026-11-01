@@ -1,4 +1,4 @@
-"""The normal of a day: the same weekday over the previous weeks, and how a day ranks against it."""
+"""The normal of a day: the same weekday over the previous weeks, and how far a day is from it."""
 
 from collections.abc import Collection, Sequence
 from datetime import date, timedelta
@@ -8,16 +8,16 @@ from core.holidays import nationwide_holidays
 from core.rankings import Metric
 
 WEEKS = 12
-MIN_DAYS = 8  # valid days a normal or a rank needs
-USUAL_Z = 2  # a day within this many spreads of its normal is as usual
-MUCH_Z = 4  # from this many spreads on it is much better or much worse
+MIN_DAYS = 8  # valid days a normal or a class needs
+USUAL_Z = 1  # a day within this many spreads of its normal is as usual
+MUCH_Z = 2  # from this many spreads on it is much better or much worse
 # The smallest spread a metric is taken to have, in its own unit: when the reference days agree
 # almost exactly, a tiny difference must not read as unusual.
 FLOORS: dict[Metric, float] = {
     "punctual_share": 0.01,  # one percentage point
     "cancellation_rate": 0.005,
-    "median": 1.0,  # minutes; the stored medians are whole minutes
-    "p90": 1.0,
+    "median": 1.5,  # minutes; the stored medians are whole minutes
+    "p90": 1.5,
 }
 
 
@@ -36,22 +36,6 @@ def normal(values: Sequence[float | None]) -> float | None:
     """The median of the given values; None with fewer than MIN_DAYS of them."""
     valid = [v for v in values if v is not None]
     return median(valid) if len(valid) >= MIN_DAYS else None
-
-
-def weather(
-    value: float | None, references: Sequence[float | None], higher_is_better: bool
-) -> int | None:
-    """1 (much better than usual) to 5 (much worse): the share of the references that the value
-    beats, ties counting half, cut into fifths. None without a value or MIN_DAYS references."""
-    valid = [r for r in references if r is not None]
-    if value is None or len(valid) < MIN_DAYS:
-        return None
-    sign = 1 if higher_is_better else -1
-    twice = sum(2 if sign * value > sign * r else int(value == r) for r in valid)  # integers: exact
-    fifth = 5 * twice // (2 * len(valid))
-    if twice > len(valid) and 5 * twice % (2 * len(valid)) == 0:
-        fifth -= 1  # an exact boundary above the middle steps toward 3, as one below it does
-    return 5 - min(fifth, 4)
 
 
 def spread(values: Sequence[float | None], floor: float) -> float | None:

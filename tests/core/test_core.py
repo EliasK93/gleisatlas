@@ -7,13 +7,18 @@ import pytest
 
 from core.categories import category_expr
 from core.delay import arrival_delay_expr, plausible_expr
-from core.stations import ibnr_expr
+from core.stations import LAND_CODES, ibnr_expr
 from core.stats import cell_stats, cell_stats_frame, delay_bins, quantile
 
 
 def test_ibnr_strips_leading_zeros():
     df = pl.DataFrame({"eva": ["08000207", "8000207", "00000001"]})
     assert df.select(ibnr_expr(pl.col("eva")))["eva"].to_list() == ["8000207", "8000207", "1"]
+
+
+def test_land_codes_cover_the_16_states():
+    assert len(LAND_CODES) == len(set(LAND_CODES.values())) == 16
+    assert LAND_CODES["Freie Hansestadt Bremen"] == "hb"
 
 
 def test_category_expr():
