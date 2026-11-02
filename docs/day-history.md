@@ -2,7 +2,7 @@
 
 ## 1 Overview
 
-Day-level history: a daily time series with a 28-day trend in place of the monthly one (months stay as a switch), and the page Live-Lage (`/lage`), a map of the 131 large stations coloured by one day against its normal for that weekday, today by default. The page reads Germany, then the 16 Bundesländer, then the stations. Both rest on a per-day delay histogram. The Karte (`/karte`) shows periods only ([map.md](map.md)). The planned feature direction is in SPEC §3.4; a calendar view and marked events come later.
+Day-level history: a daily time series with a 28-day trend in place of the monthly one (months stay as a switch), and the page Live-Lage (`/lage`), a map of the 131 large stations coloured by one day against its normal for that weekday, today by default. The page reads Germany, then the 16 Bundesländer, then the stations. Both rest on a per-day delay histogram. The Karte (`/karte`) shows a period of days for all stations, read from the same day table, but never one day against its normal ([map.md](map.md)). The planned feature direction is in SPEC §3.4; a calendar view and marked events come later.
 
 **Coverage.** The day views reach the last complete day, about one to two days back: the days after the last monthly file are built from the source's raw responses and refreshed by `pipeline.update` (mechanics and the completeness rule: [pipeline.md](pipeline.md) §2, "Raw days"). The month views (heatmap, rankings, monthly series, station sparkline) stay on whole months. When a month's file arrives, it replaces that month's raw days.
 

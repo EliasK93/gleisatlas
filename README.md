@@ -21,7 +21,7 @@ Web app that shows the punctuality, typical delay, the worst 10% of arrivals and
 
 ## Features
 
-- **Map**: about 5,400 stations on a map of Germany, coloured by punctuality, typical delay, worst 10% (P90) or cancellations.
+- **Map**: about 5,400 stations on a map of Germany, coloured by punctuality, typical delay, worst 10% (P90) or cancellations, for any range of days up to the last complete one.
 - **Station page**: key figures, the delay distribution, the weekday × hour pattern, the split by train category, the lines at the station and a sparkline by month.
 - **Weekday × hour heatmap**: when trains are least and most punctual, with a short summary.
 - **Rankings**: stations or lines, worst and best, with a minimum sample so that chance doesn't win.

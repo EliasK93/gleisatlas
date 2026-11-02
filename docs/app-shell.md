@@ -26,7 +26,7 @@ The frame around every page: sidebar, filter bar, mobile top bar and tab bar, fo
 |---|---|---|
 | `g` | `regional`, `fern` | all categories |
 | `bhf` | EVA number | all stations |
-| `von`, `bis` | `YYYY-MM` | `von`: first month with full coverage; `bis`: last month |
+| `von`, `bis` | `YYYY-MM`, or `YYYY-MM-DD` (read by the Karte, rounded outward to months by the other pages) | `von`: first month with full coverage (on the Karte its first day); `bis`: last month (on the Karte the last complete day) |
 | `tag` | `YYYY-MM-DD` (Live-Lage only) | the newest day (today, else the last complete day); a past day is clamped to the days of the data |
 | `land` | a state code such as `nw` (Live-Lage only) | Germany |
 | `k` | `median`, `p90`, `ausfall` | punctuality |
@@ -42,6 +42,8 @@ Unknown or invalid values fall back to the default and are removed from the URL 
 **Filter bar**
 
 - Zeitraum: two native month `<select>`s ("von" and "bis"), filled from `/datenstand` `monate`. They show the URL's `von` and `bis`, or the defaults (full coverage start, last month), and write both to the URL. A pick that crosses the other edge moves that edge to the same month. The chip is highlighted only when `von` or `bis` is set. The time series hides it: that page always shows every month.
+  - A day in the URL (made on the Karte) shows as its month in the select, rounded outward: `von` down to its month, `bis` up to its month, and a month outside the data as the nearest month with data. The pages' requests carry the same months (`useMonthPeriod`); with a period in the URL they wait for `/datenstand`, and go unclamped if it fails. The URL keeps its days until a select is changed, which writes months for both edges.
+  - On the Karte the chip holds two native date fields instead, limited to `erster_tag` and `letzter_tag`, described in [map.md](map.md) §2. `DayField` in `Filters.tsx` is the same field Live-Lage uses for `tag`.
 - Linie: with a `linie` in the URL (time series only), a highlighted chip "Linie: {label}" with a button "Linie entfernen" that drops the key.
 - Live-Lage: instead of Zeitraum and Gattung, a date field (`<input type="date">`, from the first day of the data to the newest day) and a group "Letzte Tage" of three chips: Heute, Gestern and Vorgestern (the pressed one is the shown day). A chip whose day has no map is disabled and names the reason in its title and in a hidden description for screen readers; every other day goes through the date field. Station and Zurücksetzen as elsewhere. On a phone the whole bar is one sideways-scrolling row like the other bars, so the chips never wrap.
 - Gattung: native `<select>` with Alle, Regionalverkehr, Fernverkehr. "Regionalverkehr" is everything that is not long-distance (S-Bahn, RB, RE and regional operators); buses are excluded in the pipeline.
@@ -90,7 +92,7 @@ Unknown or invalid values fall back to the default and are removed from the URL 
 
 **API used by the shell**
 
-- `GET /datenstand` returns `monate` and `bahnhoefe` for the sidebar footer and `/mehr`, and `monate` and `vollabdeckung_ab` for the Zeitraum picker.
+- `GET /datenstand` returns `monate` and `bahnhoefe` for the sidebar footer and `/mehr`, and `monate` and `vollabdeckung_ab` for the Zeitraum picker, `erster_tag` and `letzter_tag` for the Karte's date fields.
 - `GET /stationen/{eva}` resolves `bhf` to a name after a reload; 404 for an unknown EVA.
 - `GET /stationen?q=&limit=` feeds the station combobox and the search field.
 - `GET /heatmap` feeds the page (see [patterns.md](patterns.md)).
@@ -103,7 +105,8 @@ Unknown or invalid values fall back to the default and are removed from the URL 
 - **Native HTML and Tailwind, no component library.** Reason: the design is small and specific; `<select>`, `popover` and `<table>` cover the controls and keep accessibility native.
 - **Mobile layout in the first shell milestone.** Reason: retrofitting a transposed grid and tab bar later would rework the page.
 - **The heatmap is a semantic `<table>`** with a caption, header cells and hidden text in every cell, for example "Montag 7–8 Uhr: 72 % pünktlich, n = 1.240". "Als Tabelle anzeigen" shows those values in the cells. Reason: this is the accessible alternative design.md asks for, without a second component.
-- **The Zeitraum is a pair of month selects, not presets or a calendar.** Reason: the data is monthly, so a month is the finest useful unit; native selects need no library and keep the 44 px hit areas.
+- **The Zeitraum is a pair of month selects, not presets or a calendar; only the Karte has day fields.** Reason: the heatmap, the rankings and the station page rest on month aggregates, so a month is the finest unit they can answer; native selects need no library and keep the 44 px hit areas. The Karte reads the day table and takes two native date fields ([map.md](map.md) §3).
+- **A day in `von` or `bis` rounds outward on the month pages, and the URL keeps it.** Reason (product owner, 2026-11-01): a link from the Karte then opens the other pages with the months that contain the days, and the way back restores the days. Writing months into the URL on arrival would lose them.
 - **Weekday totals come from the backend** (`tage`, from the summed histogram), not from the browser. Reason: a mean of cell medians is statistically wrong; the mockup averages medians.
 - **Colour classes follow the displayed, rounded value** (whole % and minutes, cancellations to one decimal). Reason: colour and printed number always agree. The boundary: 0.894 shows 89 % (class 2), 0.895 shows 90 % (class 1). The mockup classes the raw value, which would put 0.895 in class 2.
 - **The low-data rule counts arrived stops for the delay metrics**: `n × (1 − ausfallquote)`, because the median, P90 and punctuality come from arrived stops only. Ausfälle uses `n`. Reason: 20 stops with half cancelled would otherwise show a confident-looking value from 10 arrivals.
@@ -141,7 +144,7 @@ Unknown or invalid values fall back to the default and are removed from the URL 
 - `frontend/src/RankingsPage.tsx`: the rankings page, its two lists and rows.
 - `frontend/src/ZeitverlaufPage.tsx`: the time series page (the resolution switch, month and day rows, the table mode) and the exported `Sparkline` that the station page uses.
 - `frontend/src/charts.tsx`: the chart pieces shared by both resolutions: `Plot`, `Line`, `TrendLine`, `Band`, `Markers`, `Sized`, `tipOf` and `niceTicks`.
-- `frontend/src/Filters.tsx`: filter bar, the station chip and the line chip.
+- `frontend/src/Filters.tsx`: filter bar, the station chip and the line chip, and `DayField`, the native date field of the Karte's Zeitraum and Live-Lage's day.
 - `frontend/src/ui.tsx`: also `Segmented`, `MusterSwitch`, the shared tooltip (`useTip`, `tipAt`, `TipBox`), `Badge`, `MiniBar` and `Cancelled`.
 - `frontend/src/metrics.ts`: pure functions, no React: metric definitions with class limits, `classOf`, number and date formats (`formatMonth`), `readFilters` and `writeFilters` for the URL keys, `readRank` and `writeRank` for `typ` and `min`.
 - `frontend/src/Icon.tsx`: the icon set. `frontend/src/api.ts`: typed client over `schema.d.ts`; `must()` turns any non-2xx response into a query error.
@@ -153,7 +156,7 @@ Unknown or invalid values fall back to the default and are removed from the URL 
 
 - [x] App shell per design: sidebar, routing, filter bar, heatmap view, mobile layout, Inter bundled. Re-check: `npm --prefix frontend run test:e2e` passes, including `frontend/e2e/shell.spec.ts` (redirects, query string kept, Inter loaded, sidebar and "bald" items, mobile tab bar and transposed grid, Mehr) and `frontend/e2e/heatmap.spec.ts` (grid, class boundaries, only-cancelled cells, low-data gate, tooltip, table mode, filters, reset, share, empty and error states, 44 px hit areas).
 
-- [x] Zeitraum picker. Re-check: `npm --prefix frontend run test:e2e`, `frontend/e2e/period.spec.ts` (12 months offered with the defaults selected, a pick writes `von` and `bis` and the next request carries both, crossing edges, map and station page, reset, mobile without sideways scroll and with 44 px hit areas).
+- [x] Zeitraum picker. Re-check: `npm --prefix frontend run test:e2e`, `frontend/e2e/period.spec.ts` (12 months offered with the defaults selected, a pick writes `von` and `bis` and the next request carries both, crossing edges, map and station page, reset, mobile without sideways scroll and with 44 px hit areas; days in the URL round outward to months: "days in the URL round outward to months on the pattern pages, which request months", "a day past the last month asks for the last month, where the select stands", "days in the URL round outward to months on the station page").
 
 - [x] Rankings page. Re-check: `npm --prefix frontend run test:e2e`, `frontend/e2e/rankings.spec.ts` (two columns of ten with rank, name, value, n and cancellation rate; meta line; the request carries the defaults only; the URL drives the request and the controls; the switches write the URL; invalid values and `bhf` dropped; station and line rows link on with the filters; sidebar and filter bar; empty and error states; Teilen; mobile tabs and 44 px hit areas).
 - [x] Time series page. Re-check: `frontend/e2e/zeitverlauf.spec.ts` (nationwide request and title; no period picker; a station and the category in the request; a line wins over a station and its chip is removable, picking a station replaces the line, an unknown line or station has its own state; holes, dashes for low n and gaps; markers and the omitted coverage marker; the median band; tooltip with value, n and missing hours, no value for a month with few arrivals (dashes, hollow points, tooltip), a median below zero stays in the plot; the cancellation bars; table mode; empty and error states; sidebar link; a filter change keeps the page mounted; mobile without sideways scroll and without overlapping marker labels, tap tooltip). The day view is in the `day view` block of the same file: it is the default and requests `/tagesverlauf`, the switch writes and drops `z=monat`, a line URL has no switch and stays monthly, the station and category reach the request, one bold trend line over thin day segments, the median trend with a band up to the P90 trend, dashes for the day with gaps and the day with little data, the tooltip with date, value, trend, n and missing hours, the cancellation chart, the table by day, the empty, unknown-station and error states, and 375 px without sideways scroll.
@@ -178,5 +181,4 @@ Unknown or invalid values fall back to the default and are removed from the URL 
 - Teilen gives no feedback when the browser denies the clipboard.
 - An unknown station in `bhf` on the heatmap shows the generic empty state, not "Diesen Bahnhof kennen wir nicht" with a search (design.md §7); the station page has that state (see [map.md](map.md)).
 - The sidebar has no collapse to a rail.
-- A valid month outside the data range in `von` or `bis` leaves its select blank; the API returns what it has.
 - The station popover is positioned with CSS anchor positioning, with the centred default as fallback (see Platform checks).
