@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import createClient from "openapi-fetch";
+import { monthsOf } from "./metrics";
 import type { paths } from "./schema";
 
 export const api = createClient<paths>({
@@ -26,3 +27,18 @@ export const useDatenstand = () =>
     staleTime: LIVE_REFRESH,
     refetchInterval: (q) => (q.state.data?.heute ? LIVE_REFRESH : false),
   });
+
+/**
+ * The period of the URL as the months a month page asks for (see `monthsOf`). `ready` is false
+ * while /datenstand is still loading and the URL holds a period, so no request names months that
+ * might lie outside the data. If /datenstand fails, the months go unclamped, so the page shows its
+ * own result or error instead of loading forever.
+ */
+export function useMonthPeriod(f: { von?: string; bis?: string }) {
+  const datenstand = useDatenstand();
+  const months = datenstand.data?.monate;
+  return {
+    ...monthsOf(f, months ?? []),
+    ready: !!months || datenstand.isError || !(f.von || f.bis),
+  };
+}

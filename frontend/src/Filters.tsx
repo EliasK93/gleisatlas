@@ -5,7 +5,18 @@ import { clearParams, useSetParams } from "./useSetParams";
 import { api, must, useDatenstand } from "./api";
 import { t } from "./i18n";
 import { Icon } from "./Icon";
-import { addDays, berlinToday, formatPeriod, readFilters, withParam, withPeriod } from "./metrics";
+import {
+  addDays,
+  berlinToday,
+  firstDay,
+  formatPeriod,
+  lastDay,
+  monthOf,
+  readFilters,
+  withParam,
+  withPeriod,
+  within,
+} from "./metrics";
 import { StationSearch } from "./StationSearch";
 
 const chip = (on: boolean) =>
@@ -18,17 +29,21 @@ const chip = (on: boolean) =>
  * the station up. With a `linie` in the URL, a removable chip shows `lineTitle`. `lage` (the
  * Live-Lage page) shows a day instead of a period and a train type: a day field and chips for
  * Heute, Gestern and Vorgestern. Its newest day is the default and so never written as `tag`.
+ * `days` (the period map) shows the period as two day fields instead of month selects; the month
+ * selects of the other pages show the months that a period of days reaches into.
  */
 export function Filters({
   noStation,
   noPeriod,
   lage,
+  days,
   stationName,
   lineTitle,
 }: {
   noStation?: boolean;
   noPeriod?: boolean;
   lage?: boolean;
+  days?: boolean;
   stationName?: string | null;
   lineTitle?: string;
 }) {
@@ -38,12 +53,21 @@ export function Filters({
   // The API's default range is the covered one.
   const datenstand = useDatenstand();
   const months = datenstand.data?.monate ?? [];
-  const now = {
-    von: f.von ?? datenstand.data?.vollabdeckung_ab ?? "",
-    bis: f.bis ?? months.at(-1) ?? "",
-  };
   const first = datenstand.data?.erster_tag;
   const complete = datenstand.data?.letzter_tag;
+  // The month selects hold months inside the list (as the month pages ask for them): a day shows
+  // its month, one outside the data the nearest month with data.
+  const month = (v: string) => within(monthOf(v), months[0], months.at(-1));
+  const now = {
+    von: month(f.von ?? datenstand.data?.vollabdeckung_ab ?? ""),
+    bis: month(f.bis ?? months.at(-1) ?? ""),
+  };
+  // The day fields: the covered range from its first day to the last complete one, by default;
+  // a day outside the data shows its nearest edge.
+  const nowDays = {
+    von: within(firstDay(f.von ?? datenstand.data?.vollabdeckung_ab ?? ""), first, complete),
+    bis: within(lastDay(f.bis ?? complete ?? ""), first, complete),
+  };
   // The live day, where there is one, is the newest day.
   const heute = datenstand.data?.heute ?? undefined;
   const newest = heute ?? complete;
@@ -61,13 +85,7 @@ export function Filters({
           return { d, label: t(label), why };
         })
       : [];
-  // Uncontrolled: React would put the URL's day back after every key of a half-typed year. The
-  // field follows the URL only when the URL's day changes by other means (a clamped link).
-  const dayField = useRef<HTMLInputElement>(null);
   const reasons = useId();
-  useEffect(() => {
-    if (dayField.current && day && dayField.current.value !== day) dayField.current.value = day;
-  }, [day]);
   return (
     // The vertical padding keeps the mobile tap areas of the chips inside the scroll box.
     <div className="-mx-4 -mt-1.5 mb-2.5 flex gap-2 overflow-x-auto px-4 pt-1.5 pb-2 [scrollbar-width:none] md:mx-0 md:flex-wrap md:overflow-visible md:px-0">
@@ -75,24 +93,13 @@ export function Filters({
         <>
           <span className={chip(true)}>
             {t("filter.chip", { label: t("filter.day") })}
-            <label className="hit">
-              <input
-                type="date"
-                aria-label={t("map.day.pick")}
-                ref={dayField}
-                defaultValue={day}
-                min={first}
-                max={newest}
-                onChange={(e) => {
-                  // Only a day inside the data: while a year is typed the field passes
-                  // through values like 0002-09-15, which must neither move the map nor query.
-                  const v = e.target.value;
-                  if (first && newest && v >= first && v <= newest)
-                    setParams(withParam("tag", v === newest ? "" : v));
-                }}
-                className="cursor-pointer bg-transparent px-1 font-semibold"
-              />
-            </label>
+            <DayField
+              label={t("map.day.pick")}
+              value={day}
+              min={first}
+              max={newest}
+              onPick={(v) => setParams(withParam("tag", v === newest ? "" : v))}
+            />
           </span>
           <div
             role="group"
@@ -130,20 +137,32 @@ export function Filters({
           {(["von", "bis"] as const).map((edge, i) => (
             <Fragment key={edge}>
               {i > 0 && t("filter.periodSeparator")}
-              <label className="hit">
-                <select
-                  aria-label={t(edge === "von" ? "filter.periodFrom" : "filter.periodTo")}
-                  value={now[edge]}
-                  onChange={(e) => setParams(withPeriod(edge, e.target.value, now))}
-                  className={`cursor-pointer bg-transparent px-1 font-semibold ${f.von || f.bis ? "" : "text-text"}`}
-                >
-                  {months.map((m) => (
-                    <option key={m} value={m}>
-                      {formatPeriod(m)}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              {days ? (
+                <DayField
+                  label={t(edge === "von" ? "filter.periodFrom" : "filter.periodTo")}
+                  value={nowDays[edge]}
+                  min={first}
+                  max={complete}
+                  className={f.von || f.bis ? "" : "text-text"}
+                  holds={(v) => (edge === "von" ? v > nowDays.bis : v < nowDays.von)}
+                  onPick={(v) => setParams(withPeriod(edge, v, nowDays))}
+                />
+              ) : (
+                <label className="hit">
+                  <select
+                    aria-label={t(edge === "von" ? "filter.periodFrom" : "filter.periodTo")}
+                    value={now[edge]}
+                    onChange={(e) => setParams(withPeriod(edge, e.target.value, now))}
+                    className={`cursor-pointer bg-transparent px-1 font-semibold ${f.von || f.bis ? "" : "text-text"}`}
+                  >
+                    {months.map((m) => (
+                      <option key={m} value={m}>
+                        {formatPeriod(m)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
             </Fragment>
           ))}
         </span>
@@ -197,6 +216,63 @@ export function Filters({
         {t("filter.reset")}
       </button>
     </div>
+  );
+}
+
+/**
+ * A native day field that writes only days inside min..max: while a year is typed the field passes
+ * through values like 0002-09-15, which must neither move anything nor query. Uncontrolled, because
+ * React would put the URL's day back after every key of a half-typed year; it follows `value` only
+ * when that changes by other means (a clamped link, the other edge moving along). A day for
+ * which `holds` is true (it would move the other edge) is not passed on while the field has the
+ * focus, since typing passes through such days (a 2 on the way to 25); it is passed on when the
+ * field is left.
+ */
+function DayField({
+  label,
+  value,
+  min,
+  max,
+  className = "",
+  holds,
+  onPick,
+}: {
+  label: string;
+  value?: string;
+  min?: string;
+  max?: string;
+  className?: string;
+  holds?: (day: string) => boolean;
+  onPick: (day: string) => void;
+}) {
+  const input = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    // Not while the field has the focus: a slow echo of a day typed earlier would undo the keys
+    // typed since.
+    const el = input.current;
+    if (el && value && el.value !== value && document.activeElement !== el) el.value = value;
+  }, [value]);
+  const inside = (v: string) => !!min && !!max && v >= min && v <= max;
+  return (
+    <label className="hit">
+      <input
+        type="date"
+        aria-label={label}
+        ref={input}
+        defaultValue={value}
+        min={min}
+        max={max}
+        onChange={(e) => {
+          const v = e.target.value;
+          if (inside(v) && !(holds?.(v) && document.activeElement === e.target)) onPick(v);
+        }}
+        onBlur={(e) => {
+          const v = e.target.value;
+          if (holds && inside(v) && v !== value) onPick(v);
+        }}
+        className={`cursor-pointer bg-transparent px-1 font-semibold ${className}`}
+      />
+    </label>
   );
 }
 

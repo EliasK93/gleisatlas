@@ -29,7 +29,7 @@ import {
   deviation,
   formatDay,
   formatLive,
-  formatPeriod,
+  formatDays,
   formatStand,
   int,
   legend,
@@ -393,7 +393,7 @@ export default function MapPage({ day = false }: { day?: boolean }) {
   const period = day
     ? shownDay && (today ? t("map.day.today") : formatDay(shownDay))
     : periodMap.data?.n
-      ? formatPeriod(periodMap.data.von, periodMap.data.bis)
+      ? formatDays(periodMap.data.von, periodMap.data.bis)
       : undefined;
   // The Live-Lage page ignores g, von and bis and leaves them in the URL, so the other pages
   // get them back; it counts all trains.
@@ -473,7 +473,7 @@ export default function MapPage({ day = false }: { day?: boolean }) {
           helpOnPhone={false}
         />
         <div className="-mb-2.5">
-          <Filters lage={day} stationName={data ? station?.name : null} />
+          <Filters lage={day} days={!day} stationName={data ? station?.name : null} />
         </div>
       </div>
 

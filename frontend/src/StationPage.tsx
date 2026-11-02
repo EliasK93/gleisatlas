@@ -2,7 +2,7 @@ import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { Fragment, useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { Link, Navigate, useParams, useSearchParams } from "react-router";
 import { clearParams, useSetParams } from "./useSetParams";
-import { api, must } from "./api";
+import { api, must, useMonthPeriod } from "./api";
 import { Filters } from "./Filters";
 import { t, type MessageKey } from "./i18n";
 import { Icon, type IconName } from "./Icon";
@@ -66,16 +66,18 @@ export default function StationPage() {
     linie: undefined,
     z: undefined,
   };
+  // Days in the URL round outward: this page asks for whole months.
+  const m = useMonthPeriod(f);
   const q = useQuery({
-    queryKey: ["statistik", eva, f.g, f.von, f.bis],
+    queryKey: ["statistik", eva, f.g, m.von, m.bis],
     queryFn: async () => {
       const r = await api.GET("/stationen/{eva}/statistik", {
-        params: { path: { eva }, query: { gattung: f.g ?? "alle", von: f.von, bis: f.bis } },
+        params: { path: { eva }, query: { gattung: f.g ?? "alle", von: m.von, bis: m.bis } },
       });
       // An unknown station is a page state, not an error.
       return r.response.status === 404 ? null : must(r);
     },
-    enabled: valid,
+    enabled: valid && m.ready,
     // A filter change keeps the old numbers on screen; another station does not.
     placeholderData: (previous, query) => (query?.queryKey[1] === eva ? previous : undefined),
   });
@@ -378,14 +380,16 @@ function MiniHeatmap({
   to: { pathname: string; search: string };
 }) {
   // The same key shape as the heatmap page, so the cache is shared.
+  const m = useMonthPeriod(f);
   const q = useQuery({
-    queryKey: ["heatmap", f.g, eva, f.von, f.bis],
+    queryKey: ["heatmap", f.g, eva, m.von, m.bis],
     queryFn: () =>
       api
         .GET("/heatmap", {
-          params: { query: { gattung: f.g ?? "alle", eva, von: f.von, bis: f.bis } },
+          params: { query: { gattung: f.g ?? "alle", eva, von: m.von, bis: m.bis } },
         })
         .then(must),
+    enabled: m.ready,
   });
   let body;
   if (q.isError) body = <p className="text-text-2">{t("state.error")}</p>;
@@ -508,14 +512,16 @@ function Lines({ eva, f }: { eva: string; f: FilterKeys }) {
   useEffect(() => {
     if (all) firstNew.current?.focus();
   }, [all]);
+  const m = useMonthPeriod(f);
   const q = useQuery({
-    queryKey: ["linien", eva, f.g, f.von, f.bis],
+    queryKey: ["linien", eva, f.g, m.von, m.bis],
     queryFn: () =>
       api
         .GET("/stationen/{eva}/linien", {
-          params: { path: { eva }, query: { gattung: f.g ?? "alle", von: f.von, bis: f.bis } },
+          params: { path: { eva }, query: { gattung: f.g ?? "alle", von: m.von, bis: m.bis } },
         })
         .then(must),
+    enabled: m.ready,
     placeholderData: keepPreviousData,
   });
   // The API lists the lines with a value worst first, then the all-cancelled ones, then the ones

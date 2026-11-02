@@ -65,8 +65,8 @@ export const STATIONS: Station[] = [
 export function karteFixture(): Karte {
   const at = (lat: number, lon: number) => ({ lat, lon });
   return {
-    von: "2026-09",
-    bis: "2026-09",
+    von: "2026-09-01",
+    bis: "2026-09-30",
     n: 70000,
     ohne_koordinaten: 10,
     stationen: [

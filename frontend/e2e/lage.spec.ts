@@ -208,7 +208,7 @@ test("Karte, Live-Lage and back to the Karte keep the Gattung and the period", a
   await expect(map(page)).toHaveAttribute("data-ready", "true");
   await nav.getByRole("link", { name: "Karte" }).click();
   await expect(page).toHaveURL(/\/karte\?g=fern&von=2026-03&bis=2026-09$/);
-  await expect(page.getByLabel("Zeitraum von")).toHaveValue("2026-03");
+  await expect(page.getByLabel("Zeitraum von")).toHaveValue("2026-03-01");
 });
 
 test.describe("the day chips", () => {

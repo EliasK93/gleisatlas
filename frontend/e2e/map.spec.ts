@@ -84,7 +84,7 @@ test("?bhf= opens the panel; Schließen removes bhf and keeps the rest", async (
     "6 von 10 Ankünften sind pünktlich. Die schlechtesten 10 % kommen mindestens 21 min zu spät.",
   );
   for (const v of ["67 %", "3 min", "21 min", "4,3 %"]) await expect(p).toContainText(v);
-  await expect(p).toContainText("n = 33.744 Halte · Sept. 2026");
+  await expect(p).toContainText("n = 33.744 Halte · 1.–30. Sept. 2026");
   await expect(p.getByRole("link", { name: "Alle Details" })).toHaveAttribute(
     "href",
     "/bahnhof/8000207?g=fern&bhf=8000207",
@@ -251,7 +251,7 @@ test.describe("desktop", () => {
       "sehr wenig Daten (n < 15)",
       "wenig Daten (n < 50)",
       "Größe = Anzahl Halte",
-      "Sept. 2026 · Alle Gattungen · Bahnhöfe auf der Karte: 4 · ohne Koordinaten: 10",
+      "1.–30. Sept. 2026 · Alle Gattungen · Bahnhöfe auf der Karte: 4 · ohne Koordinaten: 10",
     ])
       await expect(l).toContainText(text);
   });

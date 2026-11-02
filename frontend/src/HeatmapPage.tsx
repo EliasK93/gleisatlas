@@ -2,7 +2,7 @@ import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { Navigate, useSearchParams } from "react-router";
 import { clearParams, useSetParams } from "./useSetParams";
-import { api, must } from "./api";
+import { api, must, useMonthPeriod } from "./api";
 import { Filters } from "./Filters";
 import { t, tx } from "./i18n";
 import {
@@ -48,14 +48,17 @@ export default function HeatmapPage() {
     linie: undefined,
     z: undefined,
   };
+  // Days in the URL round outward: this page asks for whole months.
+  const m = useMonthPeriod(f);
   const q = useQuery({
-    queryKey: ["heatmap", f.g, f.bhf, f.von, f.bis],
+    queryKey: ["heatmap", f.g, f.bhf, m.von, m.bis],
     queryFn: () =>
       api
         .GET("/heatmap", {
-          params: { query: { gattung: f.g ?? "alle", eva: f.bhf, von: f.von, bis: f.bis } },
+          params: { query: { gattung: f.g ?? "alle", eva: f.bhf, von: m.von, bis: m.bis } },
         })
         .then(must),
+    enabled: m.ready,
     placeholderData: keepPreviousData,
   });
   const data = q.data;

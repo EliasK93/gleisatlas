@@ -172,6 +172,26 @@ const monthFormat = new Intl.DateTimeFormat(LOCALE, {
 });
 const monthDate = (ym: string) => new Date(`${ym}-01T00:00:00Z`);
 
+/** The month of a month or a day: "2026-03-10" → "2026-03". */
+export const monthOf = (v: string) => v.slice(0, 7);
+/** `v` moved into `lo..hi` (the middle of three ISO strings in order is the clamped one). */
+export const within = (v: string, lo?: string, hi?: string) =>
+  lo && hi ? [lo, v, hi].sort()[1] : v;
+/**
+ * Both edges of a period as months for the month pages: days round outward and a month outside
+ * the data moves to the nearest month with data, so the selects and the requests agree. A missing
+ * edge stays missing.
+ */
+export const monthsOf = (f: { von?: string; bis?: string }, months: readonly string[]) => ({
+  von: f.von && within(monthOf(f.von), months[0], months.at(-1)),
+  bis: f.bis && within(monthOf(f.bis), months[0], months.at(-1)),
+});
+/** A month's first day; a day stays. */
+export const firstDay = (v: string) => (v.length === 7 ? `${v}-01` : v);
+/** A month's last day; a day stays. */
+export const lastDay = (v: string) =>
+  v.length === 7 ? `${v}-${new Date(Date.UTC(+v.slice(0, 4), +v.slice(5), 0)).getUTCDate()}` : v;
+
 const monthName = new Intl.DateTimeFormat(LOCALE, { month: "long", timeZone: "UTC" });
 /** "2026-03" → "Mär 26" (en: "Mar '26"): three letters and the year, as on the chart axes. */
 export const formatMonth = (ym: string) =>
@@ -183,6 +203,16 @@ export const formatMonth = (ym: string) =>
 /** "2026-09" → "Sept. 2026"; a range becomes "Okt. 2025 – Sept. 2026". */
 export const formatPeriod = (von: string, bis = von) =>
   monthFormat.formatRange(monthDate(von), monthDate(bis));
+
+const rangeFormat = new Intl.DateTimeFormat(LOCALE, {
+  day: "numeric",
+  month: "short",
+  year: "numeric",
+  timeZone: "UTC",
+});
+/** Two days as "1.–29. Okt. 2026" (en: "1 – 29 Oct 2026"). */
+export const formatDays = (von: string, bis = von) =>
+  rangeFormat.formatRange(new Date(`${von}T00:00:00Z`), new Date(`${bis}T00:00:00Z`));
 
 const dayFormat = new Intl.DateTimeFormat(LOCALE, {
   weekday: "short",
@@ -232,9 +262,13 @@ function validDay(s: string | null): s is string {
   return !Number.isNaN(date.getTime()) && date.toISOString().startsWith(s);
 }
 
+/** A month or a real day: the values `von` and `bis` take. */
+const validPeriod = (s: string | null): s is string => !!s && (MONTH.test(s) || validDay(s));
+
 export type Filters = {
   g?: "regional" | "fern";
   bhf?: string;
+  /** A month or a day; only the period map reads days, the other pages round them to months. */
   von?: string;
   bis?: string;
   /** One day; only the Live-Lage page uses it, and it is left out for the newest day. */
@@ -262,8 +296,8 @@ export function readFilters(p: URLSearchParams): Filters {
   return {
     g: g === "regional" || g === "fern" ? g : undefined,
     bhf: bhf && /^\d+$/.test(bhf) ? bhf : undefined,
-    von: von && MONTH.test(von) ? von : undefined,
-    bis: bis && MONTH.test(bis) ? bis : undefined,
+    von: validPeriod(von) ? von : undefined,
+    bis: validPeriod(bis) ? bis : undefined,
     tag: validDay(tag) ? tag : undefined,
     land: land && /^[a-z]{2}$/.test(land) ? land : undefined,
     linie: linie && linie.length <= 200 ? linie : undefined,
@@ -324,19 +358,24 @@ export const withParam = (key: string, value: string) => (p: URLSearchParams) =>
 };
 
 /**
- * URL updater for the month range: sets `edge` and, when that crosses the other edge (shown or
- * defaulted from `now`), moves the other edge to the same month, so von never lies after bis.
+ * URL updater for the period: sets `edge` and, when that crosses the other edge (shown or
+ * defaulted from `now`), moves the other edge to the same value, so von never lies after bis. A
+ * month is written as a month and a day as a day: the other edge is brought into the same form.
  */
 export const withPeriod =
-  (edge: "von" | "bis", month: string, now: { von: string; bis: string }) =>
+  (edge: "von" | "bis", value: string, now: { von: string; bis: string }) =>
   (p: URLSearchParams) => {
     const f = readFilters(p);
     const other = edge === "von" ? "bis" : "von";
-    const kept = f[other] ?? now[other];
-    const crossed = edge === "von" ? month > kept : month < kept;
+    const set = f[other];
+    const same = (v: string) =>
+      value.length === 7 ? monthOf(v) : other === "von" ? firstDay(v) : lastDay(v);
+    const kept = same(set ?? now[other]);
+    const crossed = edge === "von" ? value > kept : value < kept;
     const next: Filters = { ...f };
-    next[edge] = month;
-    if (crossed) next[other] = month;
+    next[edge] = value;
+    // A day leaves the other edge as it is (a month stays a month); a month rounds it to its month.
+    next[other] = crossed ? value : set && (value.length === 7 ? kept : set);
     return writeRank(next, readRank(p));
   };
 

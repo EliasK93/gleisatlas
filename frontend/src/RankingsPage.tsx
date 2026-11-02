@@ -2,7 +2,7 @@ import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link, Navigate, useSearchParams } from "react-router";
 import { clearParams, useSetParams } from "./useSetParams";
-import { api, must } from "./api";
+import { api, must, useMonthPeriod } from "./api";
 import { Filters } from "./Filters";
 import { t, type MessageKey } from "./i18n";
 import {
@@ -64,8 +64,10 @@ export default function RankingsPage() {
     z: undefined,
   };
   const rank = readRank(params);
+  // Days in the URL round outward: this page asks for whole months.
+  const m = useMonthPeriod(f);
   const q = useQuery({
-    queryKey: ["rankings", rank.typ, f.k, rank.min, f.g, f.von, f.bis],
+    queryKey: ["rankings", rank.typ, f.k, rank.min, f.g, m.von, m.bis],
     queryFn: () =>
       api
         .GET("/rankings", {
@@ -75,12 +77,13 @@ export default function RankingsPage() {
               metrik: API_FIELD[f.k],
               min_n: rank.min,
               gattung: f.g ?? "alle",
-              von: f.von,
-              bis: f.bis,
+              von: m.von,
+              bis: m.bis,
             },
           },
         })
         .then(must),
+    enabled: m.ready,
     placeholderData: keepPreviousData,
   });
   const data = q.data;
