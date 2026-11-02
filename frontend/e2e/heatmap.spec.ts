@@ -232,3 +232,22 @@ test("error state keeps the filters and recovers on retry", async ({ page }) => 
   await expect(page.getByRole("table")).toBeVisible();
   await expect(page).toHaveURL(/[?&]g=fern/);
 });
+
+test("after 5 seconds the skeleton says the server is starting, and counts the seconds", async ({
+  page,
+}) => {
+  await mockApi(page);
+  await page.route(
+    (url) => url.pathname === "/heatmap",
+    () => new Promise(() => {}),
+  );
+  await page.clock.install();
+  await page.goto("/muster/heatmap");
+  const hint = page.getByText(/Der Server startet gerade \(\d+ s\)/);
+  await page.clock.fastForward(4000);
+  await expect(hint).toHaveCount(0);
+  await page.clock.fastForward(1500);
+  await expect(hint).toContainText(/\([56] s\), das kann bis zu einer Minute dauern\./);
+  await page.clock.fastForward(3000);
+  await expect(hint).toContainText(/\((8|9|10) s\)/);
+});

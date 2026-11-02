@@ -292,6 +292,7 @@ export const de = {
   "share.button": "Teilen",
   "share.done": "Link kopiert",
   "state.loading": "Daten werden geladen …",
+  "state.slow": "Der Server startet gerade ({s} s), das kann bis zu einer Minute dauern.",
   "state.error": "Daten konnten nicht geladen werden.",
   "state.errorHint": "Der Server antwortet gerade nicht. Die Filter bleiben erhalten.",
   "state.retry": "Erneut versuchen",

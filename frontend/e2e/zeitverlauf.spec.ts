@@ -666,3 +666,22 @@ test.describe("mobile", () => {
     await expect(tip(page)).toHaveCount(0);
   });
 });
+
+test("after 5 seconds the skeleton says the server is starting, and counts the seconds", async ({
+  page,
+}) => {
+  await mockApi(page);
+  await page.route(
+    (url) => url.pathname === "/zeitverlauf",
+    () => new Promise(() => {}),
+  );
+  await page.clock.install();
+  await page.goto("/muster/zeitverlauf?z=monat");
+  const hint = page.getByText(/Der Server startet gerade \(\d+ s\)/);
+  await page.clock.fastForward(4000);
+  await expect(hint).toHaveCount(0);
+  await page.clock.fastForward(1500);
+  await expect(hint).toContainText(/\([56] s\), das kann bis zu einer Minute dauern\./);
+  await page.clock.fastForward(3000);
+  await expect(hint).toContainText(/\((8|9|10) s\)/);
+});

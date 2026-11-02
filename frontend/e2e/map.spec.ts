@@ -235,6 +235,58 @@ test("error state keeps the filters and recovers on retry", async ({ page }) => 
   await expect(page).toHaveURL(/[?&]g=fern/);
 });
 
+/** Holds back /karte (not the page of the same path) until `release` is called. */
+async function holdKarte(page: Page) {
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => (release = resolve));
+  // Registered after the mock, so it sees the request first and then hands it on.
+  await page.route(
+    (url) => url.pathname === "/karte",
+    async (route) => {
+      if (route.request().isNavigationRequest()) return route.fallback();
+      await gate;
+      await route.fallback();
+    },
+  );
+  return release;
+}
+const loading = (page: Page) => page.getByRole("status").filter({ hasText: "Lade Bahnhöfe" });
+
+test("a card over the map says the stations load, and goes with the data", async ({ page }) => {
+  await mockApi(page);
+  const release = await holdKarte(page);
+  await page.goto("/karte");
+  await expect(loading(page)).toBeVisible();
+  await expect(page.getByText(/Der Server startet gerade/)).toHaveCount(0);
+  release();
+  await expect(map(page)).toHaveAttribute("data-ready", "true");
+  await expect(loading(page)).toHaveCount(0);
+});
+
+test("after 5 seconds the loading card adds that the server is starting, with the seconds", async ({
+  page,
+}) => {
+  await mockApi(page);
+  await holdKarte(page);
+  await page.clock.install();
+  await page.goto("/karte");
+  await expect(loading(page)).toBeVisible();
+  const hint = page.getByText(/Der Server startet gerade \(\d+ s\)/);
+  await page.clock.fastForward(4000);
+  await expect(hint).toHaveCount(0);
+  await page.clock.fastForward(1500);
+  await expect(hint).toContainText(/\([56] s\), das kann bis zu einer Minute dauern\./);
+  await page.clock.fastForward(3000);
+  await expect(hint).toContainText(/\((8|9|10) s\)/);
+});
+
+test("a failed /karte shows the error instead of the loading card", async ({ page }) => {
+  await mockApi(page, undefined, () => null);
+  await page.goto("/karte");
+  await expect(page.getByRole("alert")).toContainText("Daten konnten nicht geladen werden.");
+  await expect(loading(page)).toHaveCount(0);
+});
+
 test.describe("desktop", () => {
   test.skip(({ isMobile }) => isMobile, "desktop layout");
 

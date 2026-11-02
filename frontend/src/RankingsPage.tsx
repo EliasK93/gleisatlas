@@ -35,6 +35,7 @@ import {
   stationPath,
   useNarrow,
   ZEITVERLAUF,
+  SlowHint,
 } from "./ui";
 
 type Rangliste = components["schemas"]["Rangliste"];
@@ -287,15 +288,18 @@ function Row({
 
 function Skeleton() {
   return (
-    <div role="status" className="grid animate-pulse gap-4 xl:grid-cols-2">
-      <span className="sr-only">{t("state.loading")}</span>
-      {[0, 1].map((c) => (
-        <div key={c} className="card flex flex-col gap-2">
-          {Array.from({ length: 10 }, (_, i) => (
-            <div key={i} className="h-9 rounded-md bg-surface-2" />
-          ))}
-        </div>
-      ))}
+    <div className="flex flex-col gap-4">
+      <SlowHint />
+      <div role="status" className="grid animate-pulse gap-4 xl:grid-cols-2">
+        <span className="sr-only">{t("state.loading")}</span>
+        {[0, 1].map((c) => (
+          <div key={c} className="card flex flex-col gap-2">
+            {Array.from({ length: 10 }, (_, i) => (
+              <div key={i} className="h-9 rounded-md bg-surface-2" />
+            ))}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

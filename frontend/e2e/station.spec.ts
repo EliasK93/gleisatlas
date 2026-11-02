@@ -620,3 +620,22 @@ test.describe("mobile", () => {
     for (const c of controls) expect(await tall(c), `${await c.textContent()}`).toBe(true);
   });
 });
+
+test("after 5 seconds the skeleton says the server is starting, and counts the seconds", async ({
+  page,
+}) => {
+  await mockApi(page);
+  await page.route(
+    (url) => url.pathname === "/stationen/8000207/statistik",
+    () => new Promise(() => {}),
+  );
+  await page.clock.install();
+  await page.goto("/bahnhof/8000207");
+  const hint = page.getByText(/Der Server startet gerade \(\d+ s\)/);
+  await page.clock.fastForward(4000);
+  await expect(hint).toHaveCount(0);
+  await page.clock.fastForward(1500);
+  await expect(hint).toContainText(/\([56] s\), das kann bis zu einer Minute dauern\./);
+  await page.clock.fastForward(3000);
+  await expect(hint).toContainText(/\((8|9|10) s\)/);
+});

@@ -38,6 +38,7 @@ import {
   SoonTag,
   ZEITVERLAUF,
   type Shown,
+  SlowHint,
 } from "./ui";
 import { StationSearch, useOpenStation } from "./StationSearch";
 import { Sparkline } from "./ZeitverlaufPage";
@@ -183,17 +184,20 @@ function Unknown() {
 
 function Skeleton() {
   return (
-    <div role="status" className="flex animate-pulse flex-col gap-4">
-      <span className="sr-only">{t("state.loading")}</span>
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4 lg:gap-4">
-        {[1, 2, 3, 4].map((i) => (
-          <div key={i} className="h-[118px] rounded-xl bg-surface-2" />
-        ))}
-      </div>
-      <div className="h-[260px] rounded-xl bg-surface-2" />
-      <div className="grid gap-4 lg:grid-cols-2">
-        <div className="h-[180px] rounded-xl bg-surface-2" />
-        <div className="h-[180px] rounded-xl bg-surface-2" />
+    <div className="flex flex-col gap-4">
+      <SlowHint />
+      <div role="status" className="flex animate-pulse flex-col gap-4">
+        <span className="sr-only">{t("state.loading")}</span>
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4 lg:gap-4">
+          {[1, 2, 3, 4].map((i) => (
+            <div key={i} className="h-[118px] rounded-xl bg-surface-2" />
+          ))}
+        </div>
+        <div className="h-[260px] rounded-xl bg-surface-2" />
+        <div className="grid gap-4 lg:grid-cols-2">
+          <div className="h-[180px] rounded-xl bg-surface-2" />
+          <div className="h-[180px] rounded-xl bg-surface-2" />
+        </div>
       </div>
     </div>
   );

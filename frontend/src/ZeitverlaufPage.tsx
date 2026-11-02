@@ -51,6 +51,7 @@ import {
   useTip,
   MusterSwitch,
   PRIMARY,
+  SlowHint,
 } from "./ui";
 import { clearParams, useSetParams } from "./useSetParams";
 
@@ -508,10 +509,13 @@ function Table({ rows, metric }: { rows: Row[]; metric: Metric }) {
 
 function Skeleton() {
   return (
-    <div role="status" className="flex flex-col gap-4">
-      <span className="sr-only">{t("state.loading")}</span>
-      <div className="h-[330px] animate-pulse rounded-xl bg-surface-2" />
-      <div className="h-[220px] animate-pulse rounded-xl bg-surface-2" />
+    <div className="flex flex-col gap-4">
+      <SlowHint />
+      <div role="status" className="flex flex-col gap-4">
+        <span className="sr-only">{t("state.loading")}</span>
+        <div className="h-[330px] animate-pulse rounded-xl bg-surface-2" />
+        <div className="h-[220px] animate-pulse rounded-xl bg-surface-2" />
+      </div>
     </div>
   );
 }

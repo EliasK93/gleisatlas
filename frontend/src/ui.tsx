@@ -55,6 +55,25 @@ export function show(metric: Metric, s: Stats | undefined, slot: string): Shown 
   };
 }
 
+/** How long a first load may take before the hint says the server is probably starting up. */
+const SLOW_MS = 5000;
+
+/**
+ * Nothing for the first 5 s after it mounts, then a line counting the seconds. It stays outside
+ * the live region of the skeleton ("Daten werden geladen …"), so a screen reader hears that once
+ * and not the counter every second. Mount it only while loading: its clock starts at mount.
+ */
+export function SlowHint() {
+  const [ms, setMs] = useState(0);
+  useEffect(() => {
+    const start = Date.now();
+    const id = setInterval(() => setMs(Date.now() - start), 1000);
+    return () => clearInterval(id);
+  }, []);
+  if (ms < SLOW_MS) return null;
+  return <p className="text-[13px] text-text-2">{t("state.slow", { s: Math.floor(ms / 1000) })}</p>;
+}
+
 const SEG = "rounded-[7px] px-[11px] py-[5px] text-[13px] font-medium whitespace-nowrap";
 const segState = (on: boolean) => (on ? "bg-surface text-text shadow-sm" : "text-text-2");
 

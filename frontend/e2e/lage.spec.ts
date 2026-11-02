@@ -361,6 +361,25 @@ test("a failed /datenstand shows the error banner instead of loading for ever", 
   await expect(germany(page)).toContainText("Di., 15.09.2026");
 });
 
+test("a card over the map says the day loads, and goes with the data", async ({ page }) => {
+  await mockApi(page);
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => (release = resolve));
+  await page.route(
+    (url) => url.pathname === "/tageskarte",
+    async (route) => {
+      await gate;
+      await route.fallback();
+    },
+  );
+  await page.goto(`/lage?tag=${DAY}`);
+  const loading = page.getByRole("status").filter({ hasText: "Lade Bahnhöfe" });
+  await expect(loading).toBeVisible();
+  release();
+  await expect(map(page)).toHaveAttribute("data-ready", "true");
+  await expect(loading).toHaveCount(0);
+});
+
 test("without a tag the page opens on the newest day; a day outside the data moves to its edge", async ({
   page,
 }) => {

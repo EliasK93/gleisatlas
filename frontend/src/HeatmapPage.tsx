@@ -31,6 +31,7 @@ import {
   tipAt,
   useNarrow,
   useTip,
+  SlowHint,
 } from "./ui";
 
 type Heatmap = components["schemas"]["Heatmap"];
@@ -323,12 +324,18 @@ function HeatmapView({
 
 function Skeleton() {
   return (
-    <div role="status" className="card">
-      <span className="sr-only">{t("state.loading")}</span>
-      <div className="grid animate-pulse grid-cols-7 gap-0.5 md:grid-cols-24">
-        {Array.from({ length: 168 }, (_, i) => (
-          <div key={i} className="h-[18px] rounded-[3px] bg-surface-2 md:aspect-square md:h-auto" />
-        ))}
+    <div className="flex flex-col gap-4">
+      <SlowHint />
+      <div role="status" className="card">
+        <span className="sr-only">{t("state.loading")}</span>
+        <div className="grid animate-pulse grid-cols-7 gap-0.5 md:grid-cols-24">
+          {Array.from({ length: 168 }, (_, i) => (
+            <div
+              key={i}
+              className="h-[18px] rounded-[3px] bg-surface-2 md:aspect-square md:h-auto"
+            />
+          ))}
+        </div>
       </div>
     </div>
   );

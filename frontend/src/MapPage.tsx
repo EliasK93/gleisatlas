@@ -60,6 +60,7 @@ import {
   SoonTag,
   stationPath,
   useNarrow,
+  SlowHint,
 } from "./ui";
 
 type KartenStation = components["schemas"]["KartenStation"];
@@ -528,6 +529,8 @@ export default function MapPage({ day = false }: { day?: boolean }) {
         />
       </div>
 
+      {q.isPending && !failed && <LoadingCard />}
+
       {data && data.stationen.length === 0 && (
         <EmptyCard
           title={t("map.empty")}
@@ -557,6 +560,26 @@ export default function MapPage({ day = false }: { day?: boolean }) {
           }}
         />
       )}
+    </div>
+  );
+}
+
+/** Centred over the map while its first data loads; mounted only then, so the hint's clock starts fresh. */
+function LoadingCard() {
+  return (
+    <div className="pointer-events-none absolute top-1/2 left-1/2 z-10 flex w-[min(300px,calc(100%-32px))] -translate-x-1/2 -translate-y-1/2 items-start gap-3 rounded-xl border border-border bg-surface p-4 shadow-card">
+      <span
+        aria-hidden="true"
+        className="mt-0.5 size-4 shrink-0 rounded-full border-2 border-border border-t-accent motion-safe:animate-spin"
+      />
+      <div className="text-[13px]">
+        <p role="status" className="font-semibold">
+          {t("map.loading")}
+        </p>
+        <div className="mt-1">
+          <SlowHint />
+        </div>
+      </div>
     </div>
   );
 }

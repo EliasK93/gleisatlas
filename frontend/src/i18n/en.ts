@@ -286,6 +286,7 @@ export const en: Record<keyof typeof de, string> = {
   "share.button": "Share",
   "share.done": "Link copied",
   "state.loading": "Loading data …",
+  "state.slow": "The server is starting up ({s} s); this can take up to a minute.",
   "state.error": "The data could not be loaded.",
   "state.errorHint": "The server is not responding right now. Your filters are kept.",
   "state.retry": "Try again",
