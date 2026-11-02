@@ -18,7 +18,7 @@ import polars as pl
 from fastapi import FastAPI, HTTPException, Path, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
-from pydantic import BaseModel, Field
+from pydantic import AfterValidator, BaseModel, Field
 
 from core.categories import FERN, REGIONAL
 from core.normal import FLOORS, deviation_class, normal, reference_days
@@ -98,6 +98,22 @@ async def log_requests(request: Request, call_next):
 DIGITS = r"^[0-9]+$"  # ASCII only: \d would also accept other scripts' digits
 Eva = Annotated[str, Path(pattern=DIGITS)]
 Month = Annotated[str | None, Query(pattern=r"^[0-9]{4}-(0[1-9]|1[0-2])$")]
+
+
+def real_period(value: str | None) -> str | None:
+    """A month 'YYYY-MM' or day 'YYYY-MM-DD' must exist in the calendar ('2026-02-31' and
+    '0000-01' are a 422)."""
+    if value:
+        date.fromisoformat(value if len(value) == 10 else f"{value}-01")
+    return value
+
+
+# a month 'YYYY-MM' or a day 'YYYY-MM-DD'; only /karte takes it
+Period = Annotated[
+    str | None,
+    Query(pattern=r"^[0-9]{4}-(0[1-9]|1[0-2])(-(0[1-9]|[12][0-9]|3[01]))?$"),
+    AfterValidator(real_period),
+]
 Gattung = Literal["alle", "regional", "fern"]
 GRUPPEN = (REGIONAL, FERN)  # display order
 
@@ -471,11 +487,15 @@ def selection(
     return lf
 
 
-def span(lf: pl.LazyFrame) -> tuple[str, str, int] | None:
-    """(first month, last month, stops) of a selection; None when it is empty."""
+def span(lf: pl.LazyFrame, by: str = "month") -> tuple[str, str, int] | None:
+    """(first, last, stops) of a selection by its month or day column, as ISO strings; None when
+    it is empty."""
     row = collect(
         lf.select(
-            von=pl.col("month").min(), bis=pl.col("month").max(), n=pl.col("n").sum(), rows=pl.len()
+            von=pl.col(by).min().cast(pl.String),
+            bis=pl.col(by).max().cast(pl.String),
+            n=pl.col("n").sum(),
+            rows=pl.len(),
         )
     )
     return (
@@ -527,24 +547,38 @@ def heatmap(
 
 
 @app.get("/karte", response_model=Karte, operation_id="getKarte")
-def karte(gattung: Gattung = "alle", von: Month = None, bis: Month = None) -> Karte:
-    mtimes = (os.stat(AGG_PATH).st_mtime_ns, os.stat(STATIONS_PATH).st_mtime_ns)
-    return karte_for(AGG_PATH, mtimes, gattung, period_start(von, bis), bis)
+def karte(gattung: Gattung = "alle", von: Period = None, bis: Period = None) -> Karte:
+    """A month `von` means its first day, a month `bis` its last day."""
+    von = period_start(von, bis)
+    if von and len(von) == 7:
+        von += "-01"
+    if bis and len(bis) == 7:
+        bis += f"-{calendar.monthrange(int(bis[:4]), int(bis[5:]))[1]:02d}"
+    mtimes = (os.stat(DAYS_PATH).st_mtime_ns, os.stat(STATIONS_PATH).st_mtime_ns)
+    return karte_for(DAYS_PATH, mtimes, gattung, von, bis)
 
 
-# ponytail: per-process cache, so a month combination is computed once per process; revisit when the
-# aggregate grows to many months (memory per entry and the first computation both grow)
+# ponytail: per-process cache, so a day range is computed once per process; revisit when many
+# different ranges are asked for (memory per entry and the first computation both grow)
 @lru_cache(maxsize=16)
 def karte_for(
-    agg: str,
+    days: str,
     mtimes: tuple[int, int],  # part of the key, so new data is never served stale
     gattung: str,
-    von: str | None,
+    von: str | None,  # days 'YYYY-MM-DD', inclusive
     bis: str | None,
 ) -> Karte:
-    found, per_station = station_stats_for(agg, mtimes[0], gattung, von, bis)
+    sel = pl.scan_parquet(days)
+    if gattung != "alle":
+        sel = sel.filter(pl.col("gruppe") == gattung)
+    if von:
+        sel = sel.filter(pl.col("day") >= date.fromisoformat(von))
+    if bis:
+        sel = sel.filter(pl.col("day") <= date.fromisoformat(bis))
+    found = span(sel, "day")
     if found is None:
         return Karte(von="", bis="", n=0, ohne_koordinaten=0, stationen=[])
+    per_station = stats_per_eva(sel)
     unlocated, stations = located(per_station)
     return Karte(
         von=found[0],
@@ -582,6 +616,13 @@ def station_fields(row: dict, s: CellStats) -> dict:
     }
 
 
+def stats_per_eva(sel: pl.LazyFrame) -> dict[str, CellStats]:
+    """Statistics per EVA of a selection, sorted by EVA."""
+    per_station = collect(sel.group_by("eva", "bucket").agg(n=pl.col("n").sum()))
+    parts = sorted(per_station.partition_by("eva", as_dict=True).items())  # pyright: ignore[reportArgumentType]
+    return {eva: cell_stats_of(g) for (eva,), g in parts}
+
+
 @lru_cache(maxsize=16)
 def station_stats_for(
     agg: str, mtime: int, gattung: str, von: str | None, bis: str | None
@@ -591,9 +632,7 @@ def station_stats_for(
     found = span(sel)
     if found is None:
         return None, {}
-    per_station = collect(sel.group_by("eva", "bucket").agg(n=pl.col("n").sum()))
-    parts = sorted(per_station.partition_by("eva", as_dict=True).items())  # pyright: ignore[reportArgumentType]
-    return found, {eva: cell_stats_of(g) for (eva,), g in parts}
+    return found, stats_per_eva(sel)
 
 
 @dataclass(frozen=True)

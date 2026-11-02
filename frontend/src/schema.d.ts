@@ -28,7 +28,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Karte */
+        /**
+         * Karte
+         * @description A month `von` means its first day, a month `bis` its last day.
+         */
         get: operations["getKarte"];
         put?: never;
         post?: never;

@@ -69,5 +69,6 @@ def test_default_period_applies_to_station_statistics(client: TestClient, tmp_pa
 
 def test_default_period_applies_to_the_map(client: TestClient, tmp_path, monkeypatch):
     sparse_start(tmp_path, monkeypatch)
-    assert client.get("/karte").json()["n"] == 1
+    # the map reads the day table, where the mini data has every stop on 2026-09-07
+    assert client.get("/karte").json()["n"] == 0
     assert client.get("/karte", params={"von": "2026-09"}).json()["n"] == 6
