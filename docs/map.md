@@ -34,7 +34,7 @@ The filter keys `g`, `von`, `bis` and `k` are the ones of the shell (see [app-sh
 - Hover (on devices that hover) shows "name · value"; a click selects the station. A pick through the chip or a link eases the camera to the station, clear of the panel; a click on the map does not move the camera.
 - Station panel: 360 px at the right on desktop, a bottom sheet of at most 62 % height on mobile. It shows name, EVA, a little-data note, one sentence ("x von 10 Ankünften sind pünktlich, 9 von 10 höchstens y min spät"), four tiles, the meta line, "Alle Details" and "Verbindung ab hier" (tagged "bald"). Schließen and Escape close it and hand the focus to the map.
 - A `bhf` without map data (unknown or no coordinates) shows the panel with "EVA …" as title and a note, plus the real name when `/stationen/{eva}` knows it.
-- States: loading text in the legend, empty card with "Filter zurücksetzen", error banner with "Erneut versuchen" that keeps the filters.
+- States: on the first load a card centred over the map with a spinner and "Lade Bahnhöfe …", after 5 s with a line that counts the elapsed seconds, "Der Server startet gerade (7 s), das kann bis zu einer Minute dauern." (a cold start of the deployed API takes up to about 40 s; Karte and Live-Lage, and the page skeletons of the other pages carry the same hint; re-check: the loading-card tests in `frontend/e2e/map.spec.ts` and `frontend/e2e/lage.spec.ts`), empty card with "Filter zurücksetzen", error banner with "Erneut versuchen" that keeps the filters.
 
 **One day**
 

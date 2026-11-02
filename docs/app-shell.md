@@ -56,7 +56,7 @@ Unknown or invalid values fall back to the default and are removed from the URL 
 - Metric switch: Pünktlichkeit, Typische Verspätung, Schlechteste 10 %, Ausfälle, with a line under it that explains the selected metric. Meta line "n = … Halte · period".
 - 7 × 24 grid. Cells with fewer than 15 counted stops are hatched and show no value; below 50 the value gets a "~". A cell whose stops were all cancelled shows ✕ on the cancellation colour. The "Ø Tag" column comes from the API's `tage`.
 - Five-class legend per metric, tooltip on hover or tap, "Als Tabelle anzeigen", and the card "Auf einen Blick" with the worst and best slot and a count of thin cells.
-- States: skeleton grid while loading, empty state with "Filter zurücksetzen", error banner with "Erneut versuchen" that keeps the filters.
+- States: skeleton grid while loading (after 5 s with the hint that the server is starting and the elapsed seconds, as on every page's skeleton; re-check: the "after 5 seconds" test in each page spec), empty state with "Filter zurücksetzen", error banner with "Erneut versuchen" that keeps the filters.
 - Class limits, unchanged from the mockup: punctuality 90/80/70/60 %; median 1/2/4/7 min; P90 5/8/12/18 min; cancellations 1/2/3.5/5 % on their own scale.
 
 **Rankings page**
