@@ -1,7 +1,9 @@
 import { useQuery } from "@tanstack/react-query";
 import createClient from "openapi-fetch";
 import { monthsOf } from "./metrics";
-import type { paths } from "./schema";
+import type { components, paths } from "./schema";
+
+type Datenstand = components["schemas"]["Datenstand"];
 
 export const api = createClient<paths>({
   baseUrl: import.meta.env.VITE_API_URL ?? "http://localhost:8317",
@@ -27,6 +29,19 @@ export const useDatenstand = () =>
     staleTime: LIVE_REFRESH,
     refetchInterval: (q) => (q.state.data?.heute ? LIVE_REFRESH : false),
   });
+
+/**
+ * The days Live-Lage can show: the complete days, the collector's finished days after them (not
+ * on the Karte, which stops at `letzter_tag`) and today. `newest` is the default one.
+ */
+export function lageDays(d: Datenstand) {
+  const newest = d.heute ?? d.live_tage.at(-1) ?? d.letzter_tag;
+  return {
+    newest,
+    has: (day: string) =>
+      day === d.heute || (day >= d.erster_tag && day <= d.letzter_tag) || d.live_tage.includes(day),
+  };
+}
 
 /**
  * The period of the URL as the months a month page asks for (see `monthsOf`). `ready` is false

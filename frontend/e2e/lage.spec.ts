@@ -258,6 +258,62 @@ test.describe("the day chips", () => {
     await expect(press(page, "Heute")).toHaveAttribute("aria-pressed", "true");
   });
 
+  // The complete days end on 2026-09-29; the collector kept 2026-10-01 but not 2026-09-30.
+  const collected = () => ({
+    ...datenstandHeute(),
+    letzter_tag: "2026-09-29",
+    live_tage: ["2026-10-01"],
+  });
+
+  test("a day the collector kept enables its chip and is shown like a complete day, a gap day stays disabled", async ({
+    page,
+  }) => {
+    const requests = await openToday(page, "", "live", collected);
+    await expect(press(page, "Heute")).toBeEnabled();
+    await expect(press(page, "Gestern")).toBeEnabled();
+    await expect(press(page, "Vorgestern")).toBeDisabled();
+    await expect(press(page, "Vorgestern")).toHaveAccessibleDescription("noch nicht vollständig");
+    // At 1280 x 720 the Germany card's top left reaches under the chip's left part: click its right.
+    await press(page, "Gestern").click({ position: { x: 60, y: 16 } });
+    await expect(page).toHaveURL(/\/lage\?tag=2026-10-01$/);
+    await expect(press(page, "Gestern")).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByLabel("Tag auswählen")).toHaveValue("2026-10-01");
+    await expect
+      .poll(() => dayRequests(requests).map((u) => u.searchParams.get("tag")))
+      .toEqual([TODAY, "2026-10-01"]);
+  });
+
+  test("the date field reaches a collector day, and a gap day in the URL moves to today", async ({
+    page,
+  }) => {
+    const requests = await openToday(page, "tag=2026-09-30", "live", collected);
+    await expect(page).toHaveURL(/\/lage$/);
+    const picker = page.getByLabel("Tag auswählen");
+    await picker.fill("2026-10-01");
+    await expect(page).toHaveURL(/\/lage\?tag=2026-10-01$/);
+    await expect(press(page, "Gestern")).toHaveAttribute("aria-pressed", "true");
+    const asked = () => dayRequests(requests).map((u) => u.searchParams.get("tag"));
+    await expect.poll(asked).toContain("2026-10-01");
+    expect(asked()).not.toContain("2026-09-30");
+  });
+
+  test("without a today the newest collector day is the default and the end of the date field", async ({
+    page,
+  }) => {
+    const requests = await openToday(page, "tag=2026-10-02", "live", () => ({
+      ...collected(),
+      heute: null,
+      heute_stand: null,
+      heute_stand_rest: null,
+    }));
+    await expect(page).toHaveURL(/\/lage$/);
+    const picker = page.getByLabel("Tag auswählen");
+    await expect(picker).toHaveValue("2026-10-01");
+    await expect(picker).toHaveAttribute("max", "2026-10-01");
+    await expect(press(page, "Gestern")).toHaveAttribute("aria-pressed", "true");
+    expect(dayRequests(requests).map((u) => u.searchParams.get("tag"))).toEqual(["2026-10-01"]);
+  });
+
   test("a day older than Vorgestern has no chip pressed", async ({ page }) => {
     await open(page);
     for (const name of ["Heute", "Gestern", "Vorgestern"])

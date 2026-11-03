@@ -208,6 +208,7 @@ const DATENSTAND: Datenstand = {
   heute: null,
   heute_stand: null,
   heute_stand_rest: null,
+  live_tage: [],
 };
 
 /** The collector's "today": a day after the last complete one, with 2026-10-01 between them. */

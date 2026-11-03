@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Fragment, useEffect, useId, useRef } from "react";
 import { useSearchParams } from "react-router";
 import { clearParams, useSetParams } from "./useSetParams";
-import { api, must, useDatenstand } from "./api";
+import { api, lageDays, must, useDatenstand } from "./api";
 import { t } from "./i18n";
 import { Icon } from "./Icon";
 import {
@@ -68,20 +68,20 @@ export function Filters({
     von: within(firstDay(f.von ?? datenstand.data?.vollabdeckung_ab ?? ""), first, complete),
     bis: within(lastDay(f.bis ?? complete ?? ""), first, complete),
   };
-  // The live day, where there is one, is the newest day.
-  const heute = datenstand.data?.heute ?? undefined;
-  const newest = heute ?? complete;
+  // The live day, where there is one, is the newest day; else the collector's last finished day.
+  const served = datenstand.data && lageDays(datenstand.data);
+  const newest = served?.newest;
   const day = f.tag ?? newest;
   // Today, yesterday and the day before in Germany. A chip whose day has no map (today before the
-  // first data, a day after the last complete one) stays, disabled, and names the reason.
+  // first data, a day after the last complete one that the collector did not keep) stays,
+  // disabled, and names the reason.
   const recent =
-    lage && complete && first
+    lage && served
       ? (["map.day.today", "lage.yesterday", "lage.dayBefore"] as const).map((label, i) => {
           const d = addDays(berlinToday(), -i);
-          const why =
-            d === heute || (d >= first && d <= complete)
-              ? undefined
-              : t(i === 0 ? "map.day.todayNone" : "lage.incomplete");
+          const why = served.has(d)
+            ? undefined
+            : t(i === 0 ? "map.day.todayNone" : "lage.incomplete");
           return { d, label: t(label), why };
         })
       : [];

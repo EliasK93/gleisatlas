@@ -17,7 +17,7 @@ import workerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url";
 import { useEffect, useEffectEvent, useMemo, useRef, useState, type RefObject } from "react";
 import { Link, Navigate, useLocation, useSearchParams } from "react-router";
 import { clearParams, useSetParams } from "./useSetParams";
-import { api, LIVE_REFRESH, must, useDatenstand } from "./api";
+import { api, lageDays, LIVE_REFRESH, must, useDatenstand } from "./api";
 import { AreaCard, stateTip } from "./AreaCard";
 import { Filters } from "./Filters";
 import { t, tx } from "./i18n";
@@ -330,14 +330,16 @@ export default function MapPage({ day = false }: { day?: boolean }) {
   // The Live-Lage page shows one day and has no period or train type (it ignores g, von and bis).
   // A day outside the data moves
   // to its nearest edge (the middle of three ISO dates in order is the clamped one); any day after
-  // the last complete one moves to the live day, which is the only one served beyond it. Without
-  // a tag the page shows the newest day, which also is not written, so a bookmark opens live.
-  const newest = datenstand && (datenstand.heute ?? datenstand.letzter_tag);
+  // the last complete one that the collector did not keep moves to the newest day, since only the
+  // live day and the collector's days are served beyond it. Without a tag the page shows the
+  // newest day, which also is not written, so a bookmark opens live.
+  const served = datenstand && lageDays(datenstand);
+  const newest = served?.newest;
   const wanted =
-    read.tag && datenstand
-      ? read.tag > datenstand.letzter_tag && datenstand.heute
-        ? datenstand.heute
-        : [datenstand.erster_tag, read.tag, datenstand.letzter_tag].sort()[1]
+    read.tag && datenstand && served
+      ? read.tag > datenstand.letzter_tag && !served.has(read.tag)
+        ? served.newest
+        : [datenstand.erster_tag, read.tag, served.newest].sort()[1]
       : read.tag;
   const tag = day && wanted !== newest ? wanted : undefined;
   const shown = tag ?? newest;

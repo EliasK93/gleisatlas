@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { mockApi } from "./fixtures";
+import { datenstandHeute, mockApi } from "./fixtures";
 
 const von = (page: Page) => page.getByLabel("Zeitraum von");
 const bis = (page: Page) => page.getByLabel("Zeitraum bis");
@@ -82,6 +82,29 @@ test("the map offers two date fields from the first to the last day, defaulting 
     await expect(field).toHaveAttribute("min", "2024-07-01");
     await expect(field).toHaveAttribute("max", "2026-09-30");
   }
+  await expect(page).toHaveURL(/\/karte$/);
+});
+
+test("the map's fields stop at the last complete day, they do not offer a collector day", async ({
+  page,
+}) => {
+  const none = [
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+  ] as const;
+  await mockApi(page, ...none, undefined, () => ({
+    ...datenstandHeute(),
+    live_tage: ["2026-10-01"],
+  }));
+  await page.goto("/karte");
+  await expect(bis(page)).toHaveAttribute("max", "2026-09-30");
+  await expect(von(page)).toHaveAttribute("max", "2026-09-30");
+  await bis(page).fill("2026-10-01");
   await expect(page).toHaveURL(/\/karte$/);
 });
 
