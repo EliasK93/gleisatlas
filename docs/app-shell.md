@@ -27,7 +27,7 @@ The frame around every page: sidebar, filter bar, mobile top bar and tab bar, fo
 | `g` | `regional`, `fern` | all categories |
 | `bhf` | EVA number | all stations |
 | `von`, `bis` | `YYYY-MM`, or `YYYY-MM-DD` (read by the Karte, rounded outward to months by the other pages) | `von`: first month with full coverage (on the Karte its first day); `bis`: last month (on the Karte the last complete day) |
-| `tag` | `YYYY-MM-DD` (Live-Lage only) | the newest day (today, else the last complete day); a past day is clamped to the days of the data |
+| `tag` | `YYYY-MM-DD` (Live-Lage only) | the newest day (today, else the newest collector day, else the last complete day); a day outside the days served is clamped to the newest one |
 | `land` | a state code such as `nw` (Live-Lage only) | Germany |
 | `k` | `median`, `p90`, `ausfall` | punctuality |
 | `typ` | `linien` (rankings only) | `bahnhoefe` |

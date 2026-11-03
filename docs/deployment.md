@@ -8,7 +8,7 @@ Gleisatlas v0.2 runs on Azure: the web app on Static Web Apps, the API on Contai
 
 - One resource group in Sweden Central holds every resource; the Static Web App resource sits in East US 2 and serves its files worldwide. Names come from `uniqueString(resourceGroup().id)` where they must be globally unique (storage account, registry).
 - The web app is the production build of `frontend/` on Static Web Apps Free, under its default `*.azurestaticapps.net` hostname. Every path route falls back to `index.html`; `/assets/*` is cached as immutable; every response carries the CSP and the other headers of `frontend/public/staticwebapp.config.json`.
-- The API is the image from `Dockerfile` on Container Apps with external HTTPS ingress, 0.5 vCPU and 1 GiB, scaling from 0 to 1 replica. At start it downloads the seven data files from the blob container `data` (`backend/fetch.py`), then serves on port 8000. Only the web app's origin passes CORS.
+- The API is the image from `Dockerfile` on Container Apps with external HTTPS ingress, 0.5 vCPU and 1 GiB, scaling from 0 to 1 replica. At start it downloads the nine data files from the blob container `data` (`backend/fetch.py`), then serves on port 8000. It also fetches `heute.parquet` and `live_tage.parquet` when the container holds them and, while awake, checks them again at most once a minute ([day-history.md](day-history.md) §2). Only the web app's origin passes CORS.
 - The aggregates are public CC BY data: anyone can read a blob by its URL, nobody can list the container.
 - The API writes one start and one end line per request to stdout, without client addresses. Container Apps sends them to a Log Analytics workspace that keeps 30 days.
 - A monthly budget on the resource group mails at 50 % and 90 % actual and at 100 % forecast; its amount is a deploy parameter.
@@ -82,15 +82,16 @@ Parameters: `budgetEmail`, `budgetStartDate` and `budgetAmount` (all required), 
 | `CORS_ORIGINS` | API, set by Bicep | `https://<web hostname>`; comma-separated; default `http://localhost:5317` |
 | `POLARS_MAX_THREADS` | API, set by Bicep | `1` |
 | `LOG_FILE` | API, local only | a path for a timestamped copy of the request lines; unset on Azure |
-| `AGGREGATE_PATH`, `STATIONS_PATH`, `MONATE_PATH`, `LINES_PATH`, `LINIEN_PATH`, `DAYS_PATH`, `TAGE_PATH` | API | default `data/<name>.parquet`; `backend.fetch` downloads to the same paths |
-| `DAY_HOURS_PATH`, `HEUTE_PATH`, `HEUTE_REST_PATH` | API, local only | default `data/day_hours.parquet`, `data/heute.parquet`, `data/heute_rest.parquet`; not downloaded, so the deployed API has no today ([day-history.md](day-history.md)) |
+| `AGGREGATE_PATH`, `STATIONS_PATH`, `MONATE_PATH`, `LINES_PATH`, `LINIEN_PATH`, `DAYS_PATH`, `TAGE_PATH`, `DAY_HOURS_PATH`, `LARGE_PATH` | API | default `data/<name>.parquet`; `backend.fetch` downloads to the same paths |
+| `HEUTE_PATH`, `LIVE_TAGE_PATH` | API | default `data/heute.parquet`, `data/live_tage.parquet`; the collector's files, fetched from the container at start when present (a 404 means none) and checked again at most once a minute |
+| `HEUTE_REST_PATH` | API, local only | default `data/heute_rest.parquet`; written by `pipeline.update` from the raw data, never downloaded |
 | `VITE_API_URL` | frontend build | the `apiUrl` output, set by the deploy script |
 | `VITE_IMPRESSUM_NAME`, `…_STREET`, `…_CITY`, `…_EMAIL` | frontend build | the provider's details; while one is empty, `/impressum` reads "Angaben folgen." |
 
 **Data flow**
 
 1. `pipeline.update` builds `data/*.parquet` locally ([pipeline.md](pipeline.md)).
-2. The deploy script uploads the seven files the API reads (`aggregate`, `stations`, `monate`, `lines`, `linien`, `days`, `tage`) to the container `data`. `coords.parquet`, `raw/`, `months/` and `days/` stay local, and so do the files of today (`day_hours.parquet`, `heute.parquet`, `heute_rest.parquet`, `live/`): Azure has neither the collector nor the raw data, so it never has a today.
+2. The deploy script uploads the nine files the API reads (`aggregate`, `stations`, `monate`, `lines`, `linien`, `days`, `tage`, `day_hours`, `large`) to the container `data`; `day_hours` and `large` add about 24 MB to every cold start. `coords.parquet`, `raw/`, `months/` and `days/` stay local, and so do `heute_rest.parquet` and `live/`. `heute.parquet` and `live_tage.parquet` are never uploaded by the script: they are the collector's, and the API takes them from the container whenever they are there. Nothing writes them on Azure yet, so the deployed site has no today and no collector days until then.
 3. At container start `python -m backend.fetch` downloads `DATA_URL + <file name>` for each file, then uvicorn starts with `--no-access-log`.
 4. The browser loads the web app from Static Web Apps, calls the API at `VITE_API_URL` (CORS allows the web app's origin) and loads tiles, style and fonts from `tiles.openfreemap.org`.
 
@@ -125,12 +126,12 @@ In VS Code, the launch configurations "Azure: deploy" and "Azure: teardown" run 
 
 `deploy` prints a numbered header per step, streams the long steps (image build, deployments, frontend build, upload) and stops at the first failure with the step, the command (never a secret) and the error output, exit code 1. Steps that start or add cost print a `COST:` line first.
 
-1. Preflight: `az`, `git`, `npm` and `npx` on PATH; signed in (the subscription and user are printed); a clean working tree, because the image tag names the commit; the seven data files exist; the two personal values.
+1. Preflight: `az`, `git`, `npm` and `npx` on PATH; signed in (the subscription and user are printed); a clean working tree, because the image tag names the commit; the nine data files exist; the two personal values.
 2. Register the seven resource providers.
 3. Create the resource group `gleisatlas` in Sweden Central.
 4. Phase 1, everything except the Container App. **COST:** from here the container registry is billed per day until teardown. The budget starts on the first of the current month, or keeps the start date of an earlier deployment (Azure rejects a change).
 5. Read the deployment outputs.
-6. Upload exactly the seven files the API reads, with the signed-in user's account key.
+6. Upload exactly the nine files the API reads, with the signed-in user's account key.
 7. Check the blob access: a file answers 200 by URL, the container listing answers 404.
 8. Build the image `api:<short commit>` in the registry.
 9. Phase 2, the same deployment plus the image, which adds the Container App. **COST:** billed only while a replica runs.
@@ -144,7 +145,7 @@ The frontend build reads `frontend/.env.production.local` (gitignored) for the I
 
 Running `deploy` again repeats every step and is safe: the same commit gives the same image tag, and the budget keeps its start date. So a change to `infra/main.bicep`, the API or the web app goes live by committing and running `deploy` again; new data alone needs only `data`.
 
-- **Data update** (touches Azure: overwrites the files in the deployed storage account): `uv run python -m pipeline.update`, then `uv run python scripts/azure.py data`. It checks that the seven data files exist, prints the subscription, reads the storage account from the deployment outputs and uploads only those files, without a build or a deployment. A running replica keeps the old data until it restarts; the next cold start fetches the new files. To switch at once:
+- **Data update** (touches Azure: overwrites the files in the deployed storage account): `uv run python -m pipeline.update`, then `uv run python scripts/azure.py data`. It checks that the nine data files exist, prints the subscription, reads the storage account from the deployment outputs and uploads only those files, without a build or a deployment. A running replica keeps the old data until it restarts; the next cold start fetches the new files. To switch at once:
 
   ```powershell
   # Restart the active revision, so the container downloads the data again.
@@ -290,7 +291,7 @@ Not in this log: page views of the web app (Static Web Apps Free has no access l
 - **The alerts do not stop anything.** Scale to zero does not cap the cost: a request at least every two minutes (the 120 s cooldown) keeps the replica active around the clock, so compute at 0.5 vCPU / 1 GiB is billed all month, far above the free grant and the fixed costs. The alert mails and the emergency stop in §4 are the protection.
 - **Image tags come from the commit**; the script refuses a dirty tree, because `az acr build` uploads uncommitted changes too. Old images stay in the registry until deleted by hand (10 GB included).
 - **The deploy script cannot resume.** A rerun repeats every step (all are safe to repeat), and a failure in step 8 or later costs the earlier steps again. Its budget-date lookup counts any failure as "no earlier deployment"; a wrong date makes Azure reject the budget deployment, which stops the script.
-- **`backend.fetch` downloads all seven files at every container start**, without a checksum or ETag; a failed download leaves a `.part` file in a container that is thrown away anyway. It imports `backend.main` for the path list, which loads FastAPI and Polars before the download (a second or two).
+- **`backend.fetch` downloads all nine files at every container start**, without a checksum or ETag; a failed download leaves a `.part` file in a container that is thrown away anyway. It imports `backend.main` for the path list, which loads FastAPI and Polars before the download (a second or two).
 - **The daily log cap of 0.1 GB drops lines.** Under a request flood, ingestion stops for the rest of the day, which is when the unfinished-requests query matters most. Raise the cap (`dailyQuotaGb`) if that happens.
 - **The stdout lines carry no timestamp** (Log Analytics adds `TimeGenerated`); the 8-hex id pairs a start with its end line but is not unique forever.
 - **The licence file lists the bundled JavaScript packages and the font, not Tailwind.** Vite's `build.license` (in `frontend/vite.config.ts`) only sees modules, while Tailwind's base styles (MIT) arrive through the CSS pipeline, and the minified CSS drops their notice. Add Tailwind's licence by hand to the file if a licence review asks for it.

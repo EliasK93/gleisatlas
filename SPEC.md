@@ -89,7 +89,7 @@ On the daily time series (v0.3): a smoothed trend line, a calendar view, marked 
 - Known problems: missing hours 2025-11 to 2026-07 (among others 102 h in July 2026); schema changes in 2026-05 and 2026-08 (make the pipeline robust against schema changes, validate the schema on import).
 - Time zone: Europe/Berlin, no conversion in the dataset.
 
-**v1 decision:** monthly files are the basis for everything. The raw data is the source for the current month's day views (daily series and Live-Lage), up to the last complete day, one to two days back; month views stay on whole months. Details: [docs/pipeline.md](docs/pipeline.md) §2, "Raw days".
+**v1 decision:** monthly files are the basis for everything. The raw data is the source for the current month's day views (daily series and Live-Lage), up to the last complete day, usually yesterday; month views stay on whole months. Details: [docs/pipeline.md](docs/pipeline.md) §2, "Raw days".
 
 ### 4.2 Connection / timetable source (for v1.0) – **open, spike needed**
 
