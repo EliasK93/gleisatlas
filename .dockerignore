@@ -4,4 +4,5 @@
 !uv.lock
 !core/
 !backend/
+!pipeline/
 **/__pycache__

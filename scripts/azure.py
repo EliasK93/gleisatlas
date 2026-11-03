@@ -6,19 +6,25 @@
 
 All three talk to the signed-in `az` account. Steps stream their output; the first failure stops the
 script with the step, the command and the error, exit code 1. Personal values come from the
-environment (GLEISATLAS_BUDGET_EMAIL, GLEISATLAS_BUDGET_AMOUNT) or a prompt, never from the repo.
+environment (GLEISATLAS_BUDGET_EMAIL, GLEISATLAS_BUDGET_AMOUNT) or a prompt, never from the repo;
+so does the collector job's DB key (DB_CLIENT_ID, DB_API_KEY, or a hidden prompt), which reaches
+`az` only in a temporary parameters file.
 """
 
 import argparse
+import getpass
 import json
 import os
 import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.error
 import urllib.request
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import date
 from pathlib import Path
 from typing import NoReturn
@@ -144,6 +150,42 @@ def personal(name: str, prompt: str) -> str:
     return os.environ.get(name) or input(f"{prompt} (or set {name}): ").strip()
 
 
+def db_key() -> dict[str, str]:
+    """The collector job's DB key as Bicep parameters, from the environment or a hidden prompt;
+    empty when not given (the job is skipped)."""
+
+    def ask(name: str, prompt: str) -> str:
+        return os.environ.get(name, "").strip() or getpass.getpass(f"{prompt}: ").strip()
+
+    client_id = ask("DB_CLIENT_ID", "DB API client ID for the collector job (hidden, empty skips)")
+    key = client_id and ask("DB_API_KEY", "DB API key (hidden)")
+    return {"dbClientId": client_id, "dbApiKey": key} if key else {}
+
+
+@contextmanager
+def parameters_file(values: dict[str, str]) -> Iterator[list[str]]:
+    """`--parameters` arguments for secure values: a temporary parameters file, so they are never
+    on a command line or in the output; the file is deleted afterwards, also on a failure."""
+    if not values:
+        yield []
+        return
+    # in the user's temp folder (its ACL on Windows, mode 0600 elsewhere)
+    fd, path = tempfile.mkstemp(suffix=".json")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(
+                {
+                    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+                    "contentVersion": "1.0.0.0",
+                    "parameters": {k: {"value": v} for k, v in values.items()},
+                },
+                f,
+            )
+        yield [f"@{path}"]
+    finally:
+        os.remove(path)
+
+
 def check_data() -> None:
     missing = [
         f"data/{f}.parquet" for f in DATA_FILES if not (ROOT / "data" / f"{f}.parquet").exists()
@@ -182,6 +224,12 @@ def deploy() -> None:
     amount = personal("GLEISATLAS_BUDGET_AMOUNT", "Monthly budget, a whole number")
     if "@" not in email or not amount.isdigit():
         die("budget e-mail needs an @, budget amount must be a whole number")
+    db = db_key()
+    print(
+        "collector job: with the DB key"
+        if db
+        else "collector job: no DB key given (an existing job keeps its image and key)"
+    )
     tag = run(["git", "rev-parse", "--short", "HEAD"], capture=True)
 
     step(2, total, "Register the resource providers")
@@ -233,9 +281,12 @@ def deploy() -> None:
         env={"PYTHONIOENCODING": "utf-8"},  # az crashes streaming the build log on Windows without
     )
 
-    step(9, total, "Phase 2: add the Container App")
+    step(9, total, "Phase 2: add the Container App and the collector job")
     print("COST: the Container App is billed only while a replica runs (scales to zero when idle)")
-    deployment([f"image={out['registryServer']}/api:{tag}"])
+    if db:
+        print("COST: the collector job runs every 15 minutes, billed per second of each run")
+    with parameters_file(db) as secure:
+        deployment([f"image={out['registryServer']}/api:{tag}", *secure])
 
     step(10, total, "Wait for the API's cold start")
     api_url = outputs()["apiUrl"]

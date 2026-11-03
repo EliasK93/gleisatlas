@@ -1,4 +1,5 @@
-# The API image. Data is not baked in: backend.fetch downloads it from DATA_URL at start.
+# The API image, also run by the collector job (`python -m pipeline.live`). Data is not baked in:
+# backend.fetch downloads it from DATA_URL at start, the job pulls its own files from there.
 # python:3.14-slim (the minor version the tests run on), multi-arch index digest
 FROM python:3.14-slim@sha256:82abc9f53600280b0757126f83c5a7d47088592d2acb6b4c0b9e97f76865508c
 
@@ -13,6 +14,7 @@ COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-default-groups
 COPY core ./core
 COPY backend ./backend
+COPY pipeline ./pipeline
 
 RUN useradd --system --no-create-home app && mkdir data && chown app data
 USER app

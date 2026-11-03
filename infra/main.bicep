@@ -26,12 +26,28 @@ param polarsMaxThreads string = '1'
 @description('Region of the Static Web App, which is offered in few regions, none of them open in Europe to new subscriptions; its files are served worldwide either way (docs/deployment.md §3).')
 param webLocation string = 'eastus2'
 
+@secure()
+@description('Client ID of the DB API Marketplace application, for the collector job. Empty: no job.')
+param dbClientId string = ''
+
+@secure()
+@description('API key of the DB API Marketplace application, for the collector job. Empty: no job.')
+param dbApiKey string = ''
+
 var location = resourceGroup().location
 var suffix = uniqueString(resourceGroup().id)
 var acrPullRole = subscriptionResourceId(
   'Microsoft.Authorization/roleDefinitions',
   '7f951dda-4ed3-4680-a7ca-43fe172d538d'
 )
+var blobContributorRole = subscriptionResourceId(
+  'Microsoft.Authorization/roleDefinitions',
+  'ba92f5b4-2d11-453d-a403-e96b0029c9fe' // Storage Blob Data Contributor
+)
+// The collector job comes with the API's image and only when the DB key is given.
+var withJob = !empty(image) && !empty(dbClientId) && !empty(dbApiKey)
+// The API reads its files from here, the job reads and writes its own files here.
+var dataUrl = '${storage.properties.primaryEndpoints.blob}${dataContainer.name}/'
 
 resource logs 'Microsoft.OperationalInsights/workspaces@2026-03-01' = {
   name: 'gleisatlas-logs'
@@ -174,7 +190,7 @@ resource api 'Microsoft.App/containerApps@2026-07-01' = if (!empty(image)) {
           image: image
           resources: { cpu: json(cpu), memory: memory }
           env: [
-            { name: 'DATA_URL', value: '${storage.properties.primaryEndpoints.blob}${dataContainer.name}/' }
+            { name: 'DATA_URL', value: dataUrl }
             { name: 'CORS_ORIGINS', value: 'https://${web.properties.defaultHostname}' }
             { name: 'POLARS_MAX_THREADS', value: polarsMaxThreads }
           ]
@@ -185,8 +201,76 @@ resource api 'Microsoft.App/containerApps@2026-07-01' = if (!empty(image)) {
       scale: {
         minReplicas: 0
         maxReplicas: 1
-        cooldownPeriod: 120 // seconds without a request before the replica stops (default 300)
+        cooldownPeriod: 600 // seconds without a request before the replica stops (default 300)
       }
+    }
+  }
+}
+
+// The collector (pipeline/live.py) every 15 minutes: its own identity may write to the data
+// container only, and pull the image (docs/deployment.md §3).
+resource jobIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2024-11-30' = if (withJob) {
+  name: 'gleisatlas-job'
+  location: location
+}
+
+resource jobPull 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (withJob) {
+  scope: registry
+  name: guid(registry.id, jobIdentity.id, acrPullRole)
+  properties: {
+    roleDefinitionId: acrPullRole
+    principalId: jobIdentity!.properties.principalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+resource jobWrite 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (withJob) {
+  scope: dataContainer
+  name: guid(dataContainer.id, jobIdentity.id, blobContributorRole)
+  properties: {
+    roleDefinitionId: blobContributorRole
+    principalId: jobIdentity!.properties.principalId
+    principalType: 'ServicePrincipal'
+  }
+}
+
+resource collector 'Microsoft.App/jobs@2026-07-01' = if (withJob) {
+  name: 'gleisatlas-collector'
+  location: location
+  identity: {
+    type: 'UserAssigned'
+    userAssignedIdentities: { '${jobIdentity.id}': {} }
+  }
+  dependsOn: [jobPull, jobWrite] // the first execution pulls the image and writes blobs
+  properties: {
+    environmentId: environment.id
+    configuration: {
+      triggerType: 'Schedule'
+      scheduleTriggerConfig: { cronExpression: '*/15 * * * *', parallelism: 1, replicaCompletionCount: 1 }
+      replicaTimeout: 840 // seconds: the run's 12-minute request deadline plus the blob sync
+      replicaRetryLimit: 0 // the next execution 15 minutes later is the retry
+      registries: [{ server: registry.properties.loginServer, identity: jobIdentity.id }]
+      secrets: [
+        { name: 'db-client-id', value: dbClientId }
+        { name: 'db-api-key', value: dbApiKey }
+      ]
+    }
+    template: {
+      containers: [
+        {
+          name: 'collector'
+          image: image
+          command: ['python', '-m', 'pipeline.live']
+          resources: { cpu: json('0.25'), memory: '0.5Gi' }
+          env: [
+            { name: 'DB_CLIENT_ID', secretRef: 'db-client-id' }
+            { name: 'DB_API_KEY', secretRef: 'db-api-key' }
+            { name: 'DATA_URL', value: dataUrl }
+            { name: 'AZURE_CLIENT_ID', value: jobIdentity!.properties.clientId }
+            { name: 'POLARS_MAX_THREADS', value: '1' }
+          ]
+        }
+      ]
     }
   }
 }
