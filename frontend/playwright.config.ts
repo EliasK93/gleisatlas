@@ -9,6 +9,9 @@ export default defineConfig({
   testDir: "e2e",
   // The JUnit file feeds the README's tests badge in CI (scripts/tests_badge.py).
   reporter: [["list"], ["junit", { outputFile: "test-results/junit.xml" }]],
+  // The map's data-ready can take longer than the default 5 s when every worker draws a map at
+  // once. Waits return as soon as they pass, so this costs time only on a real failure.
+  expect: { timeout: 15_000 },
   // Playwright defaults to en-US; the German UI is the default for the existing specs.
   use: { baseURL: DEV, locale: "de-DE" },
   projects: [

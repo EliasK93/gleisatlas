@@ -273,14 +273,28 @@ test.describe("the day chips", () => {
     await expect(press(page, "Gestern")).toBeEnabled();
     await expect(press(page, "Vorgestern")).toBeDisabled();
     await expect(press(page, "Vorgestern")).toHaveAccessibleDescription("noch nicht vollständig");
-    // At 1280 x 720 the Germany card's top left reaches under the chip's left part: click its right.
-    await press(page, "Gestern").click({ position: { x: 60, y: 16 } });
+    await press(page, "Gestern").click();
     await expect(page).toHaveURL(/\/lage\?tag=2026-10-01$/);
     await expect(press(page, "Gestern")).toHaveAttribute("aria-pressed", "true");
     await expect(page.getByLabel("Tag auswählen")).toHaveValue("2026-10-01");
     await expect
       .poll(() => dayRequests(requests).map((u) => u.searchParams.get("tag")))
       .toEqual([TODAY, "2026-10-01"]);
+  });
+
+  test("at 1280 × 720 the Germany card and the legend stay below the filter card with the chips", async ({
+    page,
+    isMobile,
+  }) => {
+    test.skip(isMobile, "a desktop window");
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await openToday(page, "", "live", collected);
+    await fontsReady(page);
+    const filters = (await page.getByTestId("map-card").boundingBox())!;
+    const row = (await chips(page).boundingBox())!;
+    const card = (await page.getByRole("region", { name: "Deutschland heute" }).boundingBox())!;
+    expect(card.y).toBeGreaterThanOrEqual(row.y + row.height);
+    expect(card.y).toBeGreaterThanOrEqual(filters.y + filters.height);
   });
 
   test("the date field reaches a collector day, and a gap day in the URL moves to today", async ({

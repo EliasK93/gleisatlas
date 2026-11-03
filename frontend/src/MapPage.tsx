@@ -459,80 +459,84 @@ export default function MapPage({ day = false }: { day?: boolean }) {
         }}
       />
 
-      <div
-        ref={card}
-        data-testid="map-card"
-        // With the 360 px panel open the card stops 12 px before it, and its rows wrap.
-        className={`absolute inset-x-2.5 top-2.5 z-10 flex flex-col gap-2.5 overflow-hidden rounded-xl border border-border bg-surface p-2.5 shadow-card md:top-3 md:right-auto md:left-3 md:p-3 ${f.bhf ? "md:max-w-[calc(100%-396px)]" : "md:max-w-[calc(100%-24px)]"}`}
-      >
-        <div className="max-md:-mb-2.5">
-          <h1 className="text-lg leading-tight font-[650] tracking-[-0.015em] max-md:sr-only">
-            {t(day ? "nav.live" : "map.title")}
-          </h1>
-          <p className="mt-0.5 hidden text-[13px] text-text-2 md:block">
-            {t(day ? "lage.lead" : "map.lead")}
-          </p>
-        </div>
-        <MetricSwitch
-          metric={f.k}
-          onMetric={(k) => setParams(withParam("k", k === "puenktlich" ? "" : k))}
-          className="-mx-2.5 -my-2 px-2.5 py-2 md:m-0 md:p-0"
-          helpOnPhone={false}
-        />
-        <div className="-mb-2.5">
-          <Filters lage={day} days={!day} stationName={data ? station?.name : null} />
-        </div>
-      </div>
-
-      <div
-        ref={stack}
-        className="absolute bottom-4 left-2.5 z-10 flex flex-col gap-2.5 md:bottom-6 md:left-3 md:w-[300px]"
-      >
-        {d && (
-          <AreaCard
-            {...(picked
-              ? {
-                  title: landName(picked),
-                  // A state the day does not list has no stations and no values.
-                  count: land?.bahnhoefe ?? 0,
-                  onBack: () => {
-                    setParams(withParam("land", ""));
-                    // The button goes with the state's card: hand the focus to the map.
-                    root.current?.querySelector("canvas")?.focus();
-                  },
-                  backRef: back,
-                  area: land?.alle ?? null,
-                  fern: land?.fern ?? null,
-                  regional: land?.regional ?? null,
-                }
-              : {
-                  title: t("map.day.germany"),
-                  area: d.deutschland,
-                  fern: d.deutschland_fern,
-                  regional: d.deutschland_regional,
-                })}
-            tag={d.tag}
-            today={source && formatLive(source.stand, source.cut)}
+      {/* On desktop one column, so the bottom stack ends below the filter card and its legend
+          scrolls where the two do not fit; on a phone this wrapper makes no box. */}
+      <div className="contents md:pointer-events-none md:absolute md:inset-x-3 md:top-3 md:bottom-6 md:z-10 md:flex md:flex-col md:items-start md:justify-between md:gap-3">
+        <div
+          ref={card}
+          data-testid="map-card"
+          // With the 360 px panel open the card stops 12 px before it, and its rows wrap.
+          className={`absolute inset-x-2.5 top-2.5 z-10 flex flex-col gap-2.5 overflow-hidden rounded-xl border border-border bg-surface p-2.5 shadow-card md:pointer-events-auto md:static md:shrink-0 md:p-3 ${f.bhf ? "md:max-w-[calc(100%-372px)]" : "md:max-w-full"}`}
+        >
+          <div className="max-md:-mb-2.5">
+            <h1 className="text-lg leading-tight font-[650] tracking-[-0.015em] max-md:sr-only">
+              {t(day ? "nav.live" : "map.title")}
+            </h1>
+            <p className="mt-0.5 hidden text-[13px] text-text-2 md:block">
+              {t(day ? "lage.lead" : "map.lead")}
+            </p>
+          </div>
+          <MetricSwitch
             metric={f.k}
-            gap={d.fehlende_stunden}
+            onMetric={(k) => setParams(withParam("k", k === "puenktlich" ? "" : k))}
+            className="-mx-2.5 -my-2 px-2.5 py-2 md:m-0 md:p-0"
+            helpOnPhone={false}
           />
-        )}
-        <Legend
-          metric={f.k}
-          meta={meta}
-          fresh={[
-            liveStand && t("map.day.freshLive", { stand: liveStand }),
-            restStand && t(live ? "map.day.freshRest" : "map.day.freshAll", { stand: restStand }),
-          ].filter((line): line is string => !!line)}
-          day={
-            day
-              ? {
-                  weekday: shownDay ? weekdayOf(shownDay) : "",
-                  refs: dayMap.data?.referenztage.length,
-                }
-              : undefined
-          }
-        />
+          <div className="-mb-2.5">
+            <Filters lage={day} days={!day} stationName={data ? station?.name : null} />
+          </div>
+        </div>
+
+        <div
+          ref={stack}
+          className="absolute bottom-4 left-2.5 z-10 flex flex-col gap-2.5 md:pointer-events-auto md:static md:min-h-0 md:w-[300px]"
+        >
+          {d && (
+            <AreaCard
+              {...(picked
+                ? {
+                    title: landName(picked),
+                    // A state the day does not list has no stations and no values.
+                    count: land?.bahnhoefe ?? 0,
+                    onBack: () => {
+                      setParams(withParam("land", ""));
+                      // The button goes with the state's card: hand the focus to the map.
+                      root.current?.querySelector("canvas")?.focus();
+                    },
+                    backRef: back,
+                    area: land?.alle ?? null,
+                    fern: land?.fern ?? null,
+                    regional: land?.regional ?? null,
+                  }
+                : {
+                    title: t("map.day.germany"),
+                    area: d.deutschland,
+                    fern: d.deutschland_fern,
+                    regional: d.deutschland_regional,
+                  })}
+              tag={d.tag}
+              today={source && formatLive(source.stand, source.cut)}
+              metric={f.k}
+              gap={d.fehlende_stunden}
+            />
+          )}
+          <Legend
+            metric={f.k}
+            meta={meta}
+            fresh={[
+              liveStand && t("map.day.freshLive", { stand: liveStand }),
+              restStand && t(live ? "map.day.freshRest" : "map.day.freshAll", { stand: restStand }),
+            ].filter((line): line is string => !!line)}
+            day={
+              day
+                ? {
+                    weekday: shownDay ? weekdayOf(shownDay) : "",
+                    refs: dayMap.data?.referenztage.length,
+                  }
+                : undefined
+            }
+          />
+        </div>
       </div>
 
       {q.isPending && !failed && <LoadingCard />}
@@ -1012,7 +1016,7 @@ function Legend({
   return (
     <section
       aria-label={t("map.legend")}
-      className="rounded-xl border border-border bg-surface px-3 py-2 shadow-card md:w-[300px] md:px-3.5 md:py-3"
+      className="rounded-xl border border-border bg-surface px-3 py-2 shadow-card md:min-h-0 md:w-[300px] md:overflow-y-auto md:px-3.5 md:py-3"
     >
       <button
         type="button"
