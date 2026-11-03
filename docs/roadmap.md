@@ -72,8 +72,6 @@ Details in [day-history.md](day-history.md).
 - [x] Collector days: Live-Lage shows the days the collector has kept after the last complete day (`live_tage.parquet`), the API serves them, lists them in `/datenstand` and refreshes the live files while it runs (re-check: `uv run pytest -q`, `tests/pipeline/test_live.py`, `tests/api/test_heute_api.py`, `tests/api/test_deploy_api.py`; `npm --prefix frontend run test:e2e`, `frontend/e2e/lage.spec.ts`; details in [day-history.md](day-history.md) §2)
 - [x] An earlier complete day: a raw day counts as complete at the first complete `fchg` run after local midnight, so yesterday is usually there in the early morning (re-check: `uv run pytest -q`, `tests/pipeline/test_update.py`, the `day_complete` tests; the measurement is in [pipeline.md](pipeline.md) §3)
 - [ ] The collector as a scheduled job on Azure that keeps today and the collector days in the blob container, so the deployed Live-Lage stays complete without the local machine; with it the API's 10-minute cooldown and a warm-up of every page after a wake. Built and tested locally (re-check: `uv run pytest -q`, `tests/pipeline/test_live.py`, `tests/scripts/test_azure.py`, `tests/api/test_warmup.py`; `az bicep build --file infra/main.bicep --stdout`); ticked after the platform checks in [deployment.md](deployment.md) §6 ("Heute" and the previous day on the deployed Live-Lage)
-- [ ] An hour slider for the Rückblick
-- [ ] A larger station set than the 131 (decide first how the days before full coverage are handled and the selection rule, for example at least 3 per state)
 - [x] Every page offers the four metrics (Pünktlichkeit, Typische Verspätung, Schlechteste 10 %, Ausfälle) through the same switch with an explanation line under it, and `k` survives every page change (re-check: `npm --prefix frontend run test:e2e`, `frontend/e2e/metric-help.spec.ts`, and in `zeitverlauf.spec.ts` the tests "the P90 view draws the P90 as the line, with the band reaching down to the median" and "the cancellation view has the cancellation rate as its only chart")
 
 ## M8 Line detail page (v0.3)
@@ -88,3 +86,5 @@ Details in [day-history.md](day-history.md).
 
 ## After v1.0
 Optional features and backlog per SPEC 3.1 and 3.4.
+- [ ] Live-Lage with a larger station set than the 131 (decide first how the days before full coverage are handled and the selection rule, for example at least 3 per state)
+- [ ] Maybe: an hour curve of the shown day in the Germany or state card of Live-Lage, against the normal's same hours. Only if it adds something the Zeitverlauf and the heatmap do not already show; otherwise drop it
