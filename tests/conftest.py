@@ -89,6 +89,10 @@ def client(
     monkeypatch.setattr(main, "DAY_HOURS_PATH", str(data / "day_hours.parquet"))
     monkeypatch.setattr(main, "HEUTE_PATH", str(tmp_path / "missing-heute.parquet"))
     monkeypatch.setattr(main, "HEUTE_REST_PATH", str(tmp_path / "missing-heute-rest.parquet"))
+    monkeypatch.setattr(main, "LIVE_TAGE_PATH", str(tmp_path / "missing-live-tage.parquet"))
+    # tests that rewrite days.parquet expect the large stations computed from it
+    monkeypatch.setattr(main, "LARGE_PATH", str(tmp_path / "missing-large.parquet"))
+    monkeypatch.delenv("DATA_URL", raising=False)  # no refresh of the live files
     write_monate(tmp_path / "monate.parquet", monkeypatch, [("2026-09", 0, 2), ("2026-10", 3, 2)])
     return TestClient(main.app)
 

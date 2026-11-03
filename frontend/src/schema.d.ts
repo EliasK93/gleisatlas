@@ -246,6 +246,8 @@ export interface components {
             heute_stand: string | null;
             /** Heute Stand Rest */
             heute_stand_rest: string | null;
+            /** Live Tage */
+            live_tage: string[];
         };
         /** Day */
         Day: {

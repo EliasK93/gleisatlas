@@ -922,6 +922,13 @@
        }
       ],
       "title": "Heute Stand Rest"
+     },
+     "live_tage": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Live Tage"
      }
     },
     "type": "object",
@@ -936,7 +943,8 @@
      "fehlende_stunden_tage",
      "heute",
      "heute_stand",
-     "heute_stand_rest"
+     "heute_stand_rest",
+     "live_tage"
     ],
     "title": "Datenstand"
    },

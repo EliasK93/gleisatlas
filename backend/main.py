@@ -20,6 +20,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from pydantic import AfterValidator, BaseModel, Field
 
+from backend import fetch
 from core.categories import FERN, REGIONAL
 from core.normal import FLOORS, deviation_class, normal, reference_days
 from core.periods import full_coverage_start, large_stations, local_time, timetable_changes
@@ -38,8 +39,13 @@ DAY_HOURS_PATH = os.environ.get("DAY_HOURS_PATH", "data/day_hours.parquet")
 HEUTE_PATH = os.environ.get("HEUTE_PATH", "data/heute.parquet")  # optional: the collector's output
 # optional: today's other stations from piebro's raw data, written by pipeline.update
 HEUTE_REST_PATH = os.environ.get("HEUTE_REST_PATH", "data/heute_rest.parquet")
-# see backend/fetch.py. The files of "today" (HEUTE_PATH, HEUTE_REST_PATH, DAY_HOURS_PATH) are not
-# downloaded: Azure has no collector and no raw data, so it never has a "today".
+# optional: the collector's finished days after the last complete day (pipeline.live)
+LIVE_TAGE_PATH = os.environ.get("LIVE_TAGE_PATH", "data/live_tage.parquet")
+# the large stations (one column `eva`), written by pipeline.update; without it they are computed
+LARGE_PATH = os.environ.get("LARGE_PATH", "data/large.parquet")
+# see backend/fetch.py. These are downloaded at start. The files of the collector (HEUTE_PATH,
+# LIVE_TAGE_PATH) change while the API runs: fetch.refresh_live keeps them current, and
+# HEUTE_REST_PATH (piebro's raw data, written by pipeline.update) is never downloaded.
 DATA_FILES = (
     AGG_PATH,
     STATIONS_PATH,
@@ -48,6 +54,8 @@ DATA_FILES = (
     LINIEN_PATH,
     DAYS_PATH,
     TAGE_PATH,
+    DAY_HOURS_PATH,
+    LARGE_PATH,
 )
 HEUTE_MAX_AGE = timedelta(hours=2)  # an older collector run is no "today"
 
@@ -318,6 +326,9 @@ class Datenstand(BaseModel):
     heute: str | None  # ISO day of today (live or rest data) after letzter_tag; None without
     heute_stand: str | None  # the collector's run time (large stations) for `heute`, ISO UTC
     heute_stand_rest: str | None  # the newest raw-data snapshot (the other stations), ISO UTC
+    # ISO days the collector kept after letzter_tag and before today (Europe/Berlin), ascending:
+    # /tageskarte serves them like complete days
+    live_tage: list[str]
 
 
 MAX_QUERIES = 4
@@ -435,9 +446,37 @@ def today_sources() -> tuple[Heute | None, Heute | None]:
     return counts(live), counts(_source(HEUTE_REST_PATH))
 
 
+@lru_cache(maxsize=1)
+def _live_days_for(path: str, mtime: int) -> tuple[date, ...]:  # mtime: never stale
+    days = collect(pl.scan_parquet(path).select("day").unique().sort("day"))
+    return tuple(days["day"].to_list())
+
+
+def live_tage() -> tuple[date, ...]:
+    """The collector's finished days, ascending: those in LIVE_TAGE_PATH after the last complete
+    day and before today (local date of now()). Empty without the file. A complete day always
+    wins: its uploaded values are never replaced by the collector's."""
+    try:
+        kept = _live_days_for(LIVE_TAGE_PATH, os.stat(LIVE_TAGE_PATH).st_mtime_ns)
+    except FileNotFoundError:
+        return ()
+    last, today = tage()["day"][-1], local_time(now()).date()
+    return tuple(d for d in kept if last < d < today)
+
+
+def refresh() -> None:
+    """Fetch the collector's files again when the blob changed (no-op without DATA_URL)."""
+    fetch.refresh_live((HEUTE_PATH, LIVE_TAGE_PATH))
+
+
 def coverage_start() -> str | None:
     df = monate()
     return full_coverage_start(dict(zip(df["month"], df["stations"], strict=True)))
+
+
+@lru_cache(maxsize=1)
+def _large_from_file(path: str, mtime: int) -> list[str]:  # mtime: never stale
+    return sorted(collect(pl.scan_parquet(path))["eva"].to_list())
 
 
 @lru_cache(maxsize=1)
@@ -448,7 +487,13 @@ def _large_for(days_path: str, mtimes: tuple[int, int]) -> list[str]:  # mtimes:
 
 
 def large() -> list[str]:
-    """The EVAs of the large stations, sorted: those the source covered before full coverage."""
+    """The EVAs of the large stations, sorted: those the source covered before full coverage. From
+    LARGE_PATH (pipeline.update wrote the core rule's result there); where that file is missing
+    (a local run before the next update) the same rule runs over days.parquet."""
+    try:
+        return _large_from_file(LARGE_PATH, os.stat(LARGE_PATH).st_mtime_ns)
+    except FileNotFoundError:
+        pass
     return _large_for(DAYS_PATH, (os.stat(DAYS_PATH).st_mtime_ns, os.stat(MONATE_PATH).st_mtime_ns))
 
 
@@ -934,16 +979,20 @@ def tageskarte(
         day = date.fromisoformat(tag)
     except ValueError:
         raise HTTPException(status_code=422, detail="Not a calendar day") from None
+    refresh()
     days = tage()["day"]
     live, rest = today_sources()
+    extra = live_tage()
     is_today = any(s and s.day == day for s in (live, rest))
-    if not is_today and not days[0] <= day <= days[-1]:
+    if not is_today and not (days[0] <= day <= days[-1] or day in extra):
         raise HTTPException(status_code=404, detail="No data for that day")
     paths = (DAYS_PATH, TAGE_PATH, STATIONS_PATH, MONATE_PATH)
-    # The live files only key today's entry (`live` and `rest` carry the mtimes of their files), so
-    # past days stay cached while the collector runs.
+    # The live files only key today's entry (`live` and `rest` carry the mtimes of their files) and
+    # the collector days, so past days stay cached while the collector runs.
     if is_today:
         paths += (DAY_HOURS_PATH,)
+    if extra and (is_today or day in extra):
+        paths += (LIVE_TAGE_PATH,)
     mtimes = tuple(os.stat(p).st_mtime_ns for p in paths)
     path = DAY_HOURS_PATH if is_today else DAYS_PATH
     sources = (live, rest) if is_today else (None, None)
@@ -1008,11 +1057,17 @@ def tageskarte_for(
     rest: Heute | None = None,
 ) -> Tageskarte:
     table = tage()
+    extra = live_tage()  # collector days, no gap hours: they are not in the day table
     gap_hours = dict(zip(table["day"], table["missing_hours"], strict=True))
     # The large stations are covered over the whole history: no clamp at full coverage
-    refs = reference_days(
-        day, table["day"][0], table["day"][-1], {d for d, h in gap_hours.items() if h}
-    )
+    last = table["day"][-1]
+    gaps = {d for d, h in gap_hours.items() if h}
+    # A day after the last complete one counts only if the collector kept it.
+    refs = [
+        d
+        for d in reference_days(day, table["day"][0], max([last, *extra]), gaps)
+        if d <= last or d in extra
+    ]
     wanted = [day, *refs]
     is_today = bool(live or rest)
     large_evas = set(large())
@@ -1023,6 +1078,15 @@ def tageskarte_for(
         return pl.col("eva").is_in(pl.Series(sorted(evas), dtype=pl.String).implode())
 
     sel = pl.scan_parquet(days_path).filter(in_(large_evas))
+    if collected := [d for d in wanted if d in extra]:
+        # The collector's hours; summed over the hour unless the day map's today needs them. Days
+        # up to the last complete day are never in `extra`, so they never read this file.
+        more = pl.scan_parquet(LIVE_TAGE_PATH).filter(
+            in_(large_evas), pl.col("day").is_in(pl.Series(collected, dtype=pl.Date).implode())
+        )
+        if not is_today:
+            more = more.group_by(*CELL).agg(n=pl.col("n").sum())
+        sel = pl.concat([sel, more.select(sel.collect_schema().names())], how="vertical_relaxed")
     if is_today:
         keep = pl.lit(False)  # every station's reference days end where its own source ends
         for source, evas in ((live, live_evas), (rest, rest_evas)):
@@ -1064,6 +1128,11 @@ def tageskarte_for(
         if not card_live:
             reporting = today_cells.filter(in_(rest_evas))["eva"].unique()
         nation_src = grouped.filter(pl.col("eva").is_in(reporting.implode()))
+    elif day in extra:
+        # A collector day keeps only the stations that finished it: Germany and the states count
+        # those, against the same stations on the reference days.
+        kept = grouped.filter(pl.col("day") == day)["eva"].unique()
+        nation_src = grouped.filter(pl.col("eva").is_in(kept.implode()))
     # Germany ("de") and each state: per gruppe, and all trains as one more group
     named = nation_src.join(
         named_stations().select(
@@ -1179,6 +1248,7 @@ def tageskarte_for(
 
 @app.get("/datenstand", response_model=Datenstand, operation_id="getDatenstand")
 def datenstand() -> Datenstand:
+    refresh()
     df = monate()
     days = tage()
     first, last = df["month"][0], df["month"][-1]
@@ -1209,4 +1279,5 @@ def datenstand() -> Datenstand:
         heute=today.day.isoformat() if today else None,
         heute_stand=live.stand.isoformat() if live else None,
         heute_stand_rest=rest.stand.isoformat() if rest else None,
+        live_tage=[d.isoformat() for d in live_tage()],
     )

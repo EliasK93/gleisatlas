@@ -19,6 +19,7 @@ def test_datenstand_carries_coverage_gaps_and_timetable_changes(client: TestClie
         "heute": None,  # the fixture has no live data
         "heute_stand": None,
         "heute_stand_rest": None,
+        "live_tage": [],  # nor collector days
     }
 
 

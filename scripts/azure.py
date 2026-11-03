@@ -40,7 +40,17 @@ PROVIDERS = (
     "Microsoft.ManagedIdentity",
     "Microsoft.Consumption",
 )
-DATA_FILES = ("aggregate", "stations", "monate", "lines", "linien", "days", "tage")
+DATA_FILES = (
+    "aggregate",
+    "stations",
+    "monate",
+    "lines",
+    "linien",
+    "days",
+    "tage",
+    "day_hours",
+    "large",
+)
 CSP_WILDCARD = "https://*.swedencentral.azurecontainerapps.io"
 SWA_CLI = "@azure/static-web-apps-cli@2.0.10"
 DEPLOY_STEPS = 14

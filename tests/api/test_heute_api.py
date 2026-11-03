@@ -6,8 +6,10 @@ import pytest
 from fastapi.testclient import TestClient
 
 from backend import main
+from core.normal import reference_days
 from tests.api.test_tageskarte_api import (
     DAY,
+    FIRST,
     LAST,
     NO_NORMAL,
     tageskarte,
@@ -39,9 +41,13 @@ HEUTE_SCHEMA = {**DAY_HOURS_SCHEMA, "stand": pl.Datetime("us", "UTC")}
 @pytest.fixture(autouse=True)
 def fresh_caches():
     main._heute_for.cache_clear()
+    main._live_days_for.cache_clear()
+    main._large_from_file.cache_clear()
     main.tageskarte_for.cache_clear()
     yield
     main._heute_for.cache_clear()
+    main._live_days_for.cache_clear()
+    main._large_from_file.cache_clear()
     main.tageskarte_for.cache_clear()
 
 
@@ -438,3 +444,191 @@ def test_today_the_states_add_up_to_germany_when_the_rest_stations_feed_it(
         ("by", 1, 100),
     ]
     assert sum(land["alle"]["n"] for land in body["laender"]) == body["deutschland"]["n"] == 105
+
+
+# Collector days. The `base` fixture above has days up to LAST = 2026-05-31 (a Sunday), day hours
+# for the Tuesdays, stations 1, 2 and BETA large, and the clock at noon on 2026-06-02. The
+# collector kept Monday 2026-06-01, which no uploaded day covers yet.
+
+C1 = LAST + timedelta(days=1)  # a Monday
+C2 = date(2026, 6, 8)  # the Monday after
+TUESDAY = date(2026, 6, 2)
+
+
+def collector_rows(day: date) -> list[tuple]:
+    """Station 1: 100 stops in two hours, 90 on time. BETA has no coordinates. Station 9 is no
+    large station."""
+    return [
+        (day, 8, "regional", "1", 0, 90),
+        (day, 9, "regional", "1", 20, 10),
+        (day, 8, "regional", BETA, 0, 50),
+        (day, 8, "regional", "9", 0, 999),
+    ]
+
+
+def write_live_tage(tmp_path, monkeypatch, rows: list[tuple]) -> None:
+    pl.DataFrame(rows, schema=DAY_HOURS_SCHEMA, orient="row").write_parquet(
+        tmp_path / "live_tage.parquet"
+    )
+    monkeypatch.setattr(main, "LIVE_TAGE_PATH", str(tmp_path / "live_tage.parquet"))
+
+
+def bump_mtime(path) -> None:
+    stamp = path.stat().st_mtime_ns + 1_000_000_000  # a different mtime for sure
+    os.utime(path, ns=(stamp, stamp))
+
+
+def test_without_the_file_there_are_no_collector_days(base: TestClient):
+    assert base.get("/datenstand").json()["live_tage"] == []
+    assert base.get("/tageskarte", params={"tag": C1.isoformat()}).status_code == 404
+
+
+def test_datenstand_lists_the_days_between_the_last_complete_day_and_today(
+    base: TestClient, tmp_path, monkeypatch
+):
+    monkeypatch.setattr(main, "now", lambda: datetime(2026, 6, 10, 10, 0, tzinfo=UTC))
+    days = (date(2026, 6, 10), C2, LAST, C1)  # unsorted; today and the complete day are no extras
+    write_live_tage(tmp_path, monkeypatch, [r for d in days for r in collector_rows(d)])
+    assert base.get("/datenstand").json()["live_tage"] == ["2026-06-01", "2026-06-08"]
+
+
+def test_a_collector_day_is_served_from_the_hours_summed_at_the_large_stations(
+    base: TestClient, tmp_path, monkeypatch
+):
+    write_live_tage(tmp_path, monkeypatch, collector_rows(C1))
+    body = tageskarte(base, C1)
+    assert body["tag"] == C1.isoformat()
+    assert (body["n"], body["ohne_koordinaten"], body["fehlende_stunden"]) == (150, 1, 0)
+    assert (body["stand"], body["bis_stunde"], body["deutschland_live"]) == (None, None, None)
+    # the reference Mondays come from days.parquet, like for any complete day
+    expected = reference_days(C1, FIRST, LAST, set())
+    assert body["referenztage"] == [d.isoformat() for d in expected]
+    one = station(body, "1")
+    assert (one["n"], one["puenktlich"], one["live"]) == (100, 0.9, False)
+    assert one["normal"]["puenktlich"] is not None
+    assert [s["eva"] for s in body["stationen"]] == [
+        "1"
+    ]  # BETA has no coordinates, 9 is no large one
+    assert body["deutschland"]["n"] == 150
+
+
+def test_germany_and_the_states_count_only_the_stations_the_collector_kept_that_day(
+    base: TestClient, tmp_path, monkeypatch
+):
+    """Beta is bad on every reference Monday and the collector did not keep it on C1: Germany and
+    Berlin are Alpha's day against Alpha's Mondays, not against Alpha's and Beta's together."""
+
+    def stops(d: date, eva: str) -> tuple[int, int, int]:
+        return (50, 50, 5) if eva == BETA else varying(d, eva)
+
+    write_days(base, tmp_path, monkeypatch, stops, evas=("1", "2", BETA))
+    with_states(tmp_path, monkeypatch)
+    write_live_tage(tmp_path, monkeypatch, [r for r in collector_rows(C1) if r[3] == "1"])
+    body = tageskarte(base, C1)
+    alpha = station(body, "1")["normal"]["puenktlich"]
+    (berlin,) = body["laender"]
+    assert body["deutschland"]["n"] == berlin["alle"]["n"] == 100
+    assert body["deutschland"]["normal"]["puenktlich"] == pytest.approx(alpha)
+    assert berlin["alle"]["normal"]["puenktlich"] == pytest.approx(alpha)
+
+
+def test_a_day_the_file_does_not_hold_is_still_not_found(base: TestClient, tmp_path, monkeypatch):
+    write_live_tage(tmp_path, monkeypatch, collector_rows(C1))
+    assert base.get("/tageskarte", params={"tag": TUESDAY.isoformat()}).status_code == 404
+
+
+def test_the_reference_days_of_a_collector_day_include_the_collector_days_before_it(
+    base: TestClient, tmp_path, monkeypatch
+):
+    monkeypatch.setattr(main, "now", lambda: datetime(2026, 6, 10, 10, 0, tzinfo=UTC))
+    bad = [(C1, 8, "regional", "1", 20, 100)]  # station 1 was late on every stop on C1
+    write_live_tage(tmp_path, monkeypatch, [*bad, *collector_rows(C2)])
+    with_c1 = tageskarte(base, C2)
+    assert with_c1["referenztage"] == [d.isoformat() for d in reference_days(C2, FIRST, C2, set())]
+    assert with_c1["referenztage"][0] == C1.isoformat()
+    write_live_tage(tmp_path, monkeypatch, collector_rows(C2))
+    main.tageskarte_for.cache_clear()
+    main._live_days_for.cache_clear()
+    without_c1 = tageskarte(base, C2)
+    assert C1.isoformat() not in without_c1["referenztage"]
+    # one late reference day moves the median of the others
+    assert (
+        station(with_c1, "1")["normal"]["puenktlich"]
+        != station(without_c1, "1")["normal"]["puenktlich"]
+    )
+
+
+def test_a_complete_day_wins_over_the_collectors_copy_of_it(
+    base: TestClient, tmp_path, monkeypatch
+):
+    before = tageskarte(base, LAST)
+    write_live_tage(tmp_path, monkeypatch, [(LAST, 8, "regional", "1", 20, 9999)])
+    main.tageskarte_for.cache_clear()
+    assert tageskarte(base, LAST) == before
+    assert base.get("/datenstand").json()["live_tage"] == []
+
+
+def test_a_rewritten_collector_file_is_served_without_clearing_any_cache(
+    base: TestClient, tmp_path, monkeypatch
+):
+    write_live_tage(tmp_path, monkeypatch, collector_rows(C1))
+    assert tageskarte(base, C1)["n"] == 150
+    write_live_tage(tmp_path, monkeypatch, [(C1, 8, "regional", "1", 0, 7)])
+    bump_mtime(tmp_path / "live_tage.parquet")
+    assert tageskarte(base, C1)["n"] == 7
+    assert base.get("/datenstand").json()["live_tage"] == [C1.isoformat()]
+
+
+def test_past_days_stay_cached_while_the_collector_file_changes(
+    base: TestClient, tmp_path, monkeypatch
+):
+    write_live_tage(tmp_path, monkeypatch, collector_rows(C1))
+    tageskarte(base, LAST)
+    hits = main.tageskarte_for.cache_info().hits
+    write_live_tage(tmp_path, monkeypatch, [(C1, 8, "regional", "1", 0, 7)])
+    bump_mtime(tmp_path / "live_tage.parquet")
+    tageskarte(base, LAST)
+    assert main.tageskarte_for.cache_info().hits == hits + 1  # the file does not key past days
+
+
+def test_the_reference_days_of_today_include_the_collector_days(
+    base: TestClient, tmp_path, monkeypatch
+):
+    """Today is Tuesday 2026-06-09, 12:37 local. Tuesday 2026-06-02 is a collector day: its hours
+    before the cut count, the cancelled stops of hour 20 do not."""
+    stand = datetime(2026, 6, 9, 10, 37, tzinfo=UTC)
+    today = date(2026, 6, 9)
+    write_heute(
+        tmp_path,
+        monkeypatch,
+        [(today, 5, "regional", "1", 0, 30), (today, 5, "regional", "1", 20, 10)],
+        stand=stand,
+        now=stand + timedelta(minutes=10),
+    )
+    write_live_tage(
+        tmp_path,
+        monkeypatch,
+        [(TUESDAY, 5, "regional", "1", 20, 100), (TUESDAY, 20, "regional", "1", None, 1000)],
+    )
+    body = tageskarte(base, today)
+    assert body["referenztage"] == [
+        d.isoformat() for d in reference_days(today, FIRST, TUESDAY, set())
+    ]
+    assert body["referenztage"][0] == TUESDAY.isoformat()
+    assert station(body, "1")["normal"]["ausfallquote"] == 0
+
+
+def test_large_reads_large_parquet_when_present_and_computes_otherwise(
+    base: TestClient, tmp_path, monkeypatch
+):
+    assert main.large() == sorted(["1", "2", BETA])  # computed from days.parquet and monate
+    pl.DataFrame({"eva": ["1"]}, schema={"eva": pl.String}).write_parquet(
+        tmp_path / "large.parquet"
+    )
+    monkeypatch.setattr(main, "LARGE_PATH", str(tmp_path / "large.parquet"))
+    assert main.large() == ["1"]
+    pl.DataFrame({"eva": ["1", "2"]}, schema={"eva": pl.String}).write_parquet(
+        tmp_path / "large.parquet"
+    )
+    bump_mtime(tmp_path / "large.parquet")
+    assert main.large() == ["1", "2"]
