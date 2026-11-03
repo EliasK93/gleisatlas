@@ -1,5 +1,5 @@
 """Today so far at the large stations, from the DB Timetables API: `python -m pipeline.live`, one
-run per call (cron calls it every 15 minutes; ADR 0002).
+run per call (a schedule calls it every 15 minutes: the Azure job, or cron; ADR 0002).
 
 A run fetches `fchg` for every large station, then today's missing `plan` slices, folds the
 responses into the day's state with `pipeline.raw.parse` (the rules of the raw days) and writes
@@ -10,14 +10,19 @@ slices up to that hour are all fetched; when everything fails, the file is empty
 The collector also keeps its finished days. From midnight on, every run folds its changes into
 yesterday's state too (no extra requests), and the first run at or after FINAL_HOUR finalizes
 yesterday into `data/live_tage.parquet` (`day_hours` rows), so the days after the last monthly or
-raw day stay available."""
+raw day stay available.
+
+With DATA_URL set (the Azure job) the files come from and go back to that blob container (`sync`).
+A refused key (HTTP 401 or 403) ends the run at once without writing anything."""
 
 import http.client
+import json
 import os
 import shutil
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
 from collections.abc import Callable
@@ -51,6 +56,8 @@ MAX_RUN_GAP = timedelta(hours=12)
 # every reference week (core.normal), so the normals stay whole however long uploads lag.
 KEEP_DAYS = 7 * WEEKS
 FINAL = "final"  # marker in a day's state folder: finalized (or given up), never tried again
+STATE = ("plan.parquet", "fchg.parquet", "slices.parquet", "runs.parquet", FINAL)  # a day's folder
+BLOB_VERSION = "2021-08-06"  # x-ms-version of the Blob REST calls; a token needs 2017-11-09 on
 
 Get = Callable[[str], tuple[int, str]]  # url -> (status, body)
 
@@ -177,6 +184,8 @@ def run(
         if status == 429:  # throttled: try again next run
             stop = ", stopped by HTTP 429"
             break
+        if status in (401, 403):  # the key is refused: no more requests, and nothing is written
+            sys.exit(f"stopped by HTTP {status}: the DB API refused the key")
         ok = status == 200 and bool(body.strip())
         if ok:
             try:
@@ -240,6 +249,97 @@ def _http(client_id: str, key: str) -> Get:
     return get
 
 
+def _token() -> str:
+    """A Blob Storage token of the job's user-assigned identity (its client id in AZURE_CLIENT_ID),
+    from the identity endpoint Container Apps gives the container."""
+    query = urllib.parse.urlencode(
+        {
+            "resource": "https://storage.azure.com/",
+            "api-version": "2019-08-01",
+            "client_id": os.environ["AZURE_CLIENT_ID"],
+        }
+    )
+    headers = {"X-IDENTITY-HEADER": os.environ["IDENTITY_HEADER"]}
+    req = urllib.request.Request(f"{os.environ['IDENTITY_ENDPOINT']}?{query}", headers=headers)
+    with urllib.request.urlopen(req, timeout=TIMEOUT) as r:
+        return json.load(r)["access_token"]
+
+
+def _blob(method: str, url: str, token: str, body: bytes | None = None) -> bytes:
+    """One Blob REST call with the token (PUT a block blob, DELETE, the listing); its body."""
+    headers = {"Authorization": f"Bearer {token}", "x-ms-version": BLOB_VERSION}
+    if method == "PUT":
+        headers |= {"x-ms-blob-type": "BlockBlob", "Content-Type": "application/octet-stream"}
+    req = urllib.request.Request(url, data=body, headers=headers, method=method)
+    with urllib.request.urlopen(req, timeout=TIMEOUT) as r:
+        return r.read()
+
+
+def _pull(base: str, data_dir: Path, names: list[str]) -> None:
+    """Download each blob by its public URL into `data_dir` under its name; a 404 means none."""
+    for name in names:
+        try:
+            with urllib.request.urlopen(base + name, timeout=TIMEOUT) as r:
+                body = r.read()
+        except urllib.error.HTTPError as e:
+            if e.code == 404:
+                continue
+            sys.exit(f"download failed: {name}: HTTP {e.code}")
+        except (OSError, http.client.HTTPException) as e:
+            sys.exit(f"download failed: {name}: {e}")
+        path = data_dir / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(body)
+
+
+def _stamps(data_dir: Path) -> dict[str, int]:
+    """Every file under `data_dir` by its path relative to it (as a blob name): its mtime."""
+    return {
+        p.relative_to(data_dir).as_posix(): p.stat().st_mtime_ns
+        for p in data_dir.rglob("*")
+        if p.is_file()
+    }
+
+
+def sync(base: str, data_dir: Path, collect: Callable[[], str], now: Callable[[], datetime]) -> str:
+    """The job on Azure, whose `data_dir` starts empty: pull the large stations, the kept days and
+    the state of yesterday and today from the blob container at `base` (DATA_URL), `collect` (one
+    run), then push the files the run wrote and delete the container's state folders the run let
+    go. Returns the run's summary with the counts. A failed pull stops before the run: without its
+    state a run would write live_tage.parquet from nothing. A run that exits pushes nothing.
+    ponytail: the whole state is pulled and pushed on every run (a few MB), and the listing reads
+    one page (5,000 names, the job keeps about ten); fine at 131 stations, append per run if it
+    grows."""
+    try:  # first, so a broken identity fails before three minutes of requests
+        token = _token()
+    except (OSError, http.client.HTTPException, KeyError, ValueError) as e:
+        sys.exit(f"token failed: {e!r}")
+    day = local_time(now()).date()
+    state = [f"live/{d}/{n}" for d in (day - timedelta(days=1), day) for n in STATE]
+    _pull(base, data_dir, ["large.parquet", "live_tage.parquet", *state])
+    before = _stamps(data_dir)
+    summary = collect()
+    after = _stamps(data_dir)
+    # The top-level files first: a finished day is in live_tage.parquet before its FINAL marker.
+    changed = sorted(
+        (n for n, t in after.items() if before.get(n) != t), key=lambda n: ("/" in n, n)
+    )
+    container = base.rstrip("/")
+    try:
+        for name in changed:
+            _blob("PUT", base + name, token, (data_dir / name).read_bytes())
+        listing = _blob("GET", f"{container}?restype=container&comp=list&prefix=live/", token)
+        names = [e.text or "" for e in ET.fromstring(listing).iter("Name")]
+        gone = [n for n in names if n not in after]
+        for name in gone:
+            _blob("DELETE", base + name, token)
+    except urllib.error.HTTPError as e:
+        sys.exit(f"blob sync failed: {e.url.removeprefix(base)}: HTTP {e.code}")
+    except (OSError, http.client.HTTPException) as e:  # timeout, connection lost
+        sys.exit(f"blob sync failed: {e}")
+    return f"{summary}, {len(changed)} files uploaded, {len(gone)} deleted"
+
+
 def main(argv: list[str]) -> None:
     if argv:
         sys.exit("usage: python -m pipeline.live")
@@ -248,7 +348,17 @@ def main(argv: list[str]) -> None:
     client_id, key = (os.environ.get(k, "").strip() for k in ("DB_CLIENT_ID", "DB_API_KEY"))
     if not client_id or not key:
         sys.exit("set DB_CLIENT_ID and DB_API_KEY (the DB API Marketplace application)")
-    print(run(Path("data"), _http(client_id, key), lambda: datetime.now(UTC), time.sleep))
+    data_dir, get = Path("data"), _http(client_id, key)
+
+    def clock() -> datetime:
+        return datetime.now(UTC)
+
+    def collect() -> str:
+        return run(data_dir, get, clock, time.sleep)
+
+    # On Azure the job's files live in the blob container the API reads (backend/fetch.py).
+    base = os.environ.get("DATA_URL")
+    print(sync(base, data_dir, collect, clock) if base else collect())
 
 
 if __name__ == "__main__":

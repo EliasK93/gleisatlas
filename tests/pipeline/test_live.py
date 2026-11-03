@@ -1,9 +1,15 @@
+import io
+import json
 import subprocess
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
+from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
+from threading import Thread
 
 import polars as pl
 import pytest
@@ -306,6 +312,21 @@ def test_bad_bodies_are_skipped_and_asked_for_again(data_dir, server, clock):
     assert server.calls.count(f"{API}/plan/{A}/261104/05") == 2
 
 
+@pytest.mark.parametrize("refused", [401, 403])
+def test_a_refused_key_stops_the_run_at_once_and_writes_nothing(data_dir, server, clock, refused):
+    server.plans[(A, 8)] = [plan_stop("a-1-1", "2611040800")]
+    collect(data_dir, server, clock)  # an earlier run's output and state
+    files = {p: p.read_bytes() for p in data_dir.rglob("*") if p.is_file()}
+    server.calls.clear()
+    server.status[f"/fchg/{B}"] = refused  # A answers, then the key is refused
+    clock.t += timedelta(minutes=15)
+    with pytest.raises(SystemExit) as stop:
+        live.run(data_dir, server.get, clock.now, clock.sleep)
+    assert str(stop.value) == f"stopped by HTTP {refused}: the DB API refused the key"
+    assert server.calls == [f"{API}/fchg/{A}", f"{API}/fchg/{B}"]  # no request after it
+    assert {p: p.read_bytes() for p in data_dir.rglob("*") if p.is_file()} == files
+
+
 def test_credentials_are_stripped_and_the_key_never_shows(monkeypatch, capsys):
     monkeypatch.setenv("DB_CLIENT_ID", "client\n")
     monkeypatch.setenv("DB_API_KEY", "secret-key\r\n")  # as read from a file
@@ -577,3 +598,216 @@ def test_the_night_the_clocks_go_back_is_one_25_hour_day(data_dir, server):
     summary = run_at(data_dir, server, datetime(2026, 10, 26, 0, 5, tzinfo=UTC))  # 01:05 CET
     assert "kept 2026-10-25" in summary
     assert rows_of(kept(data_dir), day) == [(2, "fern", A, 0, 1), (23, "fern", A, 0, 1)]
+
+
+# The job on Azure: its data folder starts empty, so it pulls its files from the blob container
+# (DATA_URL), runs, pushes what changed and deletes the state folders the run let go.
+TOKEN = "fake-storage-token"
+IDENTITY_HEADER = "fake-identity-header"
+JOB_CLIENT = "fake-job-client-id"
+DB_KEY = "fake-db-key-do-not-print"
+
+
+class Store:
+    """A blob container over HTTP: anonymous GET of a blob, and with the identity's token PUT,
+    DELETE and the listing; also the Container Apps identity endpoint (/msi) and a DB API (/db)
+    that refuses every key."""
+
+    def __init__(self):
+        self.blobs: dict[str, bytes] = {}
+        self.writes: list[tuple[str, str]] = []  # (method, name), in order
+        self.tokens: list[dict] = []  # the identity endpoint's requests: query and header
+        self.broken: set[str] = set()  # blobs answered with 500
+        self.headers: list[dict[str, str]] = []  # every request's headers
+
+    def handler(self) -> type[BaseHTTPRequestHandler]:
+        store = self
+
+        class Handler(BaseHTTPRequestHandler):
+            def answer(self, status: int, body: bytes = b"") -> None:
+                self.send_response(status)
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def authorized(self) -> bool:
+                ok = self.headers.get("Authorization") == f"Bearer {TOKEN}"
+                ok = ok and bool(self.headers.get("x-ms-version"))
+                if not ok:
+                    self.answer(403)
+                return ok
+
+            def do_GET(self):
+                store.headers.append(dict(self.headers))
+                url = urllib.parse.urlsplit(self.path)
+                query = dict(urllib.parse.parse_qsl(url.query))
+                if url.path == "/msi":
+                    store.tokens.append({**query, "header": self.headers.get("X-IDENTITY-HEADER")})
+                    self.answer(200, json.dumps({"access_token": TOKEN}).encode())
+                elif url.path.startswith("/db/"):
+                    self.answer(401)
+                elif url.path == "/data" and query.get("comp") == "list":
+                    if self.authorized():
+                        names = sorted(n for n in store.blobs if n.startswith(query["prefix"]))
+                        blobs = "".join(f"<Blob><Name>{n}</Name></Blob>" for n in names)
+                        xml = f"<EnumerationResults><Blobs>{blobs}</Blobs></EnumerationResults>"
+                        self.answer(200, xml.encode())
+                else:
+                    name = url.path.removeprefix("/data/")
+                    if name in store.broken:
+                        self.answer(500)
+                    elif name in store.blobs:
+                        self.answer(200, store.blobs[name])
+                    else:
+                        self.answer(404)
+
+            def do_PUT(self):
+                store.headers.append(dict(self.headers))
+                if self.authorized() and self.headers.get("x-ms-blob-type") == "BlockBlob":
+                    name = self.path.removeprefix("/data/")
+                    body = self.rfile.read(int(self.headers["Content-Length"]))
+                    store.writes.append(("PUT", name))
+                    store.blobs[name] = body
+                    self.answer(201)
+
+            def do_DELETE(self):
+                store.headers.append(dict(self.headers))
+                if self.authorized():
+                    name = self.path.removeprefix("/data/")
+                    store.writes.append(("DELETE", name))
+                    del store.blobs[name]
+                    self.answer(202)
+
+            def log_message(self, *args):
+                pass
+
+        return Handler
+
+    def put_dir(self, data_dir: Path) -> None:
+        """Upload a data folder as the job would find it."""
+        for p in data_dir.rglob("*"):
+            if p.is_file():
+                self.blobs[p.relative_to(data_dir).as_posix()] = p.read_bytes()
+
+
+@pytest.fixture
+def store(monkeypatch) -> Iterator[tuple[Store, str]]:
+    """The store, served on a local port; returns it and the base URL (as DATA_URL)."""
+    s = Store()
+    http = HTTPServer(("127.0.0.1", 0), s.handler())
+    Thread(target=http.serve_forever, daemon=True).start()
+    root = f"http://127.0.0.1:{http.server_port}"
+    monkeypatch.setenv("DATA_URL", f"{root}/data/")
+    monkeypatch.setenv("IDENTITY_ENDPOINT", f"{root}/msi")
+    monkeypatch.setenv("IDENTITY_HEADER", IDENTITY_HEADER)
+    monkeypatch.setenv("AZURE_CLIENT_ID", JOB_CLIENT)
+    yield s, f"{root}/data/"
+    http.shutdown()
+    http.server_close()
+
+
+def job(tmp_path: Path, store: tuple[Store, str], server: Server, t: datetime) -> str:
+    """One execution of the job at `t`, in an empty data folder."""
+    job_dir = tmp_path / f"job-{t:%H%M}"
+    job_dir.mkdir()
+    clock = Clock(t)
+    collect = lambda: live.run(job_dir, server.get, clock.now, clock.sleep)  # noqa: E731
+    return live.sync(store[1], job_dir, collect, clock.now)
+
+
+def test_the_job_pulls_its_state_runs_and_pushes_what_changed(tmp_path, data_dir, server, store):
+    blobs, _ = store
+    a_day(server)
+    the_day(data_dir, server)  # D's state, as the executions of D left it in the container
+    blobs.put_dir(data_dir)
+    blobs.blobs["live/2026-11-01/plan.parquet"] = b"old"  # a folder the run lets go
+    large = blobs.blobs["large.parquet"]
+    server.plans.clear()  # D's plan can only come from the pulled state
+    summary = job(tmp_path, store, server, AT_1_05)
+    assert "kept 2026-11-03: 2 stations" in summary
+    kept_rows = pl.read_parquet(io.BytesIO(blobs.blobs["live_tage.parquet"]))
+    assert rows_of(kept_rows) == [(8, "fern", A, 0, 1), (23, "fern", A, 0, 1), (8, "fern", B, 0, 1)]
+    puts = [name for method, name in blobs.writes if method == "PUT"]
+    assert "large.parquet" not in puts and blobs.blobs["large.parquet"] == large  # not the job's
+    assert {"heute.parquet", "live/2026-11-03/final", "live/2026-11-04/plan.parquet"} <= set(puts)
+    # the finished day is in the container before the marker that says so
+    assert puts.index("live_tage.parquet") < puts.index("live/2026-11-03/final")
+    assert ("DELETE", "live/2026-11-01/plan.parquet") in blobs.writes
+    assert sorted({n.split("/")[1] for n in blobs.blobs if n.startswith("live/")}) == [
+        "2026-11-03",
+        "2026-11-04",
+    ]
+    # the token is the job's own identity's, asked for with the platform's header
+    assert blobs.tokens == [
+        {
+            "resource": "https://storage.azure.com/",
+            "api-version": "2019-08-01",
+            "client_id": JOB_CLIENT,
+            "header": IDENTITY_HEADER,
+        }
+    ]
+
+
+def test_an_unchanged_file_is_not_pushed_again(tmp_path, data_dir, server, store):
+    blobs, _ = store
+    a_day(server)
+    the_day(data_dir, server)
+    run_at(data_dir, server, AT_1_05)  # D is kept: live_tage.parquet exists
+    blobs.put_dir(data_dir)
+    job(tmp_path, store, server, AT_1_20)
+    puts = [name for method, name in blobs.writes if method == "PUT"]
+    assert "live_tage.parquet" not in puts and "live/2026-11-03/final" not in puts
+    assert "heute.parquet" in puts
+
+
+def test_a_missing_blob_means_none(tmp_path, data_dir, server, store):
+    blobs, _ = store
+    blobs.blobs["large.parquet"] = (data_dir / "large.parquet").read_bytes()  # nothing else
+    server.plans[(A, 8)] = [plan_stop("a-1-1", "2611040800")]
+    job(tmp_path, store, server, AT_14_37)
+    heute = pl.read_parquet(io.BytesIO(blobs.blobs["heute.parquet"]))
+    assert counts(heute) == [(A, 8, 0, 1)]
+    assert "live_tage.parquet" not in blobs.blobs
+
+
+def test_a_failed_pull_stops_the_job_before_the_run(tmp_path, data_dir, server, store):
+    """Without its state a run would write live_tage.parquet from nothing."""
+    blobs, _ = store
+    blobs.put_dir(data_dir)
+    blobs.broken.add("live_tage.parquet")
+    with pytest.raises(SystemExit, match="live_tage.parquet: HTTP 500"):
+        job(tmp_path, store, server, AT_14_37)
+    assert server.calls == []
+    assert blobs.writes == []
+
+
+def test_an_unreachable_identity_endpoint_ends_the_job_with_one_line(
+    tmp_path, data_dir, server, store, monkeypatch
+):
+    blobs, _ = store
+    blobs.put_dir(data_dir)
+    monkeypatch.setenv("IDENTITY_ENDPOINT", "http://127.0.0.1:9/msi")  # nothing listens there
+    with pytest.raises(SystemExit, match="^token failed: "):
+        job(tmp_path, store, server, AT_14_37)
+    assert server.calls == []
+    assert blobs.writes == []
+
+
+def test_a_refused_key_in_the_job_pushes_nothing_and_never_shows_the_key(
+    tmp_path, data_dir, store, monkeypatch, capsys, caplog
+):
+    blobs, base = store
+    blobs.put_dir(data_dir)
+    monkeypatch.setattr(live, "API", base.replace("/data/", "/db"))
+    monkeypatch.setenv("DB_CLIENT_ID", "fake-db-client")
+    monkeypatch.setenv("DB_API_KEY", DB_KEY)
+    monkeypatch.chdir(tmp_path)  # main works in ./data
+    with pytest.raises(SystemExit) as stop:
+        live.main([])
+    assert str(stop.value) == "stopped by HTTP 401: the DB API refused the key"
+    assert blobs.writes == []
+    out = capsys.readouterr()
+    assert DB_KEY not in out.out + out.err + caplog.text + str(stop.value)
+    db_requests = [h for h in blobs.headers if "db-api-key" in {k.lower() for k in h}]
+    assert len(db_requests) == 1  # the key went to the DB API only, once
+    assert all(DB_KEY not in str(h) for h in blobs.headers if h not in db_requests)
