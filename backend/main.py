@@ -86,21 +86,37 @@ app.add_middleware(
 app.add_middleware(GZipMiddleware)  # the all-stations map response is large and repetitive
 
 
+_busy = 0  # requests in flight; only the event loop runs the middleware, so no lock
+_last_end = 0.0  # time.monotonic() when the last request ended
+warming: threading.Thread | None = None  # the process's warm-up, once started
+QUIET = 2.0  # seconds without a request before the warm-up runs its next page
+
+
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
     """One line at the start and one at the end, with the same id and no client data. A start
-    line without an end line is a request that never finished."""
+    line without an end line is a request that never finished. Starts the warm-up."""
+    global _busy, _last_end, warming
     rid = uuid.uuid4().hex[:8]
     query = f"?{request.url.query}" if request.url.query else ""
     log.info("start %s %s %s%s", rid, request.method, request.url.path, query)
     began = time.perf_counter()
     status = 500  # what the client sees when the handler raises
+    _busy += 1
     try:
         response = await call_next(request)
         status = response.status_code
         return response
     finally:
+        _busy -= 1
+        _last_end = time.monotonic()
         log.info("end %s %d %dms", rid, status, (time.perf_counter() - began) * 1000)
+        # The first answered request starts the warm-up, which waits for a quiet moment before each
+        # page (`_quiet`). Only on the deploy (DATA_URL): there every wake-up is a fresh process
+        # with cold caches.
+        if warming is None and os.environ.get("DATA_URL"):
+            warming = threading.Thread(target=warm_up, name="warm-up", daemon=True)
+            warming.start()
 
 
 DIGITS = r"^[0-9]+$"  # ASCII only: \d would also accept other scripts' digits
@@ -588,7 +604,23 @@ def heatmap(
     von: Month = None,
     bis: Month = None,
 ) -> Heatmap:
-    return heatmap_from(pl.scan_parquet(AGG_PATH), gattung, eva, period_start(von, bis), bis)
+    return heatmap_for(
+        AGG_PATH, os.stat(AGG_PATH).st_mtime_ns, gattung, eva, period_start(von, bis), bis
+    )
+
+
+# ponytail: per-process cache like karte_for; 16 entries hold the nationwide views and a few
+# stations, revisit when the station page's heatmap is used heavily
+@lru_cache(maxsize=16)
+def heatmap_for(
+    agg: str,
+    mtime: int,  # part of the key, so new data is never served stale
+    gattung: str,
+    eva: str | None,
+    von: str | None,
+    bis: str | None,
+) -> Heatmap:
+    return heatmap_from(pl.scan_parquet(agg), gattung, eva, von, bis)
 
 
 @app.get("/karte", response_model=Karte, operation_id="getKarte")
@@ -1281,3 +1313,40 @@ def datenstand() -> Datenstand:
         heute_stand_rest=rest.stand.isoformat() if rest else None,
         live_tage=[d.isoformat() for d in live_tage()],
     )
+
+
+def _quiet() -> None:
+    """Wait until no request is in flight and none ended in the last QUIET seconds, so a visitor's
+    next request (Live-Lage's day after /datenstand, the next click) goes first."""
+    while _busy or time.monotonic() - _last_end < QUIET:
+        time.sleep(min(0.25, QUIET / 4))
+
+
+def warm_up() -> None:
+    """Run each cached page's default query once, one after another, each after a quiet moment, so
+    the caches are warm by the time a visitor after a wake-up clicks on: the Karte, Live-Lage's
+    newest day, the Muster heatmap, the station rankings and the daily Zeitverlauf. The arguments
+    are the ones the web app sends without URL keys, so they hit the same cache keys. A failure is
+    logged and the next page warms anyway.
+    ponytail: a visitor's request for a page still warming computes it again in parallel (the caches
+    do not merge requests in flight); share a future per cache key if that shows in the log."""
+    began = time.perf_counter()
+
+    def newest_day() -> str:  # as the web app's lageDays
+        d = datenstand()
+        return d.heute or (d.live_tage[-1] if d.live_tage else d.letzter_tag)
+
+    pages = (
+        ("karte", lambda: karte()),
+        ("tageskarte", lambda: tageskarte(tag=newest_day())),
+        ("heatmap", lambda: heatmap()),
+        ("rankings", lambda: rankings(typ="bahnhoefe")),
+        ("tagesverlauf", lambda: tagesverlauf()),
+    )
+    for name, page in pages:
+        _quiet()
+        try:
+            page()
+        except Exception as e:  # a warm-up must never take the process down
+            log.info("warm-up failed: %s: %s", name, e)
+    log.info("warm-up done in %dms", (time.perf_counter() - began) * 1000)
