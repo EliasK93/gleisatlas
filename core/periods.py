@@ -4,7 +4,7 @@ station coverage."""
 # pyright: reportUnknownMemberType=false
 # (Polars' filter, select and sort stubs are partially unknown under strict mode.)
 from collections.abc import Mapping
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
 
 import polars as pl
 
@@ -13,6 +13,12 @@ def local_time(t: datetime) -> datetime:
     """The naive Europe/Berlin time of an aware instant, the clock the source's times use. Polars
     carries the time zone rules; Python's zoneinfo would need the tzdata package on Windows."""
     return pl.Series([t]).dt.convert_time_zone("Europe/Berlin").dt.replace_time_zone(None).item()
+
+
+def local_midnight_utc(day: date) -> datetime:
+    """The start of the local (Europe/Berlin) `day` as naive UTC, the clock of the stored times."""
+    local = pl.Series([datetime.combine(day, time())]).dt.replace_time_zone("Europe/Berlin")
+    return local.dt.convert_time_zone("UTC").dt.replace_time_zone(None).item()
 
 
 def timetable_changes(first: date, last: date) -> list[date]:

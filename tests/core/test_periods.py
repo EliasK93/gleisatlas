@@ -1,8 +1,14 @@
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 
 import polars as pl
 
-from core.periods import full_coverage_start, large_stations, local_time, timetable_changes
+from core.periods import (
+    full_coverage_start,
+    large_stations,
+    local_midnight_utc,
+    local_time,
+    timetable_changes,
+)
 
 
 def test_local_time_is_naive_german_time_in_winter_summer_and_the_doubled_hour():
@@ -11,6 +17,15 @@ def test_local_time_is_naive_german_time_in_winter_summer_and_the_doubled_hour()
     # 25 October: 02:30 summer time, then 02:30 winter time an hour later
     assert local_time(datetime(2026, 10, 25, 0, 30, tzinfo=UTC)) == datetime(2026, 10, 25, 2, 30)
     assert local_time(datetime(2026, 10, 25, 1, 30, tzinfo=UTC)) == datetime(2026, 10, 25, 2, 30)
+
+
+def test_local_midnight_utc_follows_summer_time_and_the_25_hour_day():
+    assert local_midnight_utc(date(2026, 11, 3)) == datetime(2026, 11, 2, 23, 0)  # winter
+    assert local_midnight_utc(date(2026, 10, 1)) == datetime(2026, 9, 30, 22, 0)  # summer
+    # 25 October is 25 hours long
+    assert local_midnight_utc(date(2026, 10, 26)) - local_midnight_utc(date(2026, 10, 25)) == (
+        timedelta(hours=25)
+    )
 
 
 def test_timetable_changes():
