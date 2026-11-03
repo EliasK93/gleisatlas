@@ -1,14 +1,16 @@
 """Commit gate: format, lint, types, tests, frontend checks, licence file, Bicep, secret scan.
 
 Manual mode stages everything first and fails on unstaged or untracked files.
-`--hook` (pre-commit) runs only the checks.
+`--hook` (pre-commit) runs only the checks, and skips them all for a tree that already passed.
 `--ci` runs the checks without staging, scans the whole git history for secrets (nothing is
 staged in CI) and fails if a check left changed or untracked files behind.
 """
 
+import os
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -48,6 +50,29 @@ def run(cmd: list[str], cwd: Path) -> tuple[int, str]:
     return p.returncode, (p.stdout + p.stderr).rstrip()
 
 
+def git_path(name: str) -> Path | None:
+    code, out = run(["git", "rev-parse", "--git-path", name], ROOT)
+    return ROOT / out if code == 0 and out else None
+
+
+def fingerprint() -> str | None:
+    """The tree `git add -A` would stage, hashed on a copy of the index (None if git fails)."""
+    source = os.environ.get("GIT_INDEX_FILE")
+    index = ROOT / source if source else git_path("index")
+    if index is None:
+        return None
+    with tempfile.TemporaryDirectory() as tmp:
+        copy = Path(tmp) / "index"
+        if index.exists():
+            shutil.copyfile(index, copy)
+        env = {**os.environ, "GIT_INDEX_FILE": str(copy)}
+        for cmd in (["git", "add", "-A"], ["git", "write-tree"]):
+            p = subprocess.run(cmd, cwd=ROOT, env=env, capture_output=True, text=True)
+            if p.returncode:
+                return None
+        return p.stdout.strip()
+
+
 def main() -> int:
     hook, ci = "--hook" in sys.argv[1:], "--ci" in sys.argv[1:]
     if not (hook or ci):
@@ -55,6 +80,10 @@ def main() -> int:
         if code:
             print(out)
             return 1
+    tree, marker = fingerprint(), git_path("gate-green")
+    if hook and tree and marker and marker.exists() and marker.read_text().strip() == tree:
+        print("PASS all checks (tree unchanged since the last green gate)")
+        return 0
     secrets = GITLEAKS if ci else [*GITLEAKS, "--pre-commit", "--staged"]
     failed: list[str] = []
     for name, cmd, cwd in [*CHECKS, ("gitleaks", secrets, ROOT)]:
@@ -70,6 +99,8 @@ def main() -> int:
         if dirty:
             failed.append("clean tree")
             print("\n".join(dirty))
+    if not failed and tree and marker:
+        marker.write_text(tree)
     print(f"gate: {'FAILED (' + ', '.join(failed) + ')' if failed else 'all checks passed'}")
     return 1 if failed else 0
 
