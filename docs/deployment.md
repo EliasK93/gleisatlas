@@ -141,8 +141,6 @@ az account set --subscription <subscription name or id>
 uv run python scripts/azure.py deploy
 ```
 
-In VS Code, the launch configurations "Azure: deploy" and "Azure: teardown" run the same commands in the integrated terminal, where the prompts work.
-
 `deploy` prints a numbered header per step, streams the long steps (image build, deployments, frontend build, upload) and stops at the first failure with the step, the command (never a secret) and the error output, exit code 1. Steps that start or add cost print a `COST:` line first.
 
 1. Preflight: `az`, `git`, `npm` and `npx` on PATH; signed in (the subscription and user are printed); a clean working tree, because the image tag names the commit; the nine data files exist; the two personal values; the DB key or none (it prints `collector job: with the DB key` or `collector job: no DB key given (an existing job keeps its image and key)`).

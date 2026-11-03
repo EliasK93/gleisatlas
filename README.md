@@ -61,8 +61,6 @@ uv run uvicorn backend.main:app --port 8317
 npm --prefix frontend run dev
 ```
 
-In VS Code, "Gleisatlas (API + Web)" in Run and Debug starts both and opens the browser.
-
 ## Deploy to Azure
 
 The site is set up for Azure Static Web Apps (frontend), Container Apps (API) and Blob Storage (the aggregates), described in Bicep in `infra/main.bicep`. Resources, costs and the runbook are in [docs/deployment.md](docs/deployment.md).
