@@ -343,6 +343,10 @@ export default function MapPage({ day = false }: { day?: boolean }) {
       : read.tag;
   const tag = day && wanted !== newest ? wanted : undefined;
   const shown = tag ?? newest;
+  const showsToday = day && !!shown && shown === datenstand?.heute;
+  // While today is shown, /datenstand is asked again too, so the end of today moves the page on;
+  // no other page polls it.
+  useDatenstand(showsToday ? LIVE_REFRESH : false);
   const f: FilterKeys = {
     ...read,
     tag,
@@ -373,7 +377,7 @@ export default function MapPage({ day = false }: { day?: boolean }) {
     enabled: day && !!shown && !!datenstand,
     placeholderData: keepPreviousData,
     // The live day grows while the tab is open.
-    refetchInterval: shown && shown === datenstand?.heute ? LIVE_REFRESH : false,
+    refetchInterval: showsToday ? LIVE_REFRESH : false,
   });
   const q = day ? dayMap : periodMap;
   const data = q.data;

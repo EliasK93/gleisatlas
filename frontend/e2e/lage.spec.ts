@@ -1606,7 +1606,12 @@ test.describe("today", () => {
   test("a past day is not polled", async ({ page }) => {
     await page.clock.install();
     const requests = await openToday(page, `tag=${DAY}`);
+    const status = () => requests.filter((u) => u.pathname === "/datenstand").length;
+    const before = status();
     await page.clock.fastForward("05:01");
+    await page.clock.fastForward("05:01");
+    // Neither the day nor /datenstand: an open tab on a past day lets the server sleep.
+    expect(status()).toBe(before);
     // Today's request is later than a wrongly armed poll of the past day, so the check can fail.
     await page.getByRole("button", { name: "Heute", exact: true }).click();
     await expect(page).toHaveURL(/\/lage$/);
@@ -1620,11 +1625,27 @@ test.describe("today", () => {
     ).toHaveLength(1);
   });
 
+  test("no other page polls /datenstand, even while the server has a today", async ({ page }) => {
+    await page.clock.install();
+    await page.clock.setSystemTime(NOW);
+    const none = [undefined, undefined, undefined, undefined, undefined, undefined] as const;
+    const requests = await mockApi(page, ...none, undefined, undefined, () => datenstandHeute());
+    await page.goto("/karte");
+    await expect(map(page)).toHaveAttribute("data-ready", "true");
+    const status = () => requests.filter((u) => u.pathname === "/datenstand").length;
+    const before = status();
+    await page.clock.fastForward("05:01");
+    await page.clock.fastForward("05:01");
+    // Time for a wrongly armed poll to send its request.
+    await page.waitForTimeout(300);
+    expect(status()).toBe(before);
+  });
+
   test("a failed background refetch of /datenstand leaves the working map alone", async ({
     page,
   }) => {
     await page.clock.install();
-    await openToday(page, `tag=${DAY}`);
+    await openToday(page);
     let failed = 0;
     await page.route(
       (url) => url.pathname === "/datenstand",
@@ -1638,7 +1659,7 @@ test.describe("today", () => {
     // Time for the failure to reach the page.
     await page.waitForTimeout(300);
     await expect(page.getByRole("alert")).toHaveCount(0);
-    await expect(germany(page)).toContainText("Di., 15.09.2026");
+    await expect(todayCard(page)).toBeVisible();
   });
 
   test.describe("English", () => {

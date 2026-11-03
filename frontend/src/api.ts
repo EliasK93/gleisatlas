@@ -19,15 +19,16 @@ export function must<T>({ data, response }: { data?: T; response: Response }): T
 export const LIVE_REFRESH = 5 * 60_000;
 
 /**
- * What the data covers. One request shared by the shell, the filter bar and the series. While the
- * server has a live day it is asked again, so an open tab notices the end of "today".
+ * What the data covers. One request shared by the shell, the filter bar and the series. Only a
+ * caller that passes `refetchInterval` polls it: Live-Lage while it shows today, so an open tab
+ * notices the end of "today"; any other open tab lets the server scale to zero.
  */
-export const useDatenstand = () =>
+export const useDatenstand = (refetchInterval: number | false = false) =>
   useQuery({
     queryKey: ["datenstand"],
     queryFn: () => api.GET("/datenstand").then(must),
     staleTime: LIVE_REFRESH,
-    refetchInterval: (q) => (q.state.data?.heute ? LIVE_REFRESH : false),
+    refetchInterval,
   });
 
 /**
