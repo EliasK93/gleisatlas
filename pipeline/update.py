@@ -14,7 +14,7 @@ import polars as pl
 from huggingface_hub import list_repo_files
 
 from core.lines import line_ids, line_table, networks
-from core.periods import local_time
+from core.periods import full_coverage_start, large_stations, local_midnight_utc, local_time
 from pipeline.aggregate import (
     aggregate,
     coverage_report,
@@ -55,9 +55,12 @@ DAYS_ROW_GROUP = 50_000
 
 # `day_gaps` is rewritten for every raw day on each update
 DAY_FILES = ("days", "hours", "day_hours")
-# A raw day D is complete once a snapshot from after the start of D+1 at this hour exists (the
-# stored times are UTC), so its late trains are settled.
-SETTLED_HOUR = 6
+# Files whose first `fchg` request lies this close after the previous file's last one are one run
+# (separate runs are at least about 5 minutes apart).
+SAME_RUN = timedelta(seconds=60)
+# A run with fewer `fchg` requests than this share of the largest run died partway: the stations it
+# never asked would count their late stops as on time. Failed requests are rare, so 90 % is safe.
+FULL_RUN = 0.9
 
 
 def _complete(month_dir: Path) -> bool:
@@ -136,10 +139,10 @@ def _write_gaps(days_dir: Path) -> None:
 
 def update_days(data_dir: Path, raw: RawSource) -> None:
     """Process the complete raw days after the last complete monthly folder into `data/days/`. A day
-    is complete once a `fchg` snapshot from after the next day's SETTLED_HOUR exists. It reads the
-    raw files of the UTC folders before it, of its own and after it: the runs write the early plan
-    hours of a day (00:00 to 03:00) into the folder before, and the late changes into the next.
-    Days already done are skipped.
+    is complete once a complete `fchg` run from after the next local midnight exists (see
+    `day_complete`). It reads the raw files of the UTC folders before it, of its own and after it:
+    the runs write the early plan hours of a day (00:00 to 03:00) into the folder before, and the
+    late changes into the next. Days already done are skipped.
     ponytail: a day's raw files are downloaded again if its folder is lost or the parse logic
     changes; keeping them would cost about 250 MB per day.
     ponytail: an empty folder after the day (the source lost a whole UTC day) stalls every later
@@ -171,8 +174,7 @@ def update_days(data_dir: Path, raw: RawSource) -> None:
             out = days_dir / day.isoformat()
             if not _day_done(out):
                 before, own, following = (raw.files(day + n * step) for n in (-1, 0, 1))
-                newest = newest_fchg(raw, following)
-                if newest is None or newest[1] <= datetime.combine(day + step, time(SETTLED_HOUR)):
+                if not day_complete(raw, own + following, day):
                     break
                 if not own:
                     print(f"{day}: no raw files in its own folder (the source lost the day)")
@@ -189,8 +191,37 @@ def update_days(data_dir: Path, raw: RawSource) -> None:
 def newest_fchg(raw: RawSource, keys: list[str]) -> tuple[str, datetime] | None:
     """The newest of `keys` (in time order) with a `fchg` snapshot, and that snapshot's time
     (naive UTC). The newest file may hold none (a run whose requests failed): look back."""
-    stamps = ((k, raw.last_fchg(k)) for k in reversed(keys))
-    return next(((k, t) for k, t in stamps if t is not None), None)
+    spans = ((k, raw.fchg_span(k)) for k in reversed(keys))
+    return next(((k, s[1]) for k, s in spans if s is not None), None)
+
+
+def day_complete(raw: RawSource, keys: list[str], day: date) -> bool:
+    """Whether a complete `fchg` run started after the local midnight that ends `day`: by then the
+    late changes of its stops are in (a run before it gives a day that is too good, by 1 to 2
+    %-points). `keys` are the files of the UTC folders of `day` and the day after, in time order.
+    Files within SAME_RUN of each other are one run, as a run can be split over two files at UTC
+    midnight; the last run, when it ends within SAME_RUN before a UTC midnight, may still be
+    missing its other half and does not count until a later file exists. A run that died partway
+    has fewer requests than FULL_RUN of the largest run of the files and does not count either.
+    ponytail: assumes a run splits only at a UTC midnight (one case seen); a split elsewhere needs
+    the answered stations compared. Reads two columns of every file of two folders per pending day
+    (about 12 small remote reads); cache the spans if updates run often."""
+    spans = sorted(s for k in keys if (s := raw.fchg_span(k)))
+    runs: list[tuple[datetime, datetime, int]] = []  # start, end, number of requests
+    for first, last, count in spans:
+        if runs and first - runs[-1][1] <= SAME_RUN:
+            start, _, total = runs.pop()
+            runs.append((start, last, total + count))
+        else:
+            runs.append((first, last, count))
+    if (
+        runs
+        and datetime.combine(runs[-1][1].date() + timedelta(1), time()) - runs[-1][1] <= SAME_RUN
+    ):
+        runs.pop()
+    midnight = local_midnight_utc(day + timedelta(days=1))
+    biggest = max((count for *_, count in runs), default=0)
+    return any(start >= midnight and count >= FULL_RUN * biggest for start, _, count in runs)
 
 
 def update_rest(data_dir: Path, raw: RawSource, now: datetime, large: list[str]) -> None:
@@ -235,6 +266,19 @@ def _read(dirs: list[Path], name: str) -> pl.DataFrame:
     )
 
 
+def write_large(data_dir: Path) -> list[str]:
+    """Write `large.parquet` (one column `eva`, sorted) from the `days.parquet` and
+    `monate.parquet` just written: the large stations by the one core rule, so the collector job
+    and the API need not read the big `days.parquet`. Empty without a month before full coverage.
+    Returns the EVAs."""
+    monate = pl.read_parquet(data_dir / "monate.parquet")
+    start = full_coverage_start(dict(zip(monate["month"], monate["stations"], strict=True)))
+    days = pl.scan_parquet(data_dir / "days.parquet")
+    evas = large_stations(days, start).collect()["eva"].to_list() if start else []
+    pl.DataFrame({"eva": evas}, schema={"eva": pl.String}).write_parquet(data_dir / "large.parquet")
+    return evas
+
+
 def combine(data_dir: Path) -> None:
     """Write the files the API reads from all complete month folders; the day tables (`days`,
     `day_hours`, `tage`) also take the raw days after the last month."""
@@ -255,12 +299,13 @@ def combine(data_dir: Path) -> None:
         .sort(DAYS_ORDER, nulls_last=True)
         .sink_parquet(data_dir / "days.parquet", row_group_size=DAYS_ROW_GROUP)
     )
-    # `large_evas` reads the two files just written. The hour table covers only the large stations
-    # (the day map's today needs no others); month and day folders keep theirs whole.
+    # The hour table covers only the large stations (the day map's today needs no others); month
+    # and day folders keep theirs whole. They are found in the two files just written.
     _read(dirs, "meta").sort("month").write_parquet(data_dir / "monate.parquet")
+    large = write_large(data_dir)
     (
         pl.scan_parquet([d / "day_hours.parquet" for d in [*dirs, *raw_dirs]])
-        .filter(pl.col("eva").is_in(large_evas(data_dir)))
+        .filter(pl.col("eva").is_in(large))
         .group_by(DAY_HOURS_ORDER)
         .agg(pl.col("n").sum())
         .select("day", "hour", "gruppe", "eva", "bucket", "n")

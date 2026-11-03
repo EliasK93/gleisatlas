@@ -1,14 +1,15 @@
 import shutil
 from collections.abc import Callable
-from datetime import date
+from datetime import date, timedelta
 from datetime import datetime as dt
 from pathlib import Path
 
 import polars as pl
 import pytest
 
+from core.periods import full_coverage_start, large_stations
 from pipeline.raw import RawSource
-from pipeline.update import update
+from pipeline.update import day_complete, update
 from tests.conftest import complete
 from tests.pipeline.test_raw import Response, at, fchg_stop, plan_stop, write_raw, xml
 
@@ -334,6 +335,26 @@ def test_day_hours_take_the_raw_days_too(data_dir, fetch, tmp_path, raw):
     assert day_hours_per_day(data_dir).equals(large_days(data_dir, [EVA]))
 
 
+def test_combine_writes_the_large_stations_by_the_core_rule(data_dir, tmp_path):
+    paths = {m: tmp_path / f"{m}.parquet" for m in ("2026-08", "2026-09", "2026-10")}
+    for month, rows in zip(paths, (AUG, SEP, OCT), strict=True):
+        src(rows).write_parquet(paths[month])
+    update(data_dir, lambda: list(paths), lambda month: paths[month])
+    large = pl.read_parquet(data_dir / "large.parquet")
+    assert large.schema == pl.Schema({"eva": pl.String})
+    monate = pl.read_parquet(data_dir / "monate.parquet")
+    start = full_coverage_start(dict(zip(monate["month"], monate["stations"], strict=True)))
+    assert start == "2026-09"
+    days = pl.scan_parquet(data_dir / "days.parquet")
+    assert large["eva"].to_list() == large_stations(days, start).collect()["eva"].to_list() == ["1"]
+
+
+def test_large_parquet_is_written_empty_without_a_month_before_full_coverage(data_dir, fetch):
+    run(data_dir, fetch)  # September already has most of the stations: no month before it
+    large = pl.read_parquet(data_dir / "large.parquet")
+    assert (large.schema, large.height) == (pl.Schema({"eva": pl.String}), 0)
+
+
 def test_monate(data_dir, fetch):
     run(data_dir, fetch)
     monate = pl.read_parquet(data_dir / "monate.parquet")
@@ -363,15 +384,23 @@ OCT_1: list[Response] = [
 ]
 OCT_2: list[Response] = [
     at("2026-10-02 00:10", "plan", xml(plan_stop("d-1-1", "2610021200"))),
-    # Planned on the 1st, 25 minutes late after midnight: still a stop of the 1st.
-    at("2026-10-02 00:30", "fchg", xml(fchg_stop("b-1-1", '<ar ct="2610020020"/>'))),
-    at("2026-10-02 08:00", "fchg", xml(fchg_stop("d-1-1", '<ar ct="2610021205"/>'))),
+    # One run, one `fchg` request: b-1-1 was planned on the 1st and is 25 minutes late after
+    # midnight, still a stop of the 1st.
+    at(
+        "2026-10-02 08:00",
+        "fchg",
+        xml(
+            fchg_stop("b-1-1", '<ar ct="2610020020"/>'),
+            fchg_stop("d-1-1", '<ar ct="2610021205"/>'),
+        ),
+    ),
 ]
 OCT_3: list[Response] = [
     at("2026-10-03 08:00", "fchg", xml(fchg_stop("d-1-1", '<ar ct="2610021210"/>')))
 ]
 OCT_4: list[Response] = [
-    at("2026-10-04 00:05", "fchg", xml(fchg_stop("x-1-1", '<ar ct="2610040001"/>')))
+    # Plan only: the 3rd (whose local midnight is 22:00 UTC) has no run after it yet.
+    at("2026-10-04 00:05", "plan", xml(plan_stop("x-1-1", "2610040001")))
 ]
 OCT_DAYS = {date(2026, 9, 30): SEP_30} | {
     date(2026, 10, d): r for d, r in enumerate([OCT_1, OCT_2, OCT_3, OCT_4], start=1)
@@ -408,15 +437,18 @@ class FakeRaw:
         def files(day: date) -> list[str]:
             return list(self.keys.get(day, []))
 
-        def last_fchg(key: str) -> dt | None:
+        def fchg_span(key: str) -> tuple[dt, dt, int] | None:
             df = pl.read_parquet(self.paths[key]).filter(pl.col("api_name").str.ends_with("fchg"))
-            return df["timestamp"].max()  # pyright: ignore[reportReturnType]
+            if df.is_empty():
+                return None
+            first, last = df["timestamp"].min(), df["timestamp"].max()
+            return first, last, df.height  # pyright: ignore[reportReturnType]
 
         def fetch(key: str, dest: Path) -> Path:
             self.fetched.append(key)
             return Path(shutil.copy(self.paths[key], dest / key.replace("/", "_")))
 
-        return RawSource(files, last_fchg, fetch)
+        return RawSource(files, fchg_span, fetch)
 
 
 @pytest.fixture
@@ -487,21 +519,109 @@ def test_files_nobody_needs_any_more_are_deleted(data_dir, fetch, raw):
         seen.append({p.name for p in dest.iterdir()})  # what is on disk when a download starts
         return real.fetch(key, dest)
 
-    update(
-        data_dir, lambda: ["2026-09"], fetch, RawSource(real.files, real.last_fchg, fetch_and_look)
-    )
+    update(data_dir, lambda: ["2026-09"], fetch, real._replace(fetch=fetch_and_look))
     names = [k.replace("/", "_") for k in (raw.key(30, 9), raw.key(1), raw.key(2))]
     # Fetching the 3rd folder (for the 2nd day) happens after the 1st day dropped the 30th.
     assert seen[3] == set(names[1:])
 
 
-def test_a_day_waits_for_a_snapshot_after_the_next_days_6am(data_dir, fetch, tmp_path):
-    early = [at("2026-10-02 05:59", "fchg", xml(fchg_stop("d-1-1", '<ar ct="2610021205"/>')))]
-    raw = FakeRaw(tmp_path, {date(2026, 10, 1): OCT_1, date(2026, 10, 2): early})
+# 1 October: Berlin is on summer time, so the local midnight that ends the day is 22:00 UTC.
+RUN_AFTER_MIDNIGHT = at(
+    "2026-10-01 22:30", "fchg", xml(fchg_stop("b-1-1", '<ar ct="2610012358"/>'))
+)
+RUN_BEFORE_MIDNIGHT = at(
+    "2026-10-01 21:59", "fchg", xml(fchg_stop("b-1-1", '<ar ct="2610012358"/>'))
+)
+
+
+def day_rows(data_dir: Path, day: date) -> int:
+    return sum(r[4] for r in raw_days_table(data_dir) if r[0] == day)
+
+
+def test_a_run_after_local_midnight_completes_the_day(data_dir, fetch, tmp_path):
+    raw = FakeRaw(tmp_path, {date(2026, 10, 1): OCT_1}, {date(2026, 10, 1): [RUN_AFTER_MIDNIGHT]})
+    run_with_raw(data_dir, fetch, raw)
+    assert day_rows(data_dir, date(2026, 10, 1)) == 2  # the 08:00 and the 23:55 stop
+
+
+def test_a_run_before_local_midnight_does_not_complete_the_day(data_dir, fetch, tmp_path):
+    # Even with a later folder (a plan only, no run): the late stops of the day are not settled.
+    folders = {
+        date(2026, 10, 1): OCT_1,
+        date(2026, 10, 2): [at("2026-10-02 06:30", "plan", xml(plan_stop("d-1-1", "2610021200")))],
+    }
+    raw = FakeRaw(tmp_path, folders, {date(2026, 10, 1): [RUN_BEFORE_MIDNIGHT]})
     run_with_raw(data_dir, fetch, raw)
     assert raw.fetched == []
-    assert not (data_dir / "days").exists() or not any((data_dir / "days").iterdir())
     assert raw_days_table(data_dir) == []
+
+
+# A run started 23:59:21 UTC wrote its first 39 s into the folder of the 1st and the rest into
+# the folder of the 2nd (seen in the source on 22/23 October).
+FRAGMENT = [
+    at("2026-10-01 23:59:21.000000", "fchg", xml()),
+    at("2026-10-01 23:59:59.940000", "fchg", xml(fchg_stop("b-1-1", '<ar ct="2610012358"/>'))),
+]
+REST_OF_RUN = [
+    at("2026-10-02 00:00:00.003000", "fchg", xml()),
+    at("2026-10-02 00:03:50.000000", "fchg", xml()),
+]
+
+
+@pytest.mark.parametrize(
+    ("day", "run", "complete"),
+    [
+        (date(2026, 10, 24), "2026-10-24 21:59", False),  # summer time: midnight is 22:00 UTC
+        (date(2026, 10, 24), "2026-10-24 22:01", True),
+        (date(2026, 10, 25), "2026-10-25 22:30", False),  # the night summer time ends: 23:00 UTC
+        (date(2026, 10, 25), "2026-10-25 23:01", True),
+        (date(2027, 3, 27), "2027-03-27 22:30", False),  # winter time before the change: 23:00
+        (date(2027, 3, 27), "2027-03-27 23:01", True),
+        (date(2027, 3, 28), "2027-03-28 21:30", False),  # summer time after it: 22:00
+        (date(2027, 3, 28), "2027-03-28 22:01", True),
+    ],
+)
+def test_the_local_midnight_that_ends_the_day_follows_daylight_saving_time(
+    tmp_path, day, run, complete
+):
+    raw = FakeRaw(tmp_path, {day: [at(run, "fchg", xml())]})
+    assert day_complete(raw.source(), raw.keys[day], day) is complete
+
+
+def a_run(start: str, requests: int) -> list[Response]:
+    """One collector run: `requests` fchg requests a second apart from `start` (naive UTC)."""
+    first = dt.fromisoformat(start)
+    return [
+        at((first + timedelta(seconds=s)).isoformat(sep=" "), "fchg", xml())
+        for s in range(requests)
+    ]
+
+
+@pytest.mark.parametrize(("requests", "complete"), [(3, False), (8, False), (9, True), (10, True)])
+def test_a_short_run_after_local_midnight_does_not_complete_the_day(
+    data_dir, fetch, tmp_path, requests, complete
+):
+    # A full run of 10 requests before the local midnight (22:00 UTC) sets the size of a run; one
+    # after it counts only from 90 % of that.
+    plan = OCT_1[:1]
+    folders = {date(2026, 10, 1): [*plan, *a_run("2026-10-01 21:00:00", 10)]}
+    tails = {date(2026, 10, 1): a_run("2026-10-01 22:30:00", requests)}
+    raw = FakeRaw(tmp_path, folders, tails)
+    run_with_raw(data_dir, fetch, raw)
+    assert (raw.fetched != []) is complete
+    assert (day_rows(data_dir, date(2026, 10, 1)) == 2) is complete
+
+
+def test_the_first_fragment_of_a_split_run_does_not_complete_the_day(data_dir, fetch, tmp_path):
+    raw = FakeRaw(tmp_path, {date(2026, 10, 1): OCT_1}, {date(2026, 10, 1): FRAGMENT})
+    run_with_raw(data_dir, fetch, raw)
+    assert raw.fetched == []
+
+
+def test_both_halves_of_a_split_run_complete_the_day(data_dir, fetch, tmp_path):
+    folders = {date(2026, 10, 1): OCT_1, date(2026, 10, 2): REST_OF_RUN}
+    run_with_raw(data_dir, fetch, FakeRaw(tmp_path, folders, {date(2026, 10, 1): FRAGMENT}))
+    assert day_rows(data_dir, date(2026, 10, 1)) == 2
 
 
 def test_a_last_file_without_fchg_does_not_hide_a_late_snapshot_before_it(
@@ -521,7 +641,7 @@ def test_a_last_file_without_fchg_does_not_hide_a_late_snapshot_before_it(
 def test_an_added_day_is_processed_by_the_next_run(data_dir, fetch, tmp_path):
     folders = {d: r for d, r in OCT_DAYS.items() if d.day <= 3}
     run_with_raw(data_dir, fetch, FakeRaw(tmp_path, folders))
-    assert len(raw_days_table(data_dir)) == 4  # the 3rd waits for a snapshot after the 4th, 6 am
+    assert len(raw_days_table(data_dir)) == 4  # the 3rd waits for a run after its local midnight
     late = [at("2026-10-04 08:00", "fchg", xml(fchg_stop("x-1-1", '<ar ct="2610040001"/>')))]
     raw = FakeRaw(tmp_path, {**folders, date(2026, 10, 4): late})
     run_with_raw(data_dir, fetch, raw)

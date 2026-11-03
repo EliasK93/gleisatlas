@@ -14,11 +14,8 @@ from pathlib import Path
 from typing import NamedTuple
 
 import polars as pl
-from huggingface_hub import HfApi, hf_hub_download
-from huggingface_hub.errors import EntryNotFoundError
 
 from pipeline.aggregate import COLUMNS, clean, day_hours, days, hour_table
-from pipeline.download import REPO
 
 PLAN, FCHG = "timetables/v1/plan", "timetables/v1/fchg"
 PLAN_COLUMNS = ("id", "eva", "p_type", "p_number", "p_ar", "p_dp")
@@ -31,10 +28,11 @@ Stops = dict[str, tuple[str | None, ...]]  # stop id -> the other columns of PLA
 
 class RawSource(NamedTuple):
     """Where the raw days come from: the files of one UTC day folder (repo paths in time order),
-    the newest `fchg` snapshot time in one file (naive UTC, as stored) and a download."""
+    the first and last `fchg` request time in one file (naive UTC, as stored) and their number (None
+    without any) and a download."""
 
     files: Callable[[date], list[str]]
-    last_fchg: Callable[[str], datetime | None]
+    fchg_span: Callable[[str], tuple[datetime, datetime, int] | None]
     fetch: Callable[[str, Path], Path]
 
 
@@ -206,6 +204,13 @@ def raw_gaps(hours: pl.DataFrame, day_list: list[date]) -> pl.DataFrame:
 
 
 def remote_source() -> RawSource:
+    # Imported here: the live collector imports this module in the API image, which has no
+    # huggingface-hub (the `pipeline` dependency group).
+    from huggingface_hub import HfApi, hf_hub_download
+    from huggingface_hub.errors import EntryNotFoundError
+
+    from pipeline.download import REPO
+
     api = HfApi()
 
     def files(day: date) -> list[str]:
@@ -216,13 +221,21 @@ def remote_source() -> RawSource:
         except EntryNotFoundError:
             return []
 
-    def last_fchg(path: str) -> datetime | None:
+    def fchg_span(path: str) -> tuple[datetime, datetime, int] | None:
         lf = pl.scan_parquet(f"hf://datasets/{REPO}/{path}")  # two small columns, read remotely
-        return (
-            lf.filter(pl.col("api_name") == FCHG).select(pl.col("timestamp").max()).collect().item()
+        first, last, count = (
+            lf.filter(pl.col("api_name") == FCHG)
+            .select(
+                pl.col("timestamp").min(),
+                pl.col("timestamp").max().alias("last"),
+                pl.len().alias("count"),
+            )
+            .collect()
+            .row(0)
         )
+        return None if first is None else (first, last, count)
 
     def fetch(path: str, dest: Path) -> Path:
         return Path(hf_hub_download(REPO, path, repo_type="dataset", local_dir=dest))
 
-    return RawSource(files, last_fchg, fetch)
+    return RawSource(files, fchg_span, fetch)

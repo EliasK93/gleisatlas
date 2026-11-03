@@ -5,7 +5,6 @@ from pathlib import Path
 import polars as pl
 import pytest
 
-from pipeline.raw import RawSource
 from pipeline.update import update, update_rest
 from tests.pipeline.test_live import HEUTE_SCHEMA
 from tests.pipeline.test_raw import EVA, at, fchg_stop, plan_stop, xml
@@ -107,20 +106,25 @@ def test_the_combined_files_are_written_before_the_partial_day_is_fetched(tmp_pa
     coords.write_parquet(data_dir / "coords.parquet")
     sep = tmp_path / "sep.parquet"
     src(SEP).write_parquet(sep)
-    fake = FakeRaw(tmp_path, OCT_DAYS)
+    # A run on the 4th, so the 3rd is complete and its day reads the folder of the 4th.
+    run = at("2026-10-04 00:05", "fchg", xml(fchg_stop("x-1-1", '<ar ct="2610040001"/>')))
+    fake = FakeRaw(tmp_path, OCT_DAYS | {date(2026, 10, 4): [run]})
     real = fake.source()
+    reads: list[str] = []
 
     def fetch(key: str, dest: Path) -> Path:
-        if key == fake.key(4):  # only the partial day of the 4th reads that folder
+        reads.append(key)
+        if reads.count(fake.key(4)) == 2:  # the second read of that folder is the partial day's
             raise OSError("download failed")
         return real.fetch(key, dest)
 
-    raw = RawSource(real.files, real.last_fchg, fetch)
+    raw = real._replace(fetch=fetch)
     now = dt(2026, 10, 4, 10, 0, tzinfo=UTC)
     with pytest.raises(OSError, match="download failed"):
         update(data_dir, lambda: ["2026-09"], lambda _: sep, raw, lambda: now)
     days = pl.read_parquet(data_dir / "days.parquet")
     assert days["day"].max() == date(2026, 10, 2)  # the raw days of this run are combined
+    assert (data_dir / "days" / "2026-10-03").exists()
 
 
 def test_the_partial_day_counts_todays_stops_before_the_newest_snapshots_hour(tmp_path):
