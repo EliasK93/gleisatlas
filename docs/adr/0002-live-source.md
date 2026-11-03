@@ -1,6 +1,6 @@
 # ADR 0002: A live source for today
 
-Status: accepted (based on a spike: research and measurements)
+Status: accepted (based on a spike: research and measurements); the hosting decision amended on 2026-11-03
 
 ## Context
 
@@ -128,15 +128,15 @@ Hour table:
 ## Decision
 
 - **Scope: an own collector for the ≈131 large stations** (option 1): `fchg` every 15 minutes plus the 24 `plan` slices a day, about 11 requests per minute, within the documented 60. All other stations keep coming from piebro's raw data, up to about 10 hours behind. The map shows two freshness levels and says so. Reason: it stays within the documented limit, which is not enforced today but may be.
-- **Hosting: a VPS with cron**, on the same machine as the API, writing `heute.parquet` into `data/`. It ships with the API's move to the VPS; until then the collector runs locally. Reason: no extra cost, no grant to watch, and the API reads today's file like every other file. The Azure job and GitHub Actions are not chosen, for the reasons above.
+- **Hosting: an Azure Container Apps job on a schedule for the Azure deployment, a VPS with cron later** (amended; the first decision was the VPS only). The job runs the API's image every 15 minutes and keeps its files in the blob container the API reads: `heute.parquet`, `live_tage.parquet` and its state under `live/` (the blob variant above; [deployment.md](../deployment.md) §3 and §4). Reason (the product owner's decision, 2026-11-03): the Azure deployment stays private and the move to a VPS is far off, so waiting for the VPS would leave the deployed Live-Lage without today and without the collector's days for a long time; the job's share of the free grant is accepted. Once the API moves to a VPS, the collector runs there by cron and writes into `data/`, at no extra cost. GitHub Actions is not chosen, for the reasons above.
 - **Hour table: the day × hour histogram over all days**, about 115 to 120 MB, all four metrics, any past day cut at any hour. Reason: the reference days of any day can be cut at any hour, not only the last 12 weeks. The Azure deployment downloads it too, now that the API serves today and the collector's days wherever a live file exists ([deployment.md](../deployment.md) §4); on the VPS it sits on disk.
-- **The key:** the product owner registers the DB API Marketplace account. The key stays outside the repository, in a local environment file and later in the VPS's environment file.
+- **The key:** the product owner registers the DB API Marketplace account. The key stays outside the repository: in a local environment file, on Azure as two secrets of the job (the deploy script hands them to `az` in a temporary parameters file), later in the VPS's environment file.
 
 ## Consequences
 
 - SPEC §3.3 allows an own collector for today's state at the large stations; a full collector stays a fallback if the community dataset goes stale.
 - The map has two freshness levels: the large stations refreshed every 15 minutes, the rest up to about 10 hours behind. It shows the time of the data.
-- "Today" appears on the deployed site only after the move to the VPS.
+- "Today" and the collector's days appear on the deployed site once it is deployed with the DB key. The job uses most of the monthly free grant, which the API shares ([deployment.md](../deployment.md) §4); a refused key (HTTP 401 or 403) ends a run at once without writing anything.
 - The hour table over all stations was 231 MB on the real data, twice the estimate above. Since the day map became the Live-Lage page for the large stations only, it holds just those: 24.9 MB ([day-history.md](../day-history.md) §5).
 - When the collector fails, its stations fall back to piebro's raw data of today, and without that the map falls back to the last complete day. DB may block or change the API without notice (§ 7), and the product is labelled beta.
 - Live values and piebro's later monthly values come from different collectors, so a day can shift a little when the monthly file replaces it.

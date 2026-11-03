@@ -2,13 +2,14 @@
 
 ## 1 Overview
 
-Gleisatlas v0.2 runs on Azure: the web app on Static Web Apps, the API on Container Apps, the aggregates in Blob Storage. Everything lives in one resource group in Sweden Central (the Static Web App's settings in East US 2), described by `infra/main.bicep` and deployed and torn down by one script each (§4). The container registry is the main fixed cost; at low traffic the rest stays near zero within the free grants (§4), and a budget on the resource group sends alert e-mails (SPEC AC-16).
+Gleisatlas v0.2 runs on Azure: the web app on Static Web Apps, the API on Container Apps, the aggregates in Blob Storage, and, when the deploy is given the DB key, the collector for today as a scheduled Container Apps job that keeps its files in the same blob container. Everything lives in one resource group in Sweden Central (the Static Web App's settings in East US 2), described by `infra/main.bicep` and deployed and torn down by one script each (§4). The container registry is the main fixed cost; at low traffic the rest stays near zero within the free grants (§4), and a budget on the resource group sends alert e-mails (SPEC AC-16).
 
 ## 2 Spec
 
 - One resource group in Sweden Central holds every resource; the Static Web App resource sits in East US 2 and serves its files worldwide. Names come from `uniqueString(resourceGroup().id)` where they must be globally unique (storage account, registry).
 - The web app is the production build of `frontend/` on Static Web Apps Free, under its default `*.azurestaticapps.net` hostname. Every path route falls back to `index.html`; `/assets/*` is cached as immutable; every response carries the CSP and the other headers of `frontend/public/staticwebapp.config.json`.
-- The API is the image from `Dockerfile` on Container Apps with external HTTPS ingress, 0.5 vCPU and 1 GiB, scaling from 0 to 1 replica. At start it downloads the nine data files from the blob container `data` (`backend/fetch.py`), then serves on port 8000. It also fetches `heute.parquet` and `live_tage.parquet` when the container holds them and, while awake, checks them again at most once a minute ([day-history.md](day-history.md) §2). Only the web app's origin passes CORS.
+- The API is the image from `Dockerfile` on Container Apps with external HTTPS ingress, 0.5 vCPU and 1 GiB, scaling from 0 to 1 replica. At start it downloads the nine data files from the blob container `data` (`backend/fetch.py`), then serves on port 8000. It also fetches `heute.parquet` and `live_tage.parquet` when the container holds them and, while awake, checks them again at most once a minute ([day-history.md](day-history.md) §2). Only the web app's origin passes CORS. A replica stops 10 minutes after the last request. After the first requests of a fresh replica are answered, one background thread runs each page's default query once, so the next clicks find warm caches.
+- The collector `pipeline.live` runs as a Container Apps job from the same image every 15 minutes (cron in UTC), with 0.25 vCPU and 0.5 GiB, one replica per execution, at most 14 minutes and no retry. It pulls its files from the blob container, asks the DB Timetables API, and writes `heute.parquet`, `live_tage.parquet` and its state under `live/` back ([pipeline.md](pipeline.md) §2). It exists only when the deploy is given the DB key; a refused key (HTTP 401 or 403) ends the execution as failed without a write.
 - The aggregates are public CC BY data: anyone can read a blob by its URL, nobody can list the container.
 - The API writes one start and one end line per request to stdout, without client addresses. Container Apps sends them to a Log Analytics workspace that keeps 30 days.
 - A monthly budget on the resource group mails at 50 % and 90 % actual and at 100 % forecast; its amount is a deploy parameter.
@@ -28,6 +29,10 @@ Gleisatlas v0.2 runs on Azure: the web app on Static Web Apps, the API on Contai
 - **Cost protection is alerts plus tight limits** (max 1 replica, small size, log cap). Reason: Azure has no hard spending cap on a pay-as-you-go subscription; an automatic stop would need an extra function and identity.
 - **The frontend is built locally and deployed with the SWA CLI.** Reason: no GitHub Actions secret or repository link needed for the first deploy.
 - **Deploy and teardown by script** (`scripts/azure.py deploy` and `teardown`). Reason: one command each way, with a stop at the first failure; the API's host changes on every fresh deploy, so the script narrows the CSP in the built copy instead of a commit with the new host.
+- **The collector runs on Azure as a scheduled Container Apps job** ([ADR 0002](adr/0002-live-source.md), amended). Reason: the Azure deployment stays private and the move to a VPS is far off, so the deployed Live-Lage would otherwise have no today and no collector days; the job's share of the free grant (§4) is accepted.
+- **Scale-down cooldown 600 s** (`cooldownPeriod`, default 300 s, available in the stable API 2026-07-01; was 120 s). Reason: a visitor who reads a page for a few minutes and clicks on should not wait for another cold start; the price is 10 more minutes billed per wake-up (§4).
+- **A warm-up after a wake.** The first answered request of a fresh process starts `backend.main.warm_up` in one background thread. It runs the default query of each cached page, one after another, with the arguments the web app sends without URL keys: the Karte, Live-Lage's newest day, the Muster heatmap, the station rankings and the daily Zeitverlauf. Before each page it waits until no request is in flight and none ended in the last 2 s (`QUIET`), so a visitor's next request goes first (Live-Lage asks for its day only after `/datenstand` has answered, and so does a month page whose URL holds a period). The pages go through the route functions, so the query cap and the caches are the same; a failure is logged (`warm-up failed: <page>: <error>`) and the next page warms anyway, and the end is logged with its duration (`warm-up done in <ms>ms`). Only with `DATA_URL` set. Reason: every wake-up is a fresh process with empty caches, and the first page alone warms only its own query; locally and in the tests the process lives long and the thread would only compete with the requests. The uncached station routes (statistics, lines: a few tens of ms) are left out, since warming them would keep nothing.
+- **The heatmap is cached like the other heavy routes** (`heatmap_for`, [patterns.md](patterns.md) §8). Reason: about 1.9 s cold on one thread for the default period, and without a cache the warm-up could not keep it (the product owner's choice).
 
 **Licences and attribution** (notes on the terms of the services used, not legal advice)
 
@@ -48,7 +53,11 @@ Gleisatlas v0.2 runs on Azure: the web app on Static Web Apps, the API on Contai
 - **One process: max 1 replica, 1 uvicorn worker.** Reason: the query cap and the `lru_cache`s in `backend/main.py` are per process ([patterns.md](patterns.md) §8).
 - **0.5 vCPU / 1 GiB with `POLARS_MAX_THREADS=1`.** Reason: the local peak working set over a cold start-page burst plus heatmap, both rankings and the time series was 474–505 MB with one thread, about 600 MB with two, and 1.35–1.5 GB unset (Polars then sees all host cores). One thread leaves 2x headroom; the cold `/karte` took 3.6–4.0 s locally (then on the month aggregate).
 - **Consumption-only environment** (`environmentMode: 'ConsumptionOnly'`, no workload profiles, zone redundancy, VNet or private endpoints). Reason: those features bring the Dedicated plan's "Environment Management Hour" meter, an hourly management charge that runs all month.
-- **Scale-down cooldown 120 s** (`cooldownPeriod`, default 300 s, available in the stable API 2026-07-01). Reason: a wake-up is billed until the replica stops; 120 s still covers a visitor clicking through a few pages.
+- **The job has its own user-assigned identity** (`gleisatlas-job`) with *Storage Blob Data Contributor* on the `data` container only and *AcrPull* on the registry. Reason: the API's pull identity stays without write access, and the job can write nowhere but that container. It fetches its token from the identity endpoint Container Apps gives the container (`IDENTITY_ENDPOINT`, `IDENTITY_HEADER`, its client id in `AZURE_CLIENT_ID`) and calls Blob REST with the standard library, so no Azure SDK enters the image. Reads stay anonymous, like the API's.
+- **The job uses `DATA_URL`, the variable the API reads its files from.** Reason: one name for the one container both use.
+- **The DB key reaches the job as two job secrets** (`db-client-id`, `db-api-key`), referenced by the environment variables `DB_CLIENT_ID` and `DB_API_KEY`, from the `@secure()` parameters `dbClientId` and `dbApiKey`. The deploy script reads them from the environment or a hidden prompt and hands them to `az` in a temporary parameters file that it deletes afterwards, also on a failure. Reason: a value on the command line is visible to every process of the machine and lands in shell histories and the script's failure output; secure parameters are not stored in the deployment's history.
+- **The job only with an image and the key.** Reason: a deploy without the key (no DB account yet) still gives the whole site, without today.
+- **Schedule `*/15 * * * *`, 0.25 vCPU / 0.5 GiB, parallelism 1, `replicaTimeout` 840 s, `replicaRetryLimit` 0.** Reason: the collector's rate and 12-minute request deadline assume one run every 15 minutes (ADR 0002); 14 minutes leaves room for the blob sync and never overlaps the next execution, and the next execution is the retry. The smallest size: a run holds a day's state of 131 stations (a few MB) and the kept days (about 2.5 MB).
 - **The CSP is a static header, checked end to end.** `frontend/e2e/csp.spec.ts` runs the production build under `vite preview`, which sends the headers of `staticwebapp.config.json`, and fails on any CSP violation or console error on every page in both themes. Reason: this catches a wrong script hash and a missing directive (worker, tiles, fonts) alike, which a test that only compares the hash would not.
 - **Bicep in the gate.** `az bicep build --file infra/main.bicep --stdout` runs offline without a login, so every clone needs the Azure CLI with Bicep (README, Development). CI downloads the Bicep 0.48.1 binary, checks it against the sha256 digest GitHub publishes for that release asset, and lets `az` take it from PATH, so it never pulls the latest version. Reason: a broken template fails before anyone deploys it.
 - **The registry keeps the legacy role-assignment mode** (`roleAssignmentMode: 'LegacyRegistryPermissions'`). Reason: Microsoft announced the ABAC repository mode as the future default, and that mode ignores the AcrPull assignment the app pulls with.
@@ -70,15 +79,20 @@ Gleisatlas v0.2 runs on Azure: the web app on Static Web Apps, the API on Contai
 | Container Apps environment | `gleisatlas-env` | Consumption only, logs to the workspace |
 | Static Web App | `gleisatlas-web` | Free, no repository link, region `webLocation` |
 | Budget | `gleisatlas-budget` | `budgetAmount` per month in the billing currency |
-| Container App | `gleisatlas-api` | only when `image` is set; port 8000, HTTPS only, single revision, 0–1 replicas, the platform's default HTTP scale rule |
+| Container App | `gleisatlas-api` | only when `image` is set; port 8000, HTTPS only, single revision, 0–1 replicas, the platform's default HTTP scale rule, cooldown 600 s |
+| User-assigned identity | `gleisatlas-job` | only with the job; Storage Blob Data Contributor on the container `data`, AcrPull on the registry |
+| Container Apps job | `gleisatlas-collector` | only when `image`, `dbClientId` and `dbApiKey` are set; schedule `*/15 * * * *` (UTC), `python -m pipeline.live`, 0.25 vCPU / 0.5 GiB, parallelism 1, timeout 840 s, no retry, the key as two secrets |
 
-Parameters: `budgetEmail`, `budgetStartDate` and `budgetAmount` (all required), `image` (default empty), `webLocation` (`eastus2`), `cpu` (`0.5`), `memory` (`1Gi`), `polarsMaxThreads` (`1`). Outputs: `apiUrl` (empty without the app), `webName`, `webHostname`, `registryName`, `registryServer`, `storageName`, `workspaceId`.
+Parameters: `budgetEmail`, `budgetStartDate` and `budgetAmount` (all required), `image` (default empty), `webLocation` (`eastus2`), `cpu` (`0.5`), `memory` (`1Gi`), `polarsMaxThreads` (`1`), `dbClientId` and `dbApiKey` (secure, default empty). Outputs: `apiUrl` (empty without the app), `webName`, `webHostname`, `registryName`, `registryServer`, `storageName`, `workspaceId`.
 
 **Environment variables**
 
 | Variable | Where | Value |
 |---|---|---|
-| `DATA_URL` | API, set by Bicep | `https://<storage>.blob.core.windows.net/data/`; unset locally, then `backend.fetch` does nothing |
+| `DATA_URL` | API and job, set by Bicep | `https://<storage>.blob.core.windows.net/data/`; unset locally, then `backend.fetch` does nothing, there is no warm-up, and the collector works in `data/` |
+| `DB_CLIENT_ID`, `DB_API_KEY` | job, from its secrets | the DB API Marketplace application; locally from the product owner's environment |
+| `AZURE_CLIENT_ID` | job, set by Bicep | the client id of `gleisatlas-job`, for its token |
+| `IDENTITY_ENDPOINT`, `IDENTITY_HEADER` | job, set by Container Apps | the identity endpoint and its header |
 | `CORS_ORIGINS` | API, set by Bicep | `https://<web hostname>`; comma-separated; default `http://localhost:5317` |
 | `POLARS_MAX_THREADS` | API, set by Bicep | `1` |
 | `LOG_FILE` | API, local only | a path for a timestamped copy of the request lines; unset on Azure |
@@ -91,8 +105,9 @@ Parameters: `budgetEmail`, `budgetStartDate` and `budgetAmount` (all required), 
 **Data flow**
 
 1. `pipeline.update` builds `data/*.parquet` locally ([pipeline.md](pipeline.md)).
-2. The deploy script uploads the nine files the API reads (`aggregate`, `stations`, `monate`, `lines`, `linien`, `days`, `tage`, `day_hours`, `large`) to the container `data`; `day_hours` and `large` add about 24 MB to every cold start. `coords.parquet`, `raw/`, `months/` and `days/` stay local, and so do `heute_rest.parquet` and `live/`. `heute.parquet` and `live_tage.parquet` are never uploaded by the script: they are the collector's, and the API takes them from the container whenever they are there. Nothing writes them on Azure yet, so the deployed site has no today and no collector days until then.
+2. The deploy script uploads the nine files the API reads (`aggregate`, `stations`, `monate`, `lines`, `linien`, `days`, `tage`, `day_hours`, `large`) to the container `data`; `day_hours` and `large` add about 24 MB to every cold start. `coords.parquet`, `raw/`, `months/` and `days/` stay local, and so do `heute_rest.parquet` and `live/`. `heute.parquet`, `live_tage.parquet` and `live/` are never uploaded by the script: they are the job's, and the API takes the first two from the container whenever they are there. Without the job the deployed site has no today and no collector days.
 3. At container start `python -m backend.fetch` downloads `DATA_URL + <file name>` for each file, then uvicorn starts with `--no-access-log`.
+4. Every 15 minutes an execution of the job syncs its files with the container around one collector run ([pipeline.md](pipeline.md) §2, "On Azure"). An awake API picks a new `heute.parquet` up within a minute (`backend.fetch.refresh_live`); the job never calls the API, so it never wakes it.
 4. The browser loads the web app from Static Web Apps, calls the API at `VITE_API_URL` (CORS allows the web app's origin) and loads tiles, style and fonts from `tiles.openfreemap.org`.
 
 **Cost items and free grants** ( from the Azure pricing pages and the Learn billing pages; check the current prices before deploying)
@@ -108,13 +123,17 @@ Parameters: `budgetEmail`, `budgetStartDate` and `budgetAmount` (all required), 
 | Blob Storage Hot LRS | per GB-month and per 10,000 reads; negligible for the data size | [pricing page](https://azure.microsoft.com/en-us/pricing/details/storage/blobs/) |
 | Static Web Apps Free | free; 100 GB bandwidth per subscription and month, no overage | [quotas](https://learn.microsoft.com/en-us/azure/static-web-apps/quotas) |
 
-Expected: the registry is the main fixed cost, and the rest stays near zero as long as the API is awake less than the free grant covers. One wake-up of 6 minutes at 0.5 vCPU / 1 GiB uses 0.5 × 360 = 180 vCPU-s and 1 × 360 = 360 GiB-s, so the grant covers 180,000 / 180 = 1,000 such wake-ups a month (about 100 active hours) at no charge. Worst case: see §8.
+Expected: the registry is the main fixed cost, and the rest stays near zero as long as the API and the job together use less than the free grant. Worst case: see §8.
+
+- **The job** is billed per second of each execution at 0.25 vCPU and 0.5 GiB: 0.25 vCPU-s and 0.5 GiB-s per second, the same share of both grants. 96 executions a day are about 2,880 a month; at 3 minutes each (container start, about 165 requests at one a second, the blob sync) that is 2,880 × 180 × 0.25 = 129,600 vCPU-s and 259,200 GiB-s, **72 % of the grant**, at 3.5 minutes 84 %. The real duration is a platform check (§6); beyond the grant the job is billed at the active rate.
+- **A wake-up of the API** lasts the visit plus the 10-minute cooldown at 0.5 vCPU / 1 GiB: a 2-minute visit is 12 minutes, 0.5 × 720 = 360 vCPU-s and 720 GiB-s. Without the job the grant covers 500 such wake-ups a month; next to a job at 72 to 84 % about 150 to 80.
+- **An open Live-Lage tab on today** asks the API every 5 minutes ([day-history.md](day-history.md) §3), inside the cooldown, so the replica stays awake as long as the tab is open: 1,800 vCPU-s and 3,600 GiB-s an hour. No other page and no past day polls, so any other open tab lets the replica stop. Next to the job, what is left of the grant covers about 8 to 15 such hours a month.
 
 **Deploy and teardown by script** (`scripts/azure.py`, standard library only; run from the repository root; the remaining code blocks are PowerShell: `powershell` on Windows, `pwsh` on macOS and Linux)
 
 The account needs **Owner**, or **Contributor** plus **User Access Administrator** (or **Role Based Access Control Administrator**), on the resource group: Contributor creates the resources but not the AcrPull role assignment, and the other two roles create only role assignments. Teardown step 3 may make `az` offer to install the `log-analytics` extension; accept.
 
-Sign in once per session, then run the script. Two personal values come from the environment or, if unset, from a prompt; they never go into the repository: `GLEISATLAS_BUDGET_EMAIL` (receives the budget alerts) and `GLEISATLAS_BUDGET_AMOUNT` (the monthly budget in the billing currency, a whole number).
+Sign in once per session, then run the script. Two personal values come from the environment or, if unset, from a prompt; they never go into the repository: `GLEISATLAS_BUDGET_EMAIL` (receives the budget alerts) and `GLEISATLAS_BUDGET_AMOUNT` (the monthly budget in the billing currency, a whole number). The DB key for the collector job comes from `DB_CLIENT_ID` and `DB_API_KEY` or, if unset, from a hidden prompt (nothing is shown while typing); leave the client id empty to deploy without the job. The script never prints the key and passes it to `az` only in a temporary parameters file, which it deletes afterwards.
 
 ```powershell
 az login
@@ -126,7 +145,7 @@ In VS Code, the launch configurations "Azure: deploy" and "Azure: teardown" run 
 
 `deploy` prints a numbered header per step, streams the long steps (image build, deployments, frontend build, upload) and stops at the first failure with the step, the command (never a secret) and the error output, exit code 1. Steps that start or add cost print a `COST:` line first.
 
-1. Preflight: `az`, `git`, `npm` and `npx` on PATH; signed in (the subscription and user are printed); a clean working tree, because the image tag names the commit; the nine data files exist; the two personal values.
+1. Preflight: `az`, `git`, `npm` and `npx` on PATH; signed in (the subscription and user are printed); a clean working tree, because the image tag names the commit; the nine data files exist; the two personal values; the DB key or none (it prints `collector job: with the DB key` or `collector job: no DB key given (an existing job keeps its image and key)`).
 2. Register the seven resource providers.
 3. Create the resource group `gleisatlas` in Sweden Central.
 4. Phase 1, everything except the Container App. **COST:** from here the container registry is billed per day until teardown. The budget starts on the first of the current month, or keeps the start date of an earlier deployment (Azure rejects a change).
@@ -134,7 +153,7 @@ In VS Code, the launch configurations "Azure: deploy" and "Azure: teardown" run 
 6. Upload exactly the nine files the API reads, with the signed-in user's account key.
 7. Check the blob access: a file answers 200 by URL, the container listing answers 404.
 8. Build the image `api:<short commit>` in the registry.
-9. Phase 2, the same deployment plus the image, which adds the Container App. **COST:** billed only while a replica runs.
+9. Phase 2, the same deployment plus the image, which adds the Container App, and with the DB key the job, its identity and its two role assignments (the key through the temporary parameters file). **COST:** the app is billed only while a replica runs; the job per second of each execution, every 15 minutes.
 10. Poll `<apiUrl>/datenstand` until it answers 200 (up to 3 minutes) and print the seconds: the cold start.
 11. Build the frontend with `VITE_API_URL` set to the `apiUrl` output in the build's environment.
 12. Narrow `connect-src` in the built copy `frontend/dist/staticwebapp.config.json` from the wildcard `https://*.swedencentral.azurecontainerapps.io` to the API's exact origin. The file in the repository keeps the wildcard.
@@ -143,7 +162,21 @@ In VS Code, the launch configurations "Azure: deploy" and "Azure: teardown" run 
 
 The frontend build reads `frontend/.env.production.local` (gitignored) for the Impressum: the keys `VITE_IMPRESSUM_NAME`, `VITE_IMPRESSUM_STREET`, `VITE_IMPRESSUM_CITY` and `VITE_IMPRESSUM_EMAIL` are the provider's full name, street and house number, postcode and city, and a contact e-mail address, exactly as they should appear on `/impressum`. The script never writes this file; `VITE_API_URL` comes from its own environment, which wins over the file. Leave the Impressum keys out and the page reads "Angaben folgen." instead. Save the file as UTF-8 without a BOM, which Vite needs.
 
-Running `deploy` again repeats every step and is safe: the same commit gives the same image tag, and the budget keeps its start date. So a change to `infra/main.bicep`, the API or the web app goes live by committing and running `deploy` again; new data alone needs only `data`.
+Running `deploy` again repeats every step and is safe: the same commit gives the same image tag, and the budget keeps its start date. So a change to `infra/main.bicep`, the API, the collector or the web app goes live by committing and running `deploy` again; new data alone needs only `data`. A fresh deploy after a teardown starts from the uploaded complete days: the job writes today within its first few executions (a first run of the day catches up over about an hour, [day-history.md](day-history.md) §8) and the collector days from the next night on.
+
+- **The collector job** (read-only checks):
+
+  ```powershell
+  # The recent executions with their status (Succeeded, Failed, Running) and start time.
+  az containerapp job execution list --name gleisatlas-collector --resource-group gleisatlas --output table
+
+  # Is heute.parquet fresh? Its last-modified time in the container (a public read).
+  $storage = az deployment group show --resource-group gleisatlas --name main --query properties.outputs.storageName.value --output tsv
+  (Invoke-WebRequest -Method Head -UseBasicParsing -Uri "https://$storage.blob.core.windows.net/data/heute.parquet").Headers['Last-Modified']
+  ```
+
+  Each execution writes one line to stdout, the collector's summary (`<day> before <hour>:00: <n> requests (<m> failed), <k> of 131 stations, <u> files uploaded, <d> deleted`), or one error line and a failed status: `stopped by HTTP 401: the DB API refused the key` (or 403), `token failed: …` (the identity endpoint did not answer; nothing was asked or written), `download failed: <blob>: …` (the run did not start), `blob sync failed: <blob>: HTTP <status>` (a missing role assignment, for example) or `blob sync failed: <error>` (a network failure). The lines land in `ContainerAppConsoleLogs_CL` like the API's; the portal shows them per execution under the job's Execution history.
+- **Stop the job without a teardown** (for example after a 401): `az containerapp job delete --name gleisatlas-collector --resource-group gleisatlas --yes`; the next `deploy` with the key creates it again. Its files stay in the container until the teardown.
 
 - **Data update** (touches Azure: overwrites the files in the deployed storage account): `uv run python -m pipeline.update`, then `uv run python scripts/azure.py data`. It checks that the nine data files exist, prints the subscription, reads the storage account from the deployment outputs and uploads only those files, without a build or a deployment. A running replica keeps the old data until it restarts; the next cold start fetches the new files. To switch at once:
 
@@ -174,7 +207,7 @@ uv run python scripts/azure.py teardown
 4. Delete the resource group and wait until it is gone.
 5. Check that the group no longer exists and say that billing has stopped.
 
-The budget is scoped to the resource group and goes with it; check under Cost Management, Budgets that it is gone.
+The budget is scoped to the resource group and goes with it; check under Cost Management, Budgets that it is gone. So do the job, its identity and the storage account with the job's files (`heute.parquet`, `live_tage.parquet`, `live/`): the collector days exist only there, so a teardown loses the days after the last uploaded complete day until `pipeline.update` has them locally.
 
 **Reading the app log**
 
@@ -261,6 +294,7 @@ Not in this log: page views of the web app (Static Web Apps Free has no access l
 - [x] Impressum and privacy policy. Re-check: `npm --prefix frontend run test:e2e`, `frontend/e2e/legal.spec.ts`.
 - [x] Static Web Apps configuration with the CSP. Re-check: `npm --prefix frontend run test:e2e`, `frontend/e2e/csp.spec.ts`.
 - [x] Bicep infrastructure with the budget. Re-check: `az bicep build --file infra/main.bicep --stdout` prints no warning; the gate line `bicep` in `uv run python scripts/gate.py`.
+- [x] The collector job: the blob sync with the job's identity, the stop at a refused key, `pipeline/` in the image, the job in Bicep, the key through a temporary parameters file, the 10-minute cooldown and the warm-up. Re-check: `uv run pytest -q`, in particular `tests/pipeline/test_live.py` (`test_the_job_pulls_its_state_runs_and_pushes_what_changed`, `test_an_unchanged_file_is_not_pushed_again`, `test_a_missing_blob_means_none`, `test_a_failed_pull_stops_the_job_before_the_run`, `test_an_unreachable_identity_endpoint_ends_the_job_with_one_line`, `test_a_refused_key_in_the_job_pushes_nothing_and_never_shows_the_key`, `test_a_refused_key_stops_the_run_at_once_and_writes_nothing`, `test_the_collector_imports_without_the_download_library`), `tests/scripts/test_azure.py` (`test_deploy_hands_the_db_key_to_az_in_a_parameters_file_that_is_deleted`, `test_deploy_asks_for_the_db_key_hidden_and_skips_the_job_without_it`, `test_the_parameters_file_is_deleted_when_the_deployment_fails`, `test_data_leaves_the_collectors_files_alone`), `tests/api/test_warmup.py` (the warm-up, its quiet window, `test_the_heatmap_is_cached_until_the_aggregate_changes`); `az bicep build --file infra/main.bicep --stdout`; the poll on Live-Lage only, `npm --prefix frontend run test:e2e`, in `frontend/e2e/lage.spec.ts` "a past day is not polled" and "no other page polls /datenstand, even while the server has a today".
 - [ ] Deployed by the product owner with the runbook in §4. Re-check: the platform checks in §6.
 
 ## 6 Platform checks
@@ -276,6 +310,12 @@ Not in this log: page views of the web app (Static Web Apps Free has no access l
 - [x] No CSP violation in the browser console on the deployed site ([theme-and-language.md](theme-and-language.md) §6 refers here).
 - [x] The Impressum and Datenschutz pages show the real values, or "Angaben folgen." while the Impressum keys are not set; `/licenses.txt` opens as text, not as a download.
 - [ ] After a few days the unfinished-requests query in §4 returns nothing (the Polars warning watch, [patterns.md](patterns.md) §8).
+- [ ] The collector job (deployed with the key): its executions succeed (`az containerapp job execution list`, §4), each logs one summary line, and the duration of an execution (start to end) is noted for the cost in §4.
+- [ ] Within 15 minutes of the deploy `heute.parquet` is in the container (its `Last-Modified`, §4), and "Heute" shows on the deployed Live-Lage with the live stand, all 131 stations within about an hour.
+- [ ] The next morning, after the first execution from 01:00 local, "Gestern" on the deployed Live-Lage comes from the collector (`/datenstand.live_tage` lists it) before any `data` upload.
+- [ ] Memory of the API with all caches warm on 1 GiB: after a wake-up the log shows `warm-up done in <ms>ms` and no `warm-up failed`, and the replica's memory (portal, Metrics, Memory Working Set Bytes) stays clear of 1 GiB while a visitor then clicks through every page and a few days of Live-Lage.
+- [ ] The job's memory on 0.5 GiB: no execution ends with an out-of-memory error in `ContainerAppSystemLogs_CL`, also on the finalizing run after 01:00.
+- [ ] The cost after a few days in Cost Management: the job's vCPU and memory seconds against the 72 to 84 % estimate in §4.
 - Ticked on Azure as well, listed in their own docs: [app-shell.md](app-shell.md) §6 (SPA fallback, popover), [map.md](map.md) §6 (tiles and attribution, WebGL, cold `/karte`), [theme-and-language.md](theme-and-language.md) §6 (wordmark, no light flash), [patterns.md](patterns.md) §6 (AC-5, heatmap warm under 3 s).
 
 ## 7 Open decisions
@@ -288,7 +328,7 @@ Not in this log: page views of the web app (Static Web Apps Free has no access l
 - **The committed CSP allows any Container App in Sweden Central** (`https://*.swedencentral.azurecontainerapps.io`), because the API's host is assigned when the Container App is created and differs on every fresh deploy. The deploy script narrows the built copy to the exact host, so the deployed site is tight; a build uploaded without the script is not. A custom domain would keep the host stable and the wildcard could go.
 - **The blob container is public for reading** (`// ponytail:` in `infra/main.bicep`). Anyone with a file's URL can download the aggregates, which are CC BY anyway; listing is off. Every download counts as internet egress; beyond the free 100 GB a month it is billed per GB to the storage account, which the budget covers. If a policy forbids public access, switch to a managed-identity token in `backend/fetch.py`.
 - **The per-process caches are lost on every scale to zero.** The first `/karte` after a wake-up recomputes (2.7 s locally on one thread for the default range from `days.parquet`), on top of the container start and the data download. Revisit with min 1 replica (costs idle time) or a precomputed map file.
-- **The alerts do not stop anything.** Scale to zero does not cap the cost: a request at least every two minutes (the 120 s cooldown) keeps the replica active around the clock, so compute at 0.5 vCPU / 1 GiB is billed all month, far above the free grant and the fixed costs. The alert mails and the emergency stop in §4 are the protection.
+- **The alerts do not stop anything.** Scale to zero does not cap the cost: a request at least every ten minutes (the 600 s cooldown; an open Live-Lage tab on today polls every five) keeps the replica active around the clock, so compute at 0.5 vCPU / 1 GiB is billed all month, far above the free grant and the fixed costs. The alert mails and the emergency stop in §4 are the protection.
 - **Image tags come from the commit**; the script refuses a dirty tree, because `az acr build` uploads uncommitted changes too. Old images stay in the registry until deleted by hand (10 GB included).
 - **The deploy script cannot resume.** A rerun repeats every step (all are safe to repeat), and a failure in step 8 or later costs the earlier steps again. Its budget-date lookup counts any failure as "no earlier deployment"; a wrong date makes Azure reject the budget deployment, which stops the script.
 - **`backend.fetch` downloads all nine files at every container start**, without a checksum or ETag; a failed download leaves a `.part` file in a container that is thrown away anyway. It imports `backend.main` for the path list, which loads FastAPI and Polars before the download (a second or two).
@@ -297,4 +337,8 @@ Not in this log: page views of the web app (Static Web Apps Free has no access l
 - **The licence file lists the bundled JavaScript packages and the font, not Tailwind.** Vite's `build.license` (in `frontend/vite.config.ts`) only sees modules, while Tailwind's base styles (MIT) arrive through the CSS pipeline, and the minified CSS drops their notice. Add Tailwind's licence by hand to the file if a licence review asks for it.
 - **The Impressum may be empty.** Without the four `VITE_IMPRESSUM_*` keys the page reads "Angaben folgen."
 - **The gate's Bicep line passes on warnings**; only errors fail it. A new BCP081 warning after a Bicep update shows up in `az bicep build` output only.
+- **A deploy without the DB key leaves an existing job untouched** (incremental mode, as for the app below): it keeps running on its old image and key. To remove it, delete it (§4) or tear down.
+- **A failed execution sends no alert.** A refused key or a missing role shows only as failed executions and an aging `heute.parquet`; the API then falls back to the raw data or the last complete day. Look at the executions now and then, or add an alert rule on failed executions if it matters.
+- **The job pulls and uploads its whole state on every execution** (`ponytail:` in `pipeline.live.sync`), a few MB, and lists `live/` once to delete old folders (one page of up to 5,000 names; the job keeps about ten).
+- **The warm-up starts once per process and runs the pages one after another** (`ponytail:` in `backend.main.warm_up`). It waits for a quiet moment before each page, but a visitor who clicks while a page is running waits for it, or computes the same query in parallel (the caches do not merge requests in flight). Its duration on Azure is a platform check (§6).
 - **A deployment without `image` leaves an existing Container App untouched** (incremental mode) and outputs an empty `apiUrl`; the script's phase 2 always passes the image. After a hand-run deployment of `infra/main.bicep`, pass the current image (`az deployment group show --resource-group gleisatlas --name main --query properties.parameters.image.value --output tsv`) or the app stays on its old revision.
