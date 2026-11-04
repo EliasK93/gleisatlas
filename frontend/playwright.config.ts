@@ -1,5 +1,8 @@
 import { defineConfig, devices } from "@playwright/test";
 
+// The config runs in Node, but the project has no Node types; this is the one global it reads.
+declare const process: { env: Record<string, string> };
+
 const PREVIEW = "http://localhost:4317";
 // Not the dev port 5317: a dev server left running there (for example one under the debugger)
 // would serve the tests and slow them down, so the suite always starts its own.
@@ -14,8 +17,13 @@ export default defineConfig({
   expect: { timeout: 15_000 },
   // Playwright defaults to en-US; the German UI is the default for the existing specs. `locale`
   // only emulates the page's language: a native date field takes its field order from the
-  // browser's own language (US on a Linux runner), so `--lang` keeps typed dates DD.MM.YYYY.
-  use: { baseURL: DEV, locale: "de-DE", launchOptions: { args: ["--lang=de-DE"] } },
+  // browser's own language, so typed dates stay DD.MM.YYYY only with a German browser. Chromium
+  // reads that from `--lang` on Windows and macOS and from `LANGUAGE` on Linux.
+  use: {
+    baseURL: DEV,
+    locale: "de-DE",
+    launchOptions: { args: ["--lang=de-DE"], env: { ...process.env, LANGUAGE: "de" } },
+  },
   projects: [
     { name: "chromium", use: { ...devices["Desktop Chrome"] }, testIgnore: "csp.spec.ts" },
     { name: "mobile", use: { ...devices["Pixel 7"] }, testIgnore: "csp.spec.ts" },
