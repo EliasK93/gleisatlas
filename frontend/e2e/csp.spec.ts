@@ -8,6 +8,11 @@ import { mockApi } from "./fixtures";
 const PAGES = [
   { name: "map", path: "/karte", ready: (page: Page) => page.getByTestId("map") },
   { name: "station page", path: "/bahnhof/8000207" },
+  {
+    name: "line page",
+    path: "/linie/RE57%3A08000080",
+    ready: (page: Page) => page.getByTestId("line-map"),
+  },
   { name: "heatmap", path: "/muster/heatmap" },
   { name: "time series", path: "/muster/zeitverlauf" },
   { name: "Impressum", path: "/impressum" },

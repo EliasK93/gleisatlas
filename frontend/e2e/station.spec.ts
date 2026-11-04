@@ -283,33 +283,29 @@ test("the sparkline card has its own error and the rest of the page stays", asyn
   await expect(history(page).getByTestId("point")).toHaveCount(12);
 });
 
-test("a line row links to the time series of that line, keeping category and delay view", async ({
+test("a line row links to the page of that line, keeping the metric but not the category", async ({
   page,
 }) => {
   await mockApi(page);
   await page.goto("/bahnhof/8000207?g=fern&k=median");
   const link = lines(page).first().getByRole("link");
-  await expect(link).toHaveAttribute(
-    "href",
-    "/muster/zeitverlauf?g=fern&linie=RE+1%3A8000207&k=median",
-  );
+  await expect(link).toHaveAttribute("href", "/linie/RE%201%3A8000207?k=median");
   await link.click();
-  await expect(page).toHaveURL(/\/muster\/zeitverlauf\?g=fern&linie=RE\+1%3A8000207&k=median$/);
-  await expect(page.getByText(/^Linie:\s*RE 1 · Köln Hbf/)).toBeVisible();
-  await expect(page.getByRole("img", { name: "Verspätung pro Monat" })).toBeVisible();
+  await expect(page).toHaveURL(/\/linie\/RE%201%3A8000207\?k=median$/);
+  await expect(page.getByRole("heading", { level: 1 })).toContainText("RE57");
 });
 
-test("a line row passes every metric on to the time series unchanged", async ({ page }) => {
+test("a line row passes every metric on to the line page unchanged", async ({ page }) => {
   await mockApi(page);
   await page.goto("/bahnhof/8000207?k=p90");
   await expect(lines(page).first().getByRole("link")).toHaveAttribute(
     "href",
-    "/muster/zeitverlauf?linie=RE+1%3A8000207&k=p90",
+    "/linie/RE%201%3A8000207?k=p90",
   );
   await page.goto("/bahnhof/8000207?k=ausfall");
   await expect(lines(page).first().getByRole("link")).toHaveAttribute(
     "href",
-    "/muster/zeitverlauf?linie=RE+1%3A8000207&k=ausfall",
+    "/linie/RE%201%3A8000207?k=ausfall",
   );
 });
 

@@ -11,6 +11,7 @@ import {
   type GeoJSONSource,
   type GeoJSONSourceSpecification,
   type MapMouseEvent,
+  type MapOptions,
 } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import workerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url";
@@ -75,10 +76,63 @@ type Entry = KartenStation &
 // Bundled worker per the MapLibre v6 docs for Vite.
 setWorkerUrl(workerUrl);
 
-const STYLE: Record<Theme, string> = {
+export const STYLE: Record<Theme, string> = {
   light: "https://tiles.openfreemap.org/styles/positron",
   dark: "https://tiles.openfreemap.org/styles/dark",
 };
+/**
+ * A map with the base both map pages share: the style of `theme`, the zoom buttons and the
+ * attribution with its licence and dataset links (below the zoom buttons: a bottom corner stacks
+ * each new control above the previous one), the control texts from the catalog (`title` names the
+ * map for screen readers) and the base map's labels in the page language, for every base style
+ * that loads. `view` says where the map looks.
+ */
+export function baseMap(
+  container: HTMLElement,
+  title: string,
+  theme: Theme,
+  view: Pick<MapOptions, "bounds" | "fitBoundsOptions" | "center" | "zoom">,
+) {
+  const m = new MapLibre({
+    ...view,
+    container,
+    style: STYLE[theme],
+    attributionControl: false,
+    locale: {
+      "Map.Title": title,
+      "NavigationControl.ZoomIn": t("map.zoomIn"),
+      "NavigationControl.ZoomOut": t("map.zoomOut"),
+      "AttributionControl.ToggleAttribution": t("map.attributionToggle"),
+    },
+  });
+  // The control renders HTML, like the style's own attribution links.
+  const licence = `<a href="${t("data.licenceUrl")}" target="_blank" rel="noopener">${t("data.licence")}</a>`;
+  const dataset = `<a href="${t("data.datasetUrl")}" target="_blank" rel="noopener">${t("data.dataset")}</a>`;
+  m.addControl(
+    new AttributionControl({
+      compact: true,
+      customAttribution: t("map.attribution", { dataset, licence }),
+    }),
+    "bottom-right",
+  );
+  m.addControl(new NavigationControl({ showCompass: false }), "bottom-right");
+  m.on("style.load", () => {
+    for (const l of m.getStyle().layers) {
+      const field = l.type === "symbol" && l.layout?.["text-field"];
+      if (field) m.setLayoutProperty(l.id, "text-field", localLabel(field));
+    }
+  });
+  return m;
+}
+
+const palettes: Partial<Record<Theme, Record<string, string>>> = {};
+/** The colours of the tokens `names` in `theme`, each read once. <html data-theme> already is `theme` when this runs. */
+export function themeColours(theme: Theme, names: string[]) {
+  const have = (palettes[theme] ??= {});
+  for (const n of names) have[n] ??= token(n);
+  return have;
+}
+
 const GERMANY: [[number, number], [number, number]] = [
   [5.9, 47.3],
   [15.0, 55.05],
@@ -103,7 +157,7 @@ const PALE = 0.5;
 const VERY_PALE = 0.3;
 const NO_STATIONS = { type: "FeatureCollection" as const, features: [] };
 
-const token = (name: string) =>
+export const token = (name: string) =>
   getComputedStyle(document.documentElement).getPropertyValue(`--${name}`).trim();
 
 /**
@@ -236,7 +290,6 @@ function addAreas(m: MapLibre, shapes: Shapes, z0: number) {
   fadeAreas(m, z0);
 }
 
-const palette: Partial<Record<Theme, Record<string, string>>> = {};
 const SCALE_TOKENS = ["r", "c"].flatMap((scale) => [1, 2, 3, 4, 5].map((i) => `${scale}${i}`));
 
 /**
@@ -255,9 +308,7 @@ function toFeatures(
   stands: { live?: string; rest?: string },
 ) {
   // <html data-theme> already is `theme` when this runs; the tokens are read once per theme.
-  const colours = (palette[theme] ??= Object.fromEntries(
-    ["surface", "cancel", ...SCALE_TOKENS].map((n) => [n, token(n)]),
-  ));
+  const colours = themeColours(theme, ["surface", "cancel", ...SCALE_TOKENS]);
   const surface = colours.surface;
   const most = stations.reduce((a, s) => Math.max(a, s.n), 1);
   return {
@@ -357,6 +408,7 @@ export default function MapPage({ day = false }: { day?: boolean }) {
     land: day && read.land && Object.hasOwn(ANCHORS, read.land) ? read.land : undefined,
     linie: undefined,
     z: undefined,
+    richtung: undefined,
   };
   const periodMap = useQuery({
     queryKey: ["karte", f.g, f.von, f.bis],
@@ -703,32 +755,10 @@ function StationMap({
   });
 
   useEffect(() => {
-    const m = new MapLibre({
-      container: box.current!,
-      style: STYLE[styled.current],
+    const m = baseMap(box.current!, t("map.region"), styled.current, {
       bounds: GERMANY,
       fitBoundsOptions: { padding: padding(card.current!, box.current!, stack?.current) },
-      attributionControl: false,
-      locale: {
-        "Map.Title": t("map.region"),
-        "NavigationControl.ZoomIn": t("map.zoomIn"),
-        "NavigationControl.ZoomOut": t("map.zoomOut"),
-        "AttributionControl.ToggleAttribution": t("map.attributionToggle"),
-      },
     });
-    // A bottom corner stacks each new control above the previous one, so the attribution comes
-    // first to sit below the zoom buttons.
-    // The control renders HTML, like the style's own attribution links.
-    const licence = `<a href="${t("data.licenceUrl")}" target="_blank" rel="noopener">${t("data.licence")}</a>`;
-    const dataset = `<a href="${t("data.datasetUrl")}" target="_blank" rel="noopener">${t("data.dataset")}</a>`;
-    m.addControl(
-      new AttributionControl({
-        compact: true,
-        customAttribution: t("map.attribution", { dataset, licence }),
-      }),
-      "bottom-right",
-    );
-    m.addControl(new NavigationControl({ showCompass: false }), "bottom-right");
     // The Live-Lage page's state areas, fetched once and kept for every base style.
     let shapes: Shapes | undefined;
     let gone = false;
@@ -747,11 +777,8 @@ function StationMap({
     // Runs for every base style, so a theme switch (which drops our source and layers) gets them back.
     m.on("style.load", () => {
       for (const l of m.getStyle().layers)
-        if (l.type === "symbol") {
+        if (l.type === "symbol")
           m.setLayerZoomRange(l.id, Math.max(l.minzoom ?? 0, LABEL_ZOOM), l.maxzoom ?? 24);
-          const field = l.layout?.["text-field"];
-          if (field) m.setLayoutProperty(l.id, "text-field", localLabel(field));
-        }
       const now = current();
       if (shapes) addAreas(m, shapes, detailAt());
       // A new base style drops the feature-state: the state tinted at the switch keeps its tint.

@@ -11,6 +11,8 @@ export type Metric = (typeof METRICS)[number];
 /** Below LOW_N a value is not shown; below APPROX_N it gets a "~". */
 export const LOW_N = 15;
 export const APPROX_N = 50;
+/** The most a line's id can hold (the API's limit). */
+export const MAX_LINE_ID = 200;
 
 const whole = new Intl.NumberFormat(LOCALE, { maximumFractionDigits: 0 });
 const oneDecimal = new Intl.NumberFormat(LOCALE, {
@@ -280,6 +282,8 @@ export type Filters = {
   linie?: string;
   /** The time series' resolution: only "monat" is written, the day view is the default. */
   z?: "monat";
+  /** The line page's direction of travel: only "2" is written, direction 1 is the default. */
+  richtung?: "2";
   k: Metric;
 };
 
@@ -294,6 +298,7 @@ export function readFilters(p: URLSearchParams): Filters {
   const land = p.get("land");
   const linie = p.get("linie");
   const z = p.get("z");
+  const richtung = p.get("richtung");
   return {
     g: g === "regional" || g === "fern" ? g : undefined,
     bhf: bhf && /^\d+$/.test(bhf) ? bhf : undefined,
@@ -301,8 +306,9 @@ export function readFilters(p: URLSearchParams): Filters {
     bis: validPeriod(bis) ? bis : undefined,
     tag: validDay(tag) ? tag : undefined,
     land: land && /^[a-z]{2}$/.test(land) ? land : undefined,
-    linie: linie && linie.length <= 200 ? linie : undefined,
+    linie: linie && linie.length <= MAX_LINE_ID ? linie : undefined,
     z: z === "monat" ? z : undefined,
+    richtung: richtung === "2" ? richtung : undefined,
     k: METRICS.find((m) => m === k) ?? "puenktlich",
   };
 }
@@ -317,31 +323,45 @@ export function writeFilters({
   land,
   linie,
   z,
+  richtung,
   k,
 }: Filters): URLSearchParams {
   // The order is fixed, so a link built here equals the URL the page would write itself.
-  const keys = { g, bhf, von, bis, tag, land, linie, z, k: k === "puenktlich" ? undefined : k };
+  const keys = {
+    g,
+    bhf,
+    von,
+    bis,
+    tag,
+    land,
+    linie,
+    z,
+    richtung,
+    k: k === "puenktlich" ? undefined : k,
+  };
   return new URLSearchParams(Object.entries(keys).filter((e): e is [string, string] => !!e[1]));
 }
 
-/** The rankings page's own URL keys: what it lists and the minimum sample. */
+/** The rankings page's own URL keys: what it lists, the minimum sample and, for lines, lines or single trains. */
 // ponytail: four minimum-sample values only, though the API accepts any value from 15; a number field when users want other limits
 export const MIN_NS = [100, 500, 1000, 5000] as const;
-export type Rank = { typ: "linien" | "bahnhoefe"; min: number };
+export type Rank = { typ: "linien" | "bahnhoefe"; min: number; art: "linien" | "zuege" };
 
-/** Reads `typ` and `min`; unknown values fall back to the default (stations, 500). */
+/** Reads `typ`, `min` and `art`; unknown values fall back to the default (stations, 500, lines). */
 export function readRank(p: URLSearchParams): Rank {
   return {
     typ: p.get("typ") === "linien" ? "linien" : "bahnhoefe",
     min: MIN_NS.find((n) => String(n) === p.get("min")) ?? 500,
+    art: p.get("art") === "zuege" ? "zuege" : "linien",
   };
 }
 
-/** The filter keys, then the rankings keys, each without its default. */
-export function writeRank(f: Filters, { typ, min }: Rank): URLSearchParams {
+/** The filter keys, then the rankings keys, each without its default; `art` only for lines. */
+export function writeRank(f: Filters, { typ, min, art }: Rank): URLSearchParams {
   const p = writeFilters(f);
   if (typ !== "bahnhoefe") p.set("typ", typ);
   if (min !== 500) p.set("min", String(min));
+  if (typ === "linien" && art === "zuege") p.set("art", art);
   return p;
 }
 
@@ -362,6 +382,10 @@ export const withParam = (key: string, value: string) => (p: URLSearchParams) =>
 /** The search string of a line's time series: the line in the page's category and metric. */
 export const lineSearch = (f: Pick<Filters, "k" | "g">, linie: string) =>
   writeFilters({ k: f.k, g: f.g, linie }).toString();
+
+/** The search string of a line's page: the metric and the period. A line has one train type, so no category. */
+export const linePageSearch = (f: Pick<Filters, "k" | "von" | "bis">) =>
+  writeFilters({ k: f.k, von: f.von, bis: f.bis }).toString();
 
 /**
  * URL updater for the period: sets `edge` and, when that crosses the other edge (shown or

@@ -73,8 +73,80 @@ test.describe("desktop", () => {
       von: "2026-01",
       bis: "2026-03",
     });
-    for (const name of ["Linien", "1.000", "Schlechteste 10 %"])
+    for (const name of ["1.000", "Schlechteste 10 %"])
       await expect(pressed(page, name)).toBeVisible();
+    // "Linien" is also the first choice of the second switch: look in the type switch.
+    await expect(
+      page
+        .getByRole("group", { name: "Linien oder Bahnhöfe" })
+        .getByRole("button", { name: "Linien", exact: true }),
+    ).toHaveAttribute("aria-pressed", "true");
+  });
+
+  test("lines or single trains: the switch writes art and the request carries it", async ({
+    page,
+  }) => {
+    const requests = await mockApi(page);
+    await page.goto("/muster/rankings?typ=linien");
+    const art = page.getByRole("group", { name: "Linien oder Einzelzüge" });
+    await expect(column(page, WORST)).toBeVisible();
+    // The default is lines: not written, not sent.
+    await expect(art.getByRole("button", { name: "Linien", exact: true })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(lastQuery(requests)).toEqual({
+      typ: "linien",
+      metrik: "puenktlich",
+      min_n: "500",
+      gattung: "alle",
+    });
+    await art.getByRole("button", { name: "Einzelzüge" }).click();
+    await expect(page).toHaveURL(/[?&]typ=linien&art=zuege$/);
+    await expect.poll(() => lastQuery(requests)).toMatchObject({ typ: "linien", art: "zuege" });
+    await expect(art.getByRole("button", { name: "Einzelzüge" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    await expect(page.getByText(/Einzelzüge mit mindestens 500 Halten/)).toBeVisible();
+    // A change of the metric or the minimum keeps it.
+    await page.getByRole("button", { name: "Ausfälle", exact: true }).click();
+    await page.getByRole("button", { name: "1.000", exact: true }).click();
+    await expect(page).toHaveURL(/[?&]art=zuege$/);
+    await expect
+      .poll(() => lastQuery(requests))
+      .toMatchObject({ metrik: "ausfallquote", min_n: "1000", art: "zuege" });
+    await art.getByRole("button", { name: "Linien", exact: true }).click();
+    await expect(page).not.toHaveURL(/art=/);
+    await expect.poll(() => lastQuery(requests)).not.toHaveProperty("art");
+    // Stations have no such switch, and leaving the lines drops the key.
+    await art.getByRole("button", { name: "Einzelzüge" }).click();
+    await page.getByRole("button", { name: "Bahnhöfe", exact: true }).click();
+    await expect(page).not.toHaveURL(/art=/);
+    await expect(art).toHaveCount(0);
+    await expect.poll(() => lastQuery(requests)).toMatchObject({ typ: "bahnhoefe" });
+    expect(lastQuery(requests)).not.toHaveProperty("art");
+  });
+
+  test("an art key that is the default, invalid or on the stations is dropped", async ({
+    page,
+  }) => {
+    const requests = await mockApi(page);
+    await page.goto("/muster/rankings?typ=linien&art=linien&min=1000");
+    await expect(column(page, WORST)).toBeVisible();
+    await expect(page).toHaveURL(/\/muster\/rankings\?typ=linien&min=1000$/);
+    await page.goto("/muster/rankings?typ=linien&art=x");
+    await expect(page).toHaveURL(/\/muster\/rankings\?typ=linien$/);
+    await page.goto("/muster/rankings?art=zuege&k=p90");
+    await expect(page).toHaveURL(/\/muster\/rankings\?k=p90$/);
+    await expect(column(page, WORST)).toBeVisible();
+    expect(lastQuery(requests)).toEqual({
+      typ: "bahnhoefe",
+      metrik: "p90",
+      min_n: "500",
+      gattung: "alle",
+    });
+    await expect(page.getByRole("group", { name: "Linien oder Einzelzüge" })).toHaveCount(0);
   });
 
   test("the switches write the URL and send a new request", async ({ page }) => {
@@ -125,7 +197,7 @@ test.describe("desktop", () => {
     await expect(page).toHaveURL(/\/bahnhof\/8000550\?g=fern&von=2025-11&k=median$/);
   });
 
-  test("line rows show the type badge and link to the time series, keeping the category", async ({
+  test("line rows show the type badge and link to the line page, keeping metric and period", async ({
     page,
   }) => {
     await mockApi(page);
@@ -135,25 +207,20 @@ test.describe("desktop", () => {
       worst.getByRole("listitem").first().getByText("RE", { exact: true }),
     ).toBeVisible();
     const link = worst.getByRole("link", { name: /RE 1/ }).first();
-    await expect(link).toHaveAttribute(
-      "href",
-      "/muster/zeitverlauf?g=fern&linie=RE+1%3A8000207&k=median",
-    );
+    // A line has one train type, so the category is not passed on.
+    await expect(link).toHaveAttribute("href", "/linie/RE%201%3A8000207?von=2025-11&k=median");
     await link.click();
-    await expect(page).toHaveURL(/\/muster\/zeitverlauf\?g=fern&linie=RE\+1%3A8000207&k=median$/);
-    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Zeitverlauf");
+    await expect(page).toHaveURL(/\/linie\/RE%201%3A8000207\?von=2025-11&k=median$/);
+    await expect(page.getByRole("heading", { level: 1 })).toContainText("RE57");
   });
 
-  test("a line row passes every metric on to the time series unchanged", async ({ page }) => {
+  test("a line row passes every metric on to the line page unchanged", async ({ page }) => {
     await mockApi(page);
     await page.goto("/muster/rankings?typ=linien&k=p90");
     const link = column(page, WORST).getByRole("link", { name: /RE 1/ }).first();
-    await expect(link).toHaveAttribute("href", "/muster/zeitverlauf?linie=RE+1%3A8000207&k=p90");
+    await expect(link).toHaveAttribute("href", "/linie/RE%201%3A8000207?k=p90");
     await page.goto("/muster/rankings?typ=linien&k=ausfall");
-    await expect(link).toHaveAttribute(
-      "href",
-      "/muster/zeitverlauf?linie=RE+1%3A8000207&k=ausfall",
-    );
+    await expect(link).toHaveAttribute("href", "/linie/RE%201%3A8000207?k=ausfall");
   });
 
   test("from 1280 px the two lists stand side by side and nothing overflows", async ({ page }) => {
@@ -280,6 +347,32 @@ test.describe("mobile", () => {
     await expect(bestTab).toHaveAttribute("aria-selected", "true");
     await expect(column(page, BEST).getByRole("listitem")).toHaveCount(10);
     await expect(column(page, WORST)).toHaveCount(0);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+      true,
+    );
+  });
+
+  test("the lines or single trains switch fits the phone and has 44 px hit areas", async ({
+    page,
+  }) => {
+    await mockApi(page);
+    await page.goto("/muster/rankings?typ=linien");
+    await expect(column(page, WORST)).toBeVisible();
+    const art = page.getByRole("group", { name: "Linien oder Einzelzüge" });
+    for (const name of ["Linien", "Einzelzüge"]) {
+      const b = (await art.getByRole("button", { name, exact: true }).boundingBox())!;
+      expect(b.x, name).toBeGreaterThanOrEqual(0);
+      expect(b.x + b.width, name).toBeLessThanOrEqual(page.viewportSize()!.width);
+      // A tap 21 px above and below the centre still lands on the button.
+      const hit = await art.getByRole("button", { name, exact: true }).evaluate((el) => {
+        el.scrollIntoView({ block: "center", inline: "center" });
+        const r = el.getBoundingClientRect();
+        const x = r.left + r.width / 2;
+        const y = r.top + r.height / 2;
+        return [-21, 21].every((dy) => el.contains(document.elementFromPoint(x, y + dy)));
+      });
+      expect(hit, name).toBe(true);
+    }
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
       true,
     );

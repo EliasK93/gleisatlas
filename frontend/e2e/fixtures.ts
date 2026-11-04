@@ -16,6 +16,8 @@ type Tag = components["schemas"]["Tag"];
 type Tageskarte = components["schemas"]["Tageskarte"];
 type Normal = components["schemas"]["Normal"];
 type Klasse = components["schemas"]["Klasse"];
+type Linie = components["schemas"]["Linie"];
+type Abschnitt = components["schemas"]["Abschnitt"];
 
 /** The dummies of frontend/.env.development, which only the dev server reads; the e2e build has none. */
 export const IMPRESSUM = {
@@ -27,7 +29,7 @@ export const IMPRESSUM = {
 
 // Routed by path, so a set VITE_API_URL can never send a test to a real server.
 const API_PATH =
-  /^\/(heatmap|datenstand|stationen|karte|tageskarte|rankings|zeitverlauf|tagesverlauf)(?:\/([^/]+)(\/statistik|\/linien)?)?$/;
+  /^\/(heatmap|datenstand|stationen|karte|tageskarte|rankings|zeitverlauf|tagesverlauf|linie)(?:\/([^/]+)(\/statistik|\/linien)?)?$/;
 const CORS = { "access-control-allow-origin": "*" };
 
 /** Stand in for the OpenFreeMap styles (light and dark), so map tests never touch the network.
@@ -653,13 +655,92 @@ export function heuteKarte(sources: Sources): Tageskarte {
   };
 }
 
+export const LINE_ID = "RE57:08000080";
+export const LINE_PATH = "/linie/RE57%3A08000080";
+
+/**
+ * A line with four stations on its axis (Dortmund to Warburg), one branch station with
+ * coordinates (Werl) and one without (Haltepunkt). The values differ per station, so each
+ * punctuality class and the thin and the empty cases occur: Dortmund 90 % (class 1), Hamm 72 %
+ * (3), Soest only 10 stops (too few), Warburg 55 % (5), Werl 85 % (2).
+ */
+export function lineFixture(): Linie {
+  const stop = (
+    eva: string,
+    name: string,
+    pos: number | null,
+    at: [number, number] | null,
+    n: number,
+    puenktlich: number,
+    median: number,
+  ) => ({
+    eva,
+    name,
+    lat: at && at[0],
+    lon: at && at[1],
+    pos,
+    n,
+    ausfallquote: 0.02,
+    median,
+    p90: median * 4,
+    puenktlich,
+  });
+  const bahnhoefe = [
+    stop("08000080", "Dortmund Hbf", 0, [51.518, 7.459], 9000, 0.9, 1),
+    stop("08000149", "Hamm (Westf) Hbf", 1, [51.678, 7.808], 8000, 0.72, 3),
+    stop("08000367", "Soest", 2, [51.571, 8.108], 10, 0.8, 2),
+    stop("08000718", "Warburg (Westf)", 3, [51.49, 9.14], 7000, 0.55, 9),
+    stop("08000774", "Werl", null, [51.554, 7.911], 3000, 0.85, 2),
+    stop("08000999", "Haltepunkt ohne Karte", null, null, 200, 0.95, 1),
+  ];
+  return {
+    linie: LINE_ID,
+    name: "RE57",
+    label: "RE57 Dortmund Hbf – Warburg (Westf)",
+    typ: "RE",
+    zug: false,
+    ohne_echtzeit: false,
+    // The whole line pooled: 78 % on time, median 3 min, worst tenth 12 min, 2 % cancelled.
+    gesamt: { n: 27210, ausfallquote: 0.02, median: 3, p90: 12, puenktlich: 0.78 },
+    achse: bahnhoefe.filter((s) => s.pos !== null).map((s) => s.eva),
+    bahnhoefe,
+  };
+}
+
+/**
+ * The line's sections. Direction 1 (towards Warburg): -0.8 (class 1, 12,345 trips), +0.1 (3) and
+ * +1.8 (5), summing to +1.1. Direction 2: +0.6 (4), -0.3 (2) and +0.4 with only 30 trips (thin),
+ * summing to +0.7. Four others: two touching the branch station, one skipping Hamm, one to the
+ * station without coordinates.
+ */
+export function abschnitteFixture(): Abschnitt[] {
+  const s = (von_eva: string, nach_eva: string, minuten: number, n: number) => ({
+    von_eva,
+    nach_eva,
+    minuten,
+    n,
+  });
+  return [
+    s("08000080", "08000149", -0.8, 12345),
+    s("08000149", "08000367", 0.1, 8000),
+    s("08000367", "08000718", 1.8, 6000),
+    s("08000718", "08000367", 0.6, 5800),
+    s("08000367", "08000149", -0.3, 7900),
+    s("08000149", "08000080", 0.4, 30),
+    s("08000149", "08000774", 0.3, 500),
+    s("08000774", "08000367", 0.2, 300),
+    s("08000080", "08000367", -0.1, 700),
+    s("08000367", "08000999", 0.5, 100),
+  ];
+}
+
 /** What a `zeitverlauf` or `tagesverlauf` callback returns for an unknown selection (a 404). */
 export const NOT_FOUND = "not-found";
 
 /** Serves the API and the base map style from fixtures. `heatmap`, `karte`, `statistik`,
- * `rankings`, `linien`, `zeitverlauf`, `tagesverlauf` and `tageskarte` return the body, or null
- * for a server error; an unknown EVA is a 404, and so is `NOT_FOUND` from `zeitverlauf`,
- * `tagesverlauf` or `tageskarte`.
+ * `rankings`, `linien`, `zeitverlauf`, `tagesverlauf`, `tageskarte`, `linie` and `abschnitte`
+ * return the body, or null for a server error; an unknown EVA is a 404, and so is `NOT_FOUND` from
+ * `zeitverlauf`, `tagesverlauf`, `tageskarte`, `linie` or `abschnitte`.
  * Returns the list of requested API URLs.
  */
 export async function mockApi(
@@ -680,6 +761,8 @@ export async function mockApi(
   ) => Tagesverlauf | typeof NOT_FOUND | null = tagesverlaufFixture,
   tageskarte: (tag: string) => Tageskarte | typeof NOT_FOUND | null = tageskarteFixture,
   datenstand: () => Datenstand = () => DATENSTAND,
+  linie: (id: string) => Linie | typeof NOT_FOUND | null = lineFixture,
+  abschnitte: (id: string) => Abschnitt[] | typeof NOT_FOUND | null = abschnitteFixture,
 ): Promise<URL[]> {
   const requests: URL[] = [];
   await page.route("https://tiles.openfreemap.org/**", (route) =>
@@ -703,7 +786,11 @@ export async function mockApi(
         const q = url.searchParams;
         body = tageskarte(q.get("tag") ?? "");
       } else if (name === "datenstand") body = datenstand();
-      else if (name === "rankings") {
+      else if (name === "linie") {
+        // The page /linie/<id> shares its prefix with the API; /linie/abschnitte is the sections.
+        const id = url.searchParams.get("linie") ?? "";
+        body = eva === "abschnitte" ? abschnitte(id) : linie(id);
+      } else if (name === "rankings") {
         const q = url.searchParams;
         body = rankings(q.get("typ") ?? "", q.get("metrik") ?? "", Number(q.get("min_n")));
       } else if (name === "zeitverlauf") {

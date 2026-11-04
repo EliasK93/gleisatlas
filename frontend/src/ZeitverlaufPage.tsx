@@ -33,6 +33,7 @@ import {
   formatMonth,
   formatPeriod,
   int,
+  linePageSearch,
   monthOf,
   readFilters,
   withParam,
@@ -44,6 +45,7 @@ import type { components } from "./schema";
 import {
   EmptyCard,
   ErrorBanner,
+  linePath,
   MetricSwitch,
   Segmented,
   ShareButton,
@@ -131,6 +133,7 @@ export default function ZeitverlaufPage() {
     ...read,
     tag: undefined,
     land: undefined,
+    richtung: undefined,
     bhf: read.linie ? undefined : read.bhf,
     z: read.linie ? undefined : read.z,
   };
@@ -203,7 +206,14 @@ export default function ZeitverlaufPage() {
           <PageTitle>{t("nav.timeline")}</PageTitle>
           <p className="mt-1.5 max-w-[68ch] text-text-2">{t(day ? "zv.lead.day" : "zv.lead")}</p>
         </div>
-        <ShareButton />
+        <div className="flex flex-wrap items-center gap-2">
+          {f.linie && (
+            <Link to={{ pathname: linePath(f.linie), search: linePageSearch(f) }} className="btn">
+              {t("line.open")}
+            </Link>
+          )}
+          <ShareButton />
+        </div>
       </div>
       <Filters noPeriod lineTitle={data?.titel ?? undefined} />
       {!f.linie && (
@@ -515,19 +525,22 @@ function Skeleton() {
 }
 
 /**
- * The station page's card: punctuality of the last 12 months with the latest value and a link to
- * the full series of this station. Months with little data or gaps are dashed like in the series.
+ * The card of the station and line pages: punctuality of the last 12 months with the latest value
+ * and a link to the full series of this station or line. Months with little data or gaps are dashed like in the series.
  */
 export function Sparkline({
   eva,
+  linie,
   g,
   to,
 }: {
-  eva: string;
+  /** A station or a line, not both. */
+  eva?: string;
+  linie?: string;
   g?: "regional" | "fern";
   to: { pathname: string; search: string };
 }) {
-  const q = useQuery(zeitverlaufQuery(eva, undefined, g));
+  const q = useQuery(zeitverlaufQuery(eva, linie, g));
   const datenstand = useDatenstand();
   const [tip, setTip] = useTip();
   const rows = monthRows(q.data?.monate.slice(-12) ?? [], datenstand.data?.fehlende_stunden ?? {});
@@ -540,7 +553,7 @@ export function Sparkline({
   else if (q.data === undefined || !datenstand.data)
     body = <Pulse className="h-[110px] animate-pulse rounded-lg bg-surface-2" />;
   else if (!rows.some((r) => r.n > 0))
-    body = <p className="text-text-2">{t("station.history.none")}</p>;
+    body = <p className="text-text-2">{t(linie ? "line.history.none" : "station.history.none")}</p>;
   else
     body = (
       <div

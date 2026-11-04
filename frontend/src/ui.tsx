@@ -1,9 +1,9 @@
 /** Pieces shared by the Discover pages: metric switch, value display, states and Teilen. */
-import { useEffect, useId, useState, useSyncExternalStore, type ReactNode } from "react";
-import { NavLink, useLocation } from "react-router";
+import { useEffect, useId, useState, useSyncExternalStore, type ReactNode, type Ref } from "react";
+import { Link, NavLink, useLocation, type To } from "react-router";
 import { t, type MessageKey } from "./i18n";
 import { Icon } from "./Icon";
-import { APPROX_N, classOf, DEFS, int, LOW_N, METRICS, type Metric } from "./metrics";
+import { APPROX_N, classOf, DEFS, int, LOW_N, METRICS, tenths, type Metric } from "./metrics";
 import type { components } from "./schema";
 
 type Stats = components["schemas"]["Stats"];
@@ -54,6 +54,86 @@ export function show(metric: Metric, s: Stats | undefined, slot: string): Shown 
     fill: FILL[DEFS[metric].scale][classOf(metric, v) - 1],
     label: t("hm.cell", { slot, value, n: int(n) }),
   };
+}
+
+/** The sentence under a tile's value; what stands in for a value that is not shown. */
+function sentence(metric: Metric, shown: Shown, noCancel: boolean) {
+  if (shown.value === undefined) return shown.low ? t("hm.lowLegend") : t("hm.onlyCancelledLegend");
+  if (metric === "puenktlich") return t("station.sentence.puenktlich", { x: tenths(shown.value) });
+  if (metric !== "ausfall") return t(`station.sentence.${metric}`);
+  if (noCancel) return t("station.sentence.noCancel");
+  // The rate is rounded to 0.1 %, so a smaller one has no sensible "1 von N".
+  if (shown.value < 0.1) return t("station.sentence.ausfallRare");
+  return t("station.sentence.ausfall", { n: int(Math.round(100 / shown.value)) });
+}
+
+/**
+ * The four metric tiles of a station or a whole line: value, sentence, `meta`, a coloured edge,
+ * and a note above when a value has too little data. `stats` undefined shows the empty look.
+ */
+export function MetricTiles({
+  stats,
+  noCancel,
+  meta,
+  label,
+}: {
+  stats: Stats | undefined;
+  /** True when not one stop was cancelled, which the sentence of the cancellations says. */
+  noCancel: boolean;
+  meta: string;
+  label: string;
+}) {
+  const tiles = METRICS.map((m) => ({ m, shown: show(m, stats, "") }));
+  return (
+    <>
+      {tiles.some((x) => x.shown.low) && (
+        <p className="flex items-center gap-2 rounded-xl border border-border bg-surface-2 px-4 py-3 text-[13px]">
+          <span aria-hidden="true">◌</span>
+          {t("map.lowNote", { n: int(stats?.n ?? 0) })}
+        </p>
+      )}
+
+      <ul aria-label={label} className="grid grid-cols-2 gap-3 lg:grid-cols-4 lg:gap-4">
+        {tiles.map(({ m, shown }) => {
+          const cancel = m === "ausfall";
+          return (
+            <li
+              key={m}
+              className="relative flex flex-col gap-1 overflow-hidden rounded-xl border border-border bg-surface p-4 pl-5"
+            >
+              <i
+                aria-hidden="true"
+                className={`absolute inset-y-0 left-0 w-1 ${cancel && !shown.low ? "bg-cancel" : shown.fill}`}
+              />
+              <div className="flex items-center gap-1.5 text-[12.5px] font-[550] text-text-2">
+                {cancel && (
+                  <span aria-hidden="true" className="font-semibold text-cancel">
+                    ✕
+                  </span>
+                )}
+                {/* ponytail: a native title is hover-only; use a popover when touch users need the explanation */}
+                <span
+                  title={t(`metric.${m}.help`)}
+                  className="cursor-help underline decoration-text-3 decoration-dotted underline-offset-[3px]"
+                >
+                  {t(`metric.${m}`)}
+                </span>
+              </div>
+              <div
+                className={`text-[32px] leading-[1.1] font-[650] tracking-[-0.02em] tabular-nums ${
+                  shown.low ? "text-text-3" : cancel ? "text-cancel" : ""
+                }`}
+              >
+                {shown.text}
+              </div>
+              <p className="text-[13px] text-text-2">{sentence(m, shown, noCancel)}</p>
+              <p className="mt-auto pt-1.5 text-xs text-text-3">{meta}</p>
+            </li>
+          );
+        })}
+      </ul>
+    </>
+  );
 }
 
 /** How long a first load may take before the hint says the server is probably starting up. */
@@ -213,6 +293,8 @@ export function MetricSwitch({
 export const MAP = "/karte";
 export const LAGE = "/lage";
 export const stationPath = (eva: string) => `/bahnhof/${eva}`;
+/** A line's page; ids hold a colon and may hold spaces. */
+export const linePath = (id: string) => `/linie/${encodeURIComponent(id)}`;
 export const HEATMAP = "/muster/heatmap";
 export const RANKINGS = "/muster/rankings";
 export const ZEITVERLAUF = "/muster/zeitverlauf";
@@ -329,6 +411,78 @@ export function Cancelled({ stats, className = "" }: { stats: Stats; className?:
       <span className="sr-only">{t("metric.ausfall.cell", { v: text })}</span>
       <span aria-hidden="true">✕ {text}</span>
     </span>
+  );
+}
+
+const ROW_COLUMNS = "md:grid-cols-[minmax(0,1.3fr)_minmax(0,1.2fr)_52px_72px_104px]";
+
+/** The column names above a list of `StatRow`s, for the table look; every row also reads fine on its own. */
+export function RowHead({ first, metric }: { first: string; metric: string }) {
+  return (
+    <div
+      aria-hidden="true"
+      className={`hidden gap-3 px-1 pb-2 text-xs text-text-3 md:grid ${ROW_COLUMNS}`}
+    >
+      <span>{first}</span>
+      <span className="col-span-2">{metric}</span>
+      <span>{t("station.lines.n")}</span>
+      <span className="text-right">✕ {t("metric.ausfall")}</span>
+    </div>
+  );
+}
+
+/**
+ * One row of a station's or a line's table, a link: name (with an optional type badge), bar,
+ * value, stops and cancellations. A row card on a phone, a table row from 768 px.
+ */
+export function StatRow({
+  to,
+  name,
+  badge,
+  metric,
+  stats,
+  most,
+  linkRef,
+  marker,
+}: {
+  to: To;
+  name: string;
+  badge?: string;
+  metric: Metric;
+  stats: Stats;
+  /** The largest value in view, for the bar of a metric that is not a share. */
+  most?: number;
+  linkRef?: Ref<HTMLAnchorElement>;
+  /** Drawn beside the row, positioned by the caller relative to the row. */
+  marker?: ReactNode;
+}) {
+  const shown = show(metric, stats, name);
+  return (
+    <li className="relative md:last:*:border-b-0">
+      <Link
+        ref={linkRef}
+        to={to}
+        className={`grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-2 rounded-lg border border-border p-3 hover:bg-surface-2 md:gap-y-0 md:rounded-none md:border-0 md:border-b md:px-1 md:py-2.5 ${ROW_COLUMNS}`}
+      >
+        <span className="flex min-w-0 flex-wrap items-center gap-x-1.5 md:order-1">
+          {badge && <Badge>{badge}</Badge>}
+          <b className="font-semibold">{name}</b>
+        </span>
+        <b
+          className={`text-right font-[650] tabular-nums md:order-3 ${shown.low ? "text-text-3" : ""}`}
+        >
+          {shown.text}
+        </b>
+        <div className="col-span-2 md:order-2 md:col-span-1">
+          <MiniBar metric={metric} shown={shown} most={most} />
+        </div>
+        <span className="text-xs text-text-3 tabular-nums md:order-4">
+          {t("station.n", { n: int(stats.n) })}
+        </span>
+        <Cancelled stats={stats} className="text-right text-xs md:order-5" />
+      </Link>
+      {marker}
+    </li>
   );
 }
 

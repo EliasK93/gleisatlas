@@ -11,6 +11,7 @@ import {
 } from "react-router";
 import { useDatenstand } from "./api";
 import HeatmapPage from "./HeatmapPage";
+import LinePage from "./LinePage";
 // ponytail: MapLibre ships in the main bundle (about 400 kB gzip); lazy-load MapPage if other pages' first load matters
 import MapPage from "./MapPage";
 import { LANG, t, tx, type Lang, type MessageKey } from "./i18n";
@@ -52,6 +53,7 @@ export default function App() {
         <Route path={MAP} element={<MapPage key="karte" />} />
         <Route path={LAGE} element={<MapPage key="lage" day />} />
         <Route path={stationPath(":eva")} element={<StationPage />} />
+        <Route path="/linie/:id" element={<LinePage />} />
         <Route path="/muster" element={<Redirect to={HEATMAP} />} />
         <Route path={HEATMAP} element={<HeatmapPage />} />
         <Route path={RANKINGS} element={<RankingsPage />} />
@@ -112,7 +114,6 @@ function Shell() {
           <Soon icon="route" label="nav.connection" />
           <Soon icon="xfer" label="nav.transfer" />
           <Group label="nav.later" />
-          <Soon icon="trend" label="nav.chains" />
           <Soon icon="star" label="nav.saved" />
           <div className="mt-auto border-t border-border pt-3 text-[13px]">
             <Soon icon="info" label="nav.method" />

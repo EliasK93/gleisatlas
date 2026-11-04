@@ -9,7 +9,7 @@ import {
   API_FIELD,
   formatPeriod,
   int,
-  lineSearch,
+  linePageSearch,
   MIN_NS,
   readFilters,
   readRank,
@@ -33,9 +33,9 @@ import {
   Segmented,
   ShareButton,
   show,
+  linePath,
   stationPath,
   useNarrow,
-  ZEITVERLAUF,
   SlowHint,
   Page,
   PageTitle,
@@ -48,6 +48,10 @@ type Eintrag = components["schemas"]["RanglistenEintrag"];
 const TYPES = (["linien", "bahnhoefe"] as const).map((v) => ({
   value: v,
   label: t(`rk.typ.${v}`),
+}));
+const ARTS = (["linien", "zuege"] as const).map((v) => ({
+  value: v,
+  label: t(`rk.art.${v}`),
 }));
 const MINS = MIN_NS.map((n) => ({ value: n, label: int(n) }));
 const COLUMNS = [
@@ -67,18 +71,22 @@ export default function RankingsPage() {
     land: undefined,
     linie: undefined,
     z: undefined,
+    richtung: undefined,
   };
   const rank = readRank(params);
   // Days in the URL round outward: this page asks for whole months.
   const m = useMonthPeriod(f);
+  // Lines are the default: the request names single trains only.
+  const single = rank.typ === "linien" && rank.art === "zuege";
   const q = useQuery({
-    queryKey: ["rankings", rank.typ, f.k, rank.min, f.g, m.von, m.bis],
+    queryKey: ["rankings", rank.typ, single, f.k, rank.min, f.g, m.von, m.bis],
     queryFn: () =>
       api
         .GET("/rankings", {
           params: {
             query: {
               typ: rank.typ,
+              art: single ? "zuege" : undefined,
               metrik: API_FIELD[f.k],
               min_n: rank.min,
               gattung: f.g ?? "alle",
@@ -112,11 +120,14 @@ export default function RankingsPage() {
 
   const meta =
     data && data.anzahl > 0
-      ? t(rank.typ === "linien" ? "rk.meta.linien" : "rk.meta.bahnhoefe", {
-          count: int(data.anzahl),
-          min: int(data.min_n),
-          period: formatPeriod(data.von, data.bis),
-        })
+      ? t(
+          single ? "rk.meta.zuege" : rank.typ === "linien" ? "rk.meta.linien" : "rk.meta.bahnhoefe",
+          {
+            count: int(data.anzahl),
+            min: int(data.min_n),
+            period: formatPeriod(data.von, data.bis),
+          },
+        )
       : "";
 
   return (
@@ -136,6 +147,15 @@ export default function RankingsPage() {
             onChange={(typ) => setParams(withRank({ typ }))}
             className="-my-2 py-2 md:m-0 md:p-0"
           />
+          {rank.typ === "linien" && (
+            <Segmented
+              label={t("rk.artLabel")}
+              options={ARTS}
+              value={rank.art}
+              onChange={(art) => setParams(withRank({ art }))}
+              className="-my-2 py-2 md:m-0 md:p-0"
+            />
+          )}
           <ShareButton />
         </div>
       </div>
@@ -182,8 +202,8 @@ function Lists({
     ...[...data.schlechteste, ...data.beste].map((e) => show(metric, e, "").value ?? 0),
     1,
   );
-  // Station rows keep the filters; the rankings keys are this page's own. A line row opens the
-  // time series of that line in the same category and metric.
+  // Station rows keep the filters; the rankings keys are this page's own. A line row opens
+  // the line's page in the same metric and period.
   const search = writeFilters(filters).toString();
   const shown = narrow ? COLUMNS.filter((c) => c.key === tab) : COLUMNS;
   return (
@@ -224,7 +244,7 @@ function Lists({
                   to={
                     rank.typ === "bahnhoefe"
                       ? { pathname: stationPath(e.id), search }
-                      : { pathname: ZEITVERLAUF, search: lineSearch(filters, e.id) }
+                      : { pathname: linePath(e.id), search: linePageSearch(filters) }
                   }
                 />
               ))}

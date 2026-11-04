@@ -12,11 +12,9 @@ import {
   DEFS,
   formatPeriod,
   int,
-  lineSearch,
-  METRICS,
+  linePageSearch,
   readFilters,
   share,
-  tenths,
   withParam,
   writeFilters,
   type Filters as FilterKeys,
@@ -25,24 +23,26 @@ import {
 import type { components } from "./schema";
 import {
   Badge,
-  Cancelled,
   EmptyCard,
   ErrorBanner,
   FILL,
   HEATMAP,
+  linePath,
   MAP,
   MetricSwitch,
+  MetricTiles,
   MiniBar,
   Segmented,
   ShareButton,
   show,
   SoonTag,
   ZEITVERLAUF,
-  type Shown,
   SlowHint,
   Page,
   PageTitle,
   Pulse,
+  RowHead,
+  StatRow,
 } from "./ui";
 import { StationSearch, useOpenStation } from "./StationSearch";
 import { Sparkline } from "./ZeitverlaufPage";
@@ -70,6 +70,7 @@ export default function StationPage() {
     land: undefined,
     linie: undefined,
     z: undefined,
+    richtung: undefined,
   };
   // Days in the URL round outward: this page asks for whole months.
   const m = useMonthPeriod(f);
@@ -200,17 +201,6 @@ function Skeleton() {
   );
 }
 
-/** The sentence under a tile's value; what stands in for a value that is not shown. */
-function sentence(metric: Metric, shown: Shown, data: Statistik) {
-  if (shown.value === undefined) return shown.low ? t("hm.lowLegend") : t("hm.onlyCancelledLegend");
-  if (metric === "puenktlich") return t("station.sentence.puenktlich", { x: tenths(shown.value) });
-  if (metric !== "ausfall") return t(`station.sentence.${metric}`);
-  if (data.ausgefallen === 0) return t("station.sentence.noCancel");
-  // The rate is rounded to 0.1 %, so a smaller one has no sensible "1 von N".
-  if (shown.value < 0.1) return t("station.sentence.ausfallRare");
-  return t("station.sentence.ausfall", { n: int(Math.round(100 / shown.value)) });
-}
-
 function StationView({
   data,
   f,
@@ -229,58 +219,14 @@ function StationView({
   onMetric: (m: Metric) => void;
 }) {
   const meta = t("hm.meta", { n: int(data.n), period: period ?? "" });
-  const tiles = METRICS.map((m) => ({ m, shown: show(m, data.gesamt ?? undefined, "") }));
   return (
     <div className="flex flex-col gap-4">
-      {tiles.some((x) => x.shown.low) && (
-        <p className="flex items-center gap-2 rounded-xl border border-border bg-surface-2 px-4 py-3 text-[13px]">
-          <span aria-hidden="true">◌</span>
-          {t("map.lowNote", { n: int(data.n) })}
-        </p>
-      )}
-
-      <ul
-        aria-label={t("station.tiles")}
-        className="grid grid-cols-2 gap-3 lg:grid-cols-4 lg:gap-4"
-      >
-        {tiles.map(({ m, shown }) => {
-          const cancel = m === "ausfall";
-          return (
-            <li
-              key={m}
-              className="relative flex flex-col gap-1 overflow-hidden rounded-xl border border-border bg-surface p-4 pl-5"
-            >
-              <i
-                aria-hidden="true"
-                className={`absolute inset-y-0 left-0 w-1 ${cancel && !shown.low ? "bg-cancel" : shown.fill}`}
-              />
-              <div className="flex items-center gap-1.5 text-[12.5px] font-[550] text-text-2">
-                {cancel && (
-                  <span aria-hidden="true" className="font-semibold text-cancel">
-                    ✕
-                  </span>
-                )}
-                {/* ponytail: a native title is hover-only; use a popover when touch users need the explanation */}
-                <span
-                  title={t(`metric.${m}.help`)}
-                  className="cursor-help underline decoration-text-3 decoration-dotted underline-offset-[3px]"
-                >
-                  {t(`metric.${m}`)}
-                </span>
-              </div>
-              <div
-                className={`text-[32px] leading-[1.1] font-[650] tracking-[-0.02em] tabular-nums ${
-                  shown.low ? "text-text-3" : cancel ? "text-cancel" : ""
-                }`}
-              >
-                {shown.text}
-              </div>
-              <p className="text-[13px] text-text-2">{sentence(m, shown, data)}</p>
-              <p className="mt-auto pt-1.5 text-xs text-text-3">{meta}</p>
-            </li>
-          );
-        })}
-      </ul>
+      <MetricTiles
+        stats={data.gesamt ?? undefined}
+        noCancel={data.ausgefallen === 0}
+        meta={meta}
+        label={t("station.tiles")}
+      />
 
       <Distribution data={data} meta={meta} />
 
@@ -530,49 +476,19 @@ function Lines({ eva, f }: { eva: string; f: FilterKeys }) {
   else
     body = (
       <>
-        {/* The column names, for the table look; every row also reads fine on its own. */}
-        <div
-          aria-hidden="true"
-          className="hidden grid-cols-[minmax(0,1.3fr)_minmax(0,1.2fr)_52px_72px_104px] gap-3 px-1 pb-2 text-xs text-text-3 md:grid"
-        >
-          <span>{t("station.lines.line")}</span>
-          <span className="col-span-2">{t("metric.puenktlich")}</span>
-          <span>{t("station.lines.n")}</span>
-          <span className="text-right">✕ {t("metric.ausfall")}</span>
-        </div>
+        <RowHead first={t("station.lines.line")} metric={t("metric.puenktlich")} />
         <ul className="flex flex-col gap-2.5 md:gap-0">
-          {(all ? lines : lines.slice(0, LINES_FIRST)).map((l, i) => {
-            const shown = show("puenktlich", l, l.name);
-            return (
-              <li key={l.linie} className="md:last:*:border-b-0">
-                <Link
-                  ref={i === LINES_FIRST ? firstNew : undefined}
-                  to={{
-                    pathname: ZEITVERLAUF,
-                    search: lineSearch(f, l.linie),
-                  }}
-                  className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-2 rounded-lg border border-border p-3 hover:bg-surface-2 md:grid-cols-[minmax(0,1.3fr)_minmax(0,1.2fr)_52px_72px_104px] md:gap-y-0 md:rounded-none md:border-0 md:border-b md:px-1 md:py-2.5"
-                >
-                  <span className="flex min-w-0 flex-wrap items-center gap-x-1.5 md:order-1">
-                    <Badge>{l.typ}</Badge>
-                    <b className="font-semibold">{l.name}</b>
-                  </span>
-                  <b
-                    className={`text-right font-[650] tabular-nums md:order-3 ${shown.low ? "text-text-3" : ""}`}
-                  >
-                    {shown.text}
-                  </b>
-                  <div className="col-span-2 md:order-2 md:col-span-1">
-                    <MiniBar metric="puenktlich" shown={shown} />
-                  </div>
-                  <span className="text-xs text-text-3 tabular-nums md:order-4">
-                    {t("station.n", { n: int(l.n) })}
-                  </span>
-                  <Cancelled stats={l} className="text-right text-xs md:order-5" />
-                </Link>
-              </li>
-            );
-          })}
+          {(all ? lines : lines.slice(0, LINES_FIRST)).map((l, i) => (
+            <StatRow
+              key={l.linie}
+              linkRef={i === LINES_FIRST ? firstNew : undefined}
+              to={{ pathname: linePath(l.linie), search: linePageSearch(f) }}
+              name={l.name}
+              badge={l.typ}
+              metric="puenktlich"
+              stats={l}
+            />
+          ))}
         </ul>
         {lines.length > LINES_FIRST && (
           <button

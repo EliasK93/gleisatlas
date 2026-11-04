@@ -23,7 +23,7 @@ const chip = (on: boolean) =>
 
 /**
  * Global filter bar of the Discover area. All state lives in the URL. `noStation` leaves out the
- * Bahnhof chip and `noPeriod` the Zeitraum chip. `stationName` is the selected station's name when
+ * Bahnhof chip, `noCategory` the Gattung chip and `noPeriod` the Zeitraum chip. `stationName` is the selected station's name when
  * the page already has it: a string uses it, `null` waits for the page's data, `undefined` looks
  * the station up. With a `linie` in the URL, a removable chip shows `lineTitle`. `lage` (the
  * Live-Lage page) shows a day instead of a period and a train type: a day field and chips for
@@ -33,6 +33,7 @@ const chip = (on: boolean) =>
  */
 export function Filters({
   noStation,
+  noCategory,
   noPeriod,
   lage,
   days,
@@ -40,6 +41,7 @@ export function Filters({
   lineTitle,
 }: {
   noStation?: boolean;
+  noCategory?: boolean;
   noPeriod?: boolean;
   lage?: boolean;
   days?: boolean;
@@ -166,7 +168,7 @@ export function Filters({
           ))}
         </span>
       )}
-      {!lage && (
+      {!lage && !noCategory && (
         <label className={chip(!!f.g)}>
           {t("filter.chip", { label: t("filter.category") })}
           <select

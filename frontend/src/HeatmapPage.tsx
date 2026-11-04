@@ -52,6 +52,7 @@ export default function HeatmapPage() {
     land: undefined,
     linie: undefined,
     z: undefined,
+    richtung: undefined,
   };
   // Days in the URL round outward: this page asks for whole months.
   const m = useMonthPeriod(f);
