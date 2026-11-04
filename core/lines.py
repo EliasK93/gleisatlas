@@ -23,6 +23,27 @@ def line_name_expr() -> pl.Expr:
     )
 
 
+MIN_STOPS = 500  # a line needs this many stops before "no live data" can be told from chance
+NO_LIVE_PERCENT = 99  # share of its arrived stops that report exactly 0 minutes, in integers
+
+
+def is_train_number(name: pl.Expr) -> pl.Expr:
+    """True for a train-number name ("ICE 679"): no space, a space, digits.
+    ponytail: a regex on the name, so a source line number with a space before its digits matches
+    too (2 names in the real data); flag train-number names in `line_name_expr` if more show up."""
+    return name.str.contains(r"^\S+ \d+$")
+
+
+def no_live_data(n: pl.Expr, zero: pl.Expr, cancelled: pl.Expr) -> pl.Expr:
+    """True for a line that most likely has no live data: at least MIN_STOPS stops, and at least
+    NO_LIVE_PERCENT of the stops that arrived (not cancelled) at exactly 0 minutes. The arguments
+    are a line's counts: all stops, stops at 0 minutes, cancelled stops."""
+    arrived = n.cast(pl.Int64) - cancelled.cast(pl.Int64)
+    return (
+        (n >= MIN_STOPS) & (arrived > 0) & (zero.cast(pl.Int64) * 100 >= NO_LIVE_PERCENT * arrived)
+    )
+
+
 def destination_expr(col: pl.Expr) -> pl.Expr:
     """Spelling fix for an end station: "Schwerte(Ruhr)" -> "Schwerte (Ruhr)", "(Main)Hbf" ->
     "(Main) Hbf", "Langenhagen - Kaltenweide" -> "Langenhagen-Kaltenweide", one space, stripped."""
@@ -80,6 +101,19 @@ def _top(df: pl.DataFrame, col: str) -> pl.DataFrame:
     )
 
 
+def top_ends(ends: pl.DataFrame, lines: pl.DataFrame) -> pl.DataFrame:
+    """(linie, dest): per line its two most frequent end stations, most frequent first, ties by
+    name. `ends` is (name, eva, dest, n), `lines` has (name, eva, linie)."""
+    return (
+        ends.join(lines, on=["name", "eva"])
+        .group_by("linie", "dest")
+        .agg(pl.col("n").sum())
+        .sort(["linie", "n", "dest"], descending=[False, True, False])
+        .group_by("linie", maintain_order=True)
+        .agg(pl.col("dest").head(2))
+    )
+
+
 def line_table(nets: pl.DataFrame, stops: pl.DataFrame, ends: pl.DataFrame) -> pl.DataFrame:
     """One row per line: linie, name, label, typ. `ends` is (name, eva, dest, n). The label names
     the line's two most frequent end stations: "{name} {first} – {second}", "{name} {first}" with
@@ -89,18 +123,8 @@ def line_table(nets: pl.DataFrame, stops: pl.DataFrame, ends: pl.DataFrame) -> p
     lines = line_ids(nets)
     stops = stops.join(lines, on=["name", "eva"])
     lines = lines.join(stops.select("linie").unique(), on="linie", how="semi")
-    top = (
-        ends.join(lines, on=["name", "eva"])
-        .group_by("linie", "dest")
-        .agg(pl.col("n").sum())
-        .sort(["linie", "n", "dest"], descending=[False, True, False])
-        .group_by("linie", maintain_order=True)
-        .agg(pl.col("dest").head(2))
-    )
+    top = top_ends(ends, lines)
     name, dests = pl.col("name"), pl.col("dest")
-    # ponytail: a train-number line is a name matching `^\S+ \d+$`, so a source line number with a
-    # space before its digits matches too (2 labels in the real data); flag train-number names in
-    # `line_name_expr` if more show up.
     first, second = dests.list.get(0, null_on_oob=True), dests.list.get(1, null_on_oob=True)
     return (
         lines.select("linie", "name")
@@ -112,7 +136,7 @@ def line_table(nets: pl.DataFrame, stops: pl.DataFrame, ends: pl.DataFrame) -> p
             "name",
             label=pl.when(first.is_null())
             .then(name)
-            .when(name.str.contains(r"^\S+ \d+$"))
+            .when(is_train_number(name))
             .then(pl.concat_str(name, pl.lit(" → "), first))
             .when(second.is_null())
             .then(pl.concat_str(name, pl.lit(" "), first))

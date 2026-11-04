@@ -1,6 +1,15 @@
 import polars as pl
 
-from core.lines import destination_expr, line_ids, line_name_expr, line_table, networks
+from core.lines import (
+    MIN_STOPS,
+    destination_expr,
+    is_train_number,
+    line_ids,
+    line_name_expr,
+    line_table,
+    networks,
+    no_live_data,
+)
 
 
 def members(rows: list[tuple[str, str, str]]) -> pl.DataFrame:
@@ -28,6 +37,44 @@ def test_line_name_puts_the_train_type_before_a_bare_number():
         "S1",
         "ICE 679",
     ]
+
+
+def test_a_train_number_name_is_letters_a_space_and_digits():
+    df = pl.DataFrame(
+        {
+            "line_number": [None, "RE57", "S1", "RE 3", None],
+            "train_type": ["ICE", "RE", "S", "RE", "ICE"],
+            "train_number": ["2591", "1", "2", "3", "7"],
+        }
+    )
+    # "RE 3" loses its space in the line name, so only the lines without a number are trains
+    names = df.select(name=line_name_expr())["name"].to_list()
+    assert names == ["ICE 2591", "RE57", "S1", "RE3", "ICE 7"]
+    # a source line number with a space before its digits survives and reads as a train
+    flags = pl.DataFrame({"name": [*names, "S-Bahn 1", "S 1 x", "X  12", "ICE  5"]})
+    assert flags.select(zug=is_train_number(pl.col("name")))["zug"].to_list() == [
+        *[True, False, False, False, True],
+        *[True, False, False, False],
+    ]
+
+
+def no_live(n: int, zero: int, cancelled: int = 0) -> bool:
+    df = pl.DataFrame({"n": [n], "zero": [zero], "cancelled": [cancelled]})
+    return df.select(r=no_live_data(pl.col("n"), pl.col("zero"), pl.col("cancelled")))["r"].item()
+
+
+def test_a_line_without_live_data_has_enough_stops_nearly_all_exactly_on_time():
+    assert MIN_STOPS == 500
+    assert no_live(500, 500)
+    assert not no_live(499, 499)  # too few stops
+    assert no_live(1000, 990)  # 99 %
+    assert not no_live(1000, 989)  # 98.9 %
+
+
+def test_cancelled_stops_are_not_arrived_and_never_count_as_zero_minutes():
+    assert no_live(600, 495, 100)  # 495 of the 500 arrived stops: 99 %
+    assert not no_live(600, 494, 100)  # 98.8 % of the arrived stops, though 82 % of all
+    assert not no_live(600, 0, 600)  # only cancellations: nothing arrived at 0
 
 
 def test_destination_spelling_is_unified():
