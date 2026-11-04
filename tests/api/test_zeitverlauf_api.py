@@ -71,6 +71,11 @@ def test_station_and_line_together_is_422(client: TestClient):
     assert "eva" in r.json()["detail"] and "linie" in r.json()["detail"]
 
 
+def test_a_line_key_over_200_characters_is_422(client: TestClient):
+    assert client.get("/zeitverlauf", params={"linie": "a" * 200}).status_code == 404
+    assert client.get("/zeitverlauf", params={"linie": "a" * 201}).status_code == 422
+
+
 @pytest.mark.parametrize("params", [{"eva": "x"}, {"gattung": "bahn"}])
 def test_invalid_input_is_422(client: TestClient, params: dict):
     assert client.get("/zeitverlauf", params=params).status_code == 422

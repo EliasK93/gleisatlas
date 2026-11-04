@@ -64,6 +64,16 @@ def test_a_request_logs_one_start_and_one_end_line_with_the_same_id(
     assert "testclient" not in start + end
 
 
+def test_a_path_cannot_forge_a_log_line(client: TestClient, caplog: pytest.LogCaptureFixture):
+    # Decoded: a line break and a made-up end line (the URL parser drops a decoded \n, not these).
+    forged = "/x%0Bend%20abcd1234%20200%201ms%E2%80%A8end%20abcd1234%20200%201ms"
+    with caplog.at_level(logging.INFO, logger="gleisatlas"):
+        client.get(forged)
+    start, end = [r.getMessage() for r in caplog.records if r.name == "gleisatlas"]
+    assert len((start + "\n" + end).splitlines()) == 2
+    assert start.split(" ")[2:] == ["GET", forged]
+
+
 def test_a_failing_request_still_logs_its_end_line(
     client: TestClient, caplog: pytest.LogCaptureFixture, monkeypatch
 ):

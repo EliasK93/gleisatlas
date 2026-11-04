@@ -311,6 +311,7 @@
       "required": false,
       "schema": {
        "type": "string",
+       "maxLength": 100,
        "default": "",
        "title": "Q"
       }
@@ -607,7 +608,8 @@
       "schema": {
        "anyOf": [
         {
-         "type": "string"
+         "type": "string",
+         "maxLength": 200
         },
         {
          "type": "null"

@@ -123,6 +123,11 @@ def test_search_puts_prefix_matches_first_then_busiest(client: TestClient, tmp_p
     assert client.get("/stationen", params={"q": "."}).json() == []  # literal, not a regex
 
 
+def test_a_search_term_over_100_characters_is_422(client: TestClient):
+    assert client.get("/stationen", params={"q": "a" * 100}).status_code == 200
+    assert client.get("/stationen", params={"q": "a" * 101}).status_code == 422
+
+
 def test_datenstand(client: TestClient):
     d = client.get("/datenstand").json()
     assert (d["monate"], d["bahnhoefe"]) == (["2026-09", "2026-10"], 2)

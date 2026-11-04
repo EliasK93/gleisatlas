@@ -40,14 +40,10 @@ HEUTE_SCHEMA = {**DAY_HOURS_SCHEMA, "stand": pl.Datetime("us", "UTC")}
 
 @pytest.fixture(autouse=True)
 def fresh_caches():
-    main._heute_for.cache_clear()
-    main._live_days_for.cache_clear()
-    main._large_from_file.cache_clear()
+    main._frame.cache_clear()
     main.tageskarte_for.cache_clear()
     yield
-    main._heute_for.cache_clear()
-    main._live_days_for.cache_clear()
-    main._large_from_file.cache_clear()
+    main._frame.cache_clear()
     main.tageskarte_for.cache_clear()
 
 
@@ -548,7 +544,7 @@ def test_the_reference_days_of_a_collector_day_include_the_collector_days_before
     assert with_c1["referenztage"][0] == C1.isoformat()
     write_live_tage(tmp_path, monkeypatch, collector_rows(C2))
     main.tageskarte_for.cache_clear()
-    main._live_days_for.cache_clear()
+    main._frame.cache_clear()
     without_c1 = tageskarte(base, C2)
     assert C1.isoformat() not in without_c1["referenztage"]
     # one late reference day moves the median of the others
@@ -618,10 +614,8 @@ def test_the_reference_days_of_today_include_the_collector_days(
     assert station(body, "1")["normal"]["ausfallquote"] == 0
 
 
-def test_large_reads_large_parquet_when_present_and_computes_otherwise(
-    base: TestClient, tmp_path, monkeypatch
-):
-    assert main.large() == sorted(["1", "2", BETA])  # computed from days.parquet and monate
+def test_large_reads_large_parquet_and_follows_a_new_file(base: TestClient, tmp_path, monkeypatch):
+    assert main.large() == sorted(["1", "2", BETA])  # the fixture's large.parquet
     pl.DataFrame({"eva": ["1"]}, schema={"eva": pl.String}).write_parquet(
         tmp_path / "large.parquet"
     )

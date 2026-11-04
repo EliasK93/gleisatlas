@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from functools import lru_cache
 from typing import Annotated, Literal
+from urllib.parse import quote
 
 import polars as pl
 from fastapi import FastAPI, HTTPException, Path, Query, Request
@@ -23,10 +24,10 @@ from pydantic import AfterValidator, BaseModel, Field
 from backend import fetch
 from core.categories import FERN, REGIONAL
 from core.normal import FLOORS, deviation_class, normal, reference_days
-from core.periods import full_coverage_start, large_stations, local_time, timetable_changes
+from core.periods import full_coverage_start, local_time, timetable_changes
 from core.rankings import Metric, counted, higher_is_better, rank
 from core.stations import LAND_CODES
-from core.stats import CellStats, cell_stats, cell_stats_frame, delay_bins
+from core.stats import CellStats, cell_stats_frame, delay_bins
 
 AGG_PATH = os.environ.get("AGGREGATE_PATH", "data/aggregate.parquet")
 STATIONS_PATH = os.environ.get("STATIONS_PATH", "data/stations.parquet")
@@ -41,7 +42,7 @@ HEUTE_PATH = os.environ.get("HEUTE_PATH", "data/heute.parquet")  # optional: the
 HEUTE_REST_PATH = os.environ.get("HEUTE_REST_PATH", "data/heute_rest.parquet")
 # optional: the collector's finished days after the last complete day (pipeline.live)
 LIVE_TAGE_PATH = os.environ.get("LIVE_TAGE_PATH", "data/live_tage.parquet")
-# the large stations (one column `eva`), written by pipeline.update; without it they are computed
+# the large stations (one column `eva`), written by pipeline.update
 LARGE_PATH = os.environ.get("LARGE_PATH", "data/large.parquet")
 # see backend/fetch.py. These are downloaded at start. The files of the collector (HEUTE_PATH,
 # LIVE_TAGE_PATH) change while the API runs: fetch.refresh_live keeps them current, and
@@ -66,6 +67,8 @@ log.setLevel(logging.INFO)
 for old in log.handlers[:]:  # a reload (tests) must not double the lines
     log.removeHandler(old)
     old.close()
+# ponytail: stdout lines carry no timestamp (Log Analytics adds TimeGenerated), and the 8-hex id
+# pairs a start with its end but is not unique forever; add both if logs leave Azure.
 log.addHandler(logging.StreamHandler(sys.stdout))
 if log_file := os.environ.get("LOG_FILE"):
     os.makedirs(os.path.dirname(os.path.abspath(log_file)), exist_ok=True)
@@ -99,7 +102,8 @@ async def log_requests(request: Request, call_next):
     global _busy, _last_end, warming
     rid = uuid.uuid4().hex[:8]
     query = f"?{request.url.query}" if request.url.query else ""
-    log.info("start %s %s %s%s", rid, request.method, request.url.path, query)
+    # quoted: ASGI decodes the path, and a decoded line break or space could forge a line or field
+    log.info("start %s %s %s%s", rid, request.method, quote(request.url.path), query)
     began = time.perf_counter()
     status = 500  # what the client sees when the handler raises
     _busy += 1
@@ -370,13 +374,10 @@ def to_stats(s: CellStats) -> Stats:
     )
 
 
-def cell_stats_of(group: pl.DataFrame) -> CellStats:
-    # column lists: ~5x faster than iter_rows over the ~5k small groups of /karte
-    return cell_stats(zip(group["bucket"].to_list(), group["n"].to_list(), strict=True))
-
-
-def stats_of(group: pl.DataFrame) -> Stats:
-    return to_stats(cell_stats_of(group))
+def cells_of(frame: pl.LazyFrame, keys: list[str]) -> list[tuple[tuple, CellStats]]:
+    """The statistics of every key combination of a (keys, bucket, n) frame, in key order."""
+    out = collect(cell_stats_frame(frame, keys).sort(keys))
+    return [(row[: len(keys)], CellStats(*row[len(keys) :])) for row in out.iter_rows()]
 
 
 def named_stations() -> pl.DataFrame:
@@ -384,24 +385,27 @@ def named_stations() -> pl.DataFrame:
     return collect(pl.scan_parquet(STATIONS_PATH)).drop_nulls("name")
 
 
-@lru_cache(maxsize=1)
-def _monate_for(path: str, mtime: int) -> pl.DataFrame:  # mtime is part of the key: never stale
-    return collect(pl.scan_parquet(path)).sort("month")
+@lru_cache(maxsize=8)
+def _frame(path: str, mtime: int, column: str | None) -> pl.DataFrame:
+    """The parquet file at `path`, or the distinct values of one column of it. The mtime is part of
+    the key, so a rewritten file is never served stale."""
+    lf = pl.scan_parquet(path)
+    return collect(lf.select(column).unique() if column else lf)
+
+
+def frame(path: str, column: str | None = None) -> pl.DataFrame:
+    """`_frame` of the file as it is now; FileNotFoundError when it is missing."""
+    return _frame(path, os.stat(path).st_mtime_ns, column)
 
 
 def monate() -> pl.DataFrame:
     """Per month: missing_hours and stations."""
-    return _monate_for(MONATE_PATH, os.stat(MONATE_PATH).st_mtime_ns)
-
-
-@lru_cache(maxsize=1)
-def _tage_for(path: str, mtime: int) -> pl.DataFrame:  # mtime is part of the key: never stale
-    return collect(pl.scan_parquet(path)).sort("day")
+    return frame(MONATE_PATH).sort("month")
 
 
 def tage() -> pl.DataFrame:
     """Per calendar day: missing_hours."""
-    return _tage_for(TAGE_PATH, os.stat(TAGE_PATH).st_mtime_ns)
+    return frame(TAGE_PATH).sort("day")
 
 
 @dataclass(frozen=True)
@@ -420,26 +424,22 @@ def now() -> datetime:
     return datetime.now(UTC)
 
 
-@lru_cache(maxsize=2)  # the live and the rest file
-def _heute_for(path: str, mtime: int) -> Heute | None:  # mtime: never stale
-    frame = collect(pl.scan_parquet(path))
-    if frame.is_empty():
+def _source(path: str) -> Heute | None:
+    """The live or the rest file as a source of today; None when it is missing or empty."""
+    try:
+        mtime = os.stat(path).st_mtime_ns
+    except FileNotFoundError:
         return None
-    day, stand = frame.select(
+    rows = _frame(path, mtime, None)
+    if rows.is_empty():
+        return None
+    day, stand = rows.select(
         pl.col("day").first(),
         pl.col("stand").dt.replace_time_zone(None).first(),  # stand is UTC
     ).row(0)
     # whole seconds, so every browser parses the ISO string the API sends
     stand = stand.replace(tzinfo=UTC, microsecond=0)
-    return Heute(day, stand, local_time(stand).hour, mtime, frame)
-
-
-def _source(path: str) -> Heute | None:
-    try:
-        mtime = os.stat(path).st_mtime_ns
-    except FileNotFoundError:
-        return None
-    return _heute_for(path, mtime)
+    return Heute(day, stand, local_time(stand).hour, mtime, rows)
 
 
 def today_sources() -> tuple[Heute | None, Heute | None]:
@@ -462,22 +462,16 @@ def today_sources() -> tuple[Heute | None, Heute | None]:
     return counts(live), counts(_source(HEUTE_REST_PATH))
 
 
-@lru_cache(maxsize=1)
-def _live_days_for(path: str, mtime: int) -> tuple[date, ...]:  # mtime: never stale
-    days = collect(pl.scan_parquet(path).select("day").unique().sort("day"))
-    return tuple(days["day"].to_list())
-
-
 def live_tage() -> tuple[date, ...]:
     """The collector's finished days, ascending: those in LIVE_TAGE_PATH after the last complete
     day and before today (local date of now()). Empty without the file. A complete day always
     wins: its uploaded values are never replaced by the collector's."""
     try:
-        kept = _live_days_for(LIVE_TAGE_PATH, os.stat(LIVE_TAGE_PATH).st_mtime_ns)
+        kept = frame(LIVE_TAGE_PATH, "day")["day"]
     except FileNotFoundError:
         return ()
     last, today = tage()["day"][-1], local_time(now()).date()
-    return tuple(d for d in kept if last < d < today)
+    return tuple(sorted(d for d in kept if last < d < today))
 
 
 def refresh() -> None:
@@ -490,31 +484,17 @@ def coverage_start() -> str | None:
     return full_coverage_start(dict(zip(df["month"], df["stations"], strict=True)))
 
 
-@lru_cache(maxsize=1)
-def _large_from_file(path: str, mtime: int) -> list[str]:  # mtime: never stale
-    return sorted(collect(pl.scan_parquet(path))["eva"].to_list())
-
-
-@lru_cache(maxsize=1)
-def _large_for(days_path: str, mtimes: tuple[int, int]) -> list[str]:  # mtimes: never stale
-    if (start := coverage_start()) is None:
-        return []
-    return collect(large_stations(pl.scan_parquet(days_path), start))["eva"].to_list()
-
-
 def large() -> list[str]:
-    """The EVAs of the large stations, sorted: those the source covered before full coverage. From
-    LARGE_PATH (pipeline.update wrote the core rule's result there); where that file is missing
-    (a local run before the next update) the same rule runs over days.parquet."""
-    try:
-        return _large_from_file(LARGE_PATH, os.stat(LARGE_PATH).st_mtime_ns)
-    except FileNotFoundError:
-        pass
-    return _large_for(DAYS_PATH, (os.stat(DAYS_PATH).st_mtime_ns, os.stat(MONATE_PATH).st_mtime_ns))
+    """The EVAs of the large stations, sorted: those the source covered before full coverage, as
+    pipeline.update wrote them to LARGE_PATH with the core rule."""
+    return sorted(frame(LARGE_PATH)["eva"].to_list())
 
 
 def period_start(von: str | None, bis: str | None) -> str | None:
-    """The requested start, else the full-coverage start unless `bis` ends before it."""
+    """The requested start, else the full-coverage start unless `bis` ends before it.
+    ponytail: with only an early `bis` the default is off, so /karte labels its range from the
+    file's first day (a day before `erster_tag`); only hand-made URLs reach it, clamp `von` to
+    `erster_tag` if one ever matters."""
     if von:
         return von
     start = coverage_start()
@@ -575,24 +555,18 @@ def heatmap_from(
     found = span(sel)
     if found is None:
         return Heatmap(von="", bis="", n=0, cells=[], tage=[])
-    merged = collect(
-        sel.group_by("weekday", "hour", "bucket")
-        .agg(n=pl.col("n").sum())
-        .sort("weekday", "hour")  # group_by order is arbitrary; keep cells stable
-    )
-    per_day = merged.group_by("weekday", "bucket").agg(n=pl.col("n").sum()).sort("weekday")
-    # partition keys are typed as object; they are the integer weekday and hour
+    merged = collect(sel.group_by("weekday", "hour", "bucket").agg(n=pl.col("n").sum())).lazy()
+    per_day = merged.group_by("weekday", "bucket").agg(n=pl.col("n").sum())
     return Heatmap(
         von=found[0],
         bis=found[1],
         n=found[2],
         cells=[
-            Cell(weekday=int(w), hour=int(h), **stats_of(g).model_dump())  # pyright: ignore[reportArgumentType]
-            for (w, h), g in merged.partition_by("weekday", "hour", as_dict=True).items()
+            Cell(weekday=w, hour=h, **to_stats(s).model_dump())
+            for (w, h), s in cells_of(merged, ["weekday", "hour"])
         ],
         tage=[
-            Day(weekday=int(w), **stats_of(g).model_dump())  # pyright: ignore[reportArgumentType]
-            for (w,), g in per_day.partition_by("weekday", as_dict=True).items()
+            Day(weekday=w, **to_stats(s).model_dump()) for (w,), s in cells_of(per_day, ["weekday"])
         ],
     )
 
@@ -695,16 +669,15 @@ def station_fields(row: dict, s: CellStats) -> dict:
 
 def stats_per_eva(sel: pl.LazyFrame) -> dict[str, CellStats]:
     """Statistics per EVA of a selection, sorted by EVA."""
-    per_station = collect(sel.group_by("eva", "bucket").agg(n=pl.col("n").sum()))
-    parts = sorted(per_station.partition_by("eva", as_dict=True).items())  # pyright: ignore[reportArgumentType]
-    return {eva: cell_stats_of(g) for (eva,), g in parts}
+    per_station = sel.group_by("eva", "bucket").agg(n=pl.col("n").sum())
+    return {eva: s for (eva,), s in cells_of(per_station, ["eva"])}
 
 
 @lru_cache(maxsize=16)
 def station_stats_for(
     agg: str, mtime: int, gattung: str, von: str | None, bis: str | None
 ) -> tuple[tuple[str, str, int] | None, dict[str, CellStats]]:
-    """(span, statistics per EVA sorted by EVA), shared by /karte and the station rankings."""
+    """(span, statistics per EVA sorted by EVA), behind the station rankings."""
     sel = selection(pl.scan_parquet(agg), gattung, None, von, bis)
     found = span(sel)
     if found is None:
@@ -724,14 +697,14 @@ class Entry:
 
 def line_entries(sel: pl.LazyFrame, linien: str) -> list[Entry]:
     """Statistics per line of a lines selection."""
-    per_line = collect(
+    per_line = (
         sel.group_by("linie", "bucket")
         .agg(n=pl.col("n").sum())
-        .join(pl.scan_parquet(linien), on="linie")
+        .join(pl.scan_parquet(linien).select("linie", "label", "typ"), on="linie")
     )
     return [
-        Entry(id=linie, name=g["label"][0], typ=g["typ"][0], stats=cell_stats_of(g))
-        for (linie,), g in per_line.partition_by("linie", as_dict=True).items()  # pyright: ignore[reportArgumentType]
+        Entry(id=linie, name=label, typ=typ, stats=s)
+        for (linie, label, typ), s in cells_of(per_line, ["linie", "label", "typ"])
     ]
 
 
@@ -799,7 +772,10 @@ def rankings(
 
 
 @app.get("/stationen", response_model=list[Station], operation_id="getStationen")
-def stationen(q: str = "", limit: Annotated[int, Query(ge=1, le=100)] = 20) -> list[Station]:
+def stationen(
+    q: Annotated[str, Query(max_length=100)] = "",
+    limit: Annotated[int, Query(ge=1, le=100)] = 20,
+) -> list[Station]:
     df = named_stations()
     lower = pl.col("name").str.to_lowercase()
     if q:
@@ -829,19 +805,18 @@ def statistik(
     per_group = collect(sel.group_by("gruppe", "bucket").agg(n=pl.col("n").sum()))
     merged = per_group.group_by("bucket").agg(n=pl.col("n").sum())
     bins = delay_bins(merged.iter_rows())
-    groups = dict(per_group.partition_by("gruppe", as_dict=True))  # pyright: ignore[reportArgumentType]
+    every = merged.select(gruppe=pl.lit(ALLE), bucket="bucket", n="n")  # all trains as one group
+    groups = {g: s for (g,), s in cells_of(pl.concat([per_group, every]).lazy(), ["gruppe"])}
     return Statistik(
         station=st,
         von=found[0],
         bis=found[1],
         n=found[2],
-        gesamt=stats_of(merged),
+        gesamt=to_stats(groups[ALLE]),
         verteilung=list(bins.bins),
         ausgefallen=bins.cancelled,
         gruppen=[
-            Gruppe(gruppe=g, **stats_of(groups[(g,)]).model_dump())  # pyright: ignore[reportArgumentType]
-            for g in GRUPPEN
-            if (g,) in groups
+            Gruppe(gruppe=g, **to_stats(groups[g]).model_dump()) for g in GRUPPEN if g in groups
         ],
     )
 
@@ -857,6 +832,8 @@ def thin(s: CellStats) -> bool:
 def station_linien(
     eva: Eva, gattung: Gattung = "alle", von: Month = None, bis: Month = None
 ) -> list[StationLinie]:
+    # ponytail: not cached, the biggest station takes about 0.1 s; add an lru_cache like the
+    # rankings have if the page calls it often
     known_station(eva)
     sel = selection(pl.scan_parquet(LINES_PATH), gattung, eva, period_start(von, bis), bis)
     entries = sorted(
@@ -878,7 +855,7 @@ def station_linien(
 @app.get("/zeitverlauf", response_model=Zeitverlauf, operation_id="getZeitverlauf")
 def zeitverlauf(
     eva: Annotated[str | None, Query(pattern=DIGITS)] = None,
-    linie: str | None = None,
+    linie: Annotated[str | None, Query(max_length=200)] = None,
     gattung: Gattung = "alle",
 ) -> Zeitverlauf:
     if eva and linie:
@@ -894,14 +871,12 @@ def zeitverlauf(
         lf = pl.scan_parquet(AGG_PATH)
         if eva:
             titel = known_station(eva).name
-    grouped = collect(
-        selection(lf, gattung, eva).group_by("month", "bucket").agg(n=pl.col("n").sum())
-    )
-    groups = {m: g for (m,), g in grouped.partition_by("month", as_dict=True).items()}  # pyright: ignore[reportArgumentType]
+    grouped = selection(lf, gattung, eva).group_by("month", "bucket").agg(n=pl.col("n").sum())
+    groups = {m: s for (m,), s in cells_of(grouped, ["month"])}
     return Zeitverlauf(
         titel=titel,
         monate=[
-            Monat(monat=m, **stats_of(groups[m]).model_dump())
+            Monat(monat=m, **to_stats(groups[m]).model_dump())
             if m in groups
             else Monat(monat=m, n=0, ausfallquote=None, median=None, p90=None, puenktlich=None)
             for m in monate()["month"]
@@ -911,7 +886,9 @@ def zeitverlauf(
 
 def shown(s: CellStats, metric: str) -> bool:
     """True when the UI shows the metric's value: for the cancellation rate the stop count decides,
-    for the delay metrics `thin`."""
+    for the delay metrics `thin`.
+    ponytail: the UI's `show()` (frontend/src/ui.tsx) is a second implementation of this rule and
+    nothing checks that they agree; serve the flag in the API if one of them changes."""
     return s.n >= LOW_N if metric == "ausfallquote" else not thin(s)
 
 
@@ -922,13 +899,19 @@ TREND_METRICS = ("puenktlich", "ausfallquote", "median", "p90")
 
 def trends(feed: pl.DataFrame) -> pl.DataFrame:
     """Centred rolling median of each metric. `feed` has a `day` column and one Float64 column per
-    metric, None where a day gives no value."""
+    metric, None where a day gives no value.
+    ponytail: around the start of full coverage (2025-11) the nationwide window blends about 135
+    stations with all of them for two weeks on each side; reset the window at `vollabdeckung_ab` if
+    the step matters more than the marker that explains it."""
     ahead = TREND_DAYS // 2
     # Polars' rolling_*_by windows end at their row. The window ending `ahead` days later is the
     # one centred on the day, so the calendar runs past the last day and the result shifts back.
     calendar = pl.DataFrame(
         {"day": pl.date_range(feed["day"][0], feed["day"][-1] + timedelta(ahead), eager=True)}
     )
+    # ponytail: at the end the window shrinks to the last 14 days and still needs TREND_MIN values,
+    # so each gap or thin day there cuts a day off the trend's tail; allow half the minimum in the
+    # windows past the last day if the tail should reach the newest day anyway.
     rolled = calendar.join(feed, on="day", how="left").select(
         "day",
         *(
@@ -951,14 +934,13 @@ def tage_for(
     gattung: str,
     eva: str | None,
 ) -> list[Tag]:
-    table = _tage_for(tage_path, mtimes[1])
-    grouped = collect(
+    table = _frame(tage_path, mtimes[1], None).sort("day")
+    grouped = (
         selection(pl.scan_parquet(days), gattung, eva)
         .group_by("day", "bucket")
         .agg(n=pl.col("n").sum())
     )
-    groups = {d: g for (d,), g in grouped.partition_by("day", as_dict=True).items()}  # pyright: ignore[reportArgumentType]
-    cells = {d: cell_stats_of(g) for d, g in groups.items()}
+    cells = {d: s for (d,), s in cells_of(grouped, ["day"])}
     stats = {d: to_stats(c) for d, c in cells.items()}
     gap_hours = dict(zip(table["day"], table["missing_hours"], strict=True))
 
@@ -1061,12 +1043,6 @@ def klasse_of(day: CellStats, references: dict[str, list[float | None]]) -> Klas
     )
 
 
-def cells_of(frame: pl.LazyFrame, keys: list[str]) -> list[tuple[tuple, CellStats]]:
-    """The statistics of every key combination of a (keys, bucket, n) frame, in key order."""
-    out = collect(cell_stats_frame(frame, keys).sort(keys))
-    return [(row[: len(keys)], CellStats(*row[len(keys) :])) for row in out.iter_rows()]
-
-
 NO_STOPS = CellStats(n=0, cancellation_rate=0.0, median=None, p90=None, punctual_share=None)
 ALLE = "alle"  # the group of all trains next to REGIONAL and FERN
 DE = "de"  # the area of the whole country next to the states' codes
@@ -1089,7 +1065,10 @@ def tageskarte_for(
     rest: Heute | None = None,
 ) -> Tageskarte:
     table = tage()
-    extra = live_tage()  # collector days, no gap hours: they are not in the day table
+    # ponytail: collector days have no gap hours (they are not in the day table), so the 12-hour
+    # rule between runs is their only check and a quiet hour of the source shows as no gap; judge
+    # their hours like the raw days' if a gap ever slips through.
+    extra = live_tage()
     gap_hours = dict(zip(table["day"], table["missing_hours"], strict=True))
     # The large stations are covered over the whole history: no clamp at full coverage
     last = table["day"][-1]

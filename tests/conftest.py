@@ -7,6 +7,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from backend import main
+from core.periods import full_coverage_start, large_stations
 from pipeline.aggregate import COLUMNS, aggregate, stations, with_coords
 from pipeline.update import update
 
@@ -90,8 +91,6 @@ def client(
     monkeypatch.setattr(main, "HEUTE_PATH", str(tmp_path / "missing-heute.parquet"))
     monkeypatch.setattr(main, "HEUTE_REST_PATH", str(tmp_path / "missing-heute-rest.parquet"))
     monkeypatch.setattr(main, "LIVE_TAGE_PATH", str(tmp_path / "missing-live-tage.parquet"))
-    # tests that rewrite days.parquet expect the large stations computed from it
-    monkeypatch.setattr(main, "LARGE_PATH", str(tmp_path / "missing-large.parquet"))
     monkeypatch.delenv("DATA_URL", raising=False)  # no refresh of the live files
     write_monate(tmp_path / "monate.parquet", monkeypatch, [("2026-09", 0, 2), ("2026-10", 3, 2)])
     return TestClient(main.app)
@@ -113,13 +112,22 @@ def write_line_tables(source: pl.DataFrame, coords: pl.DataFrame, data: Path) ->
 
 
 def write_monate(path, monkeypatch, rows: list[tuple[str, int, int]]) -> None:
-    """Point the API at a month table: rows are (month, missing_hours, stations)."""
-    pl.DataFrame(
+    """Point the API at a month table: rows are (month, missing_hours, stations). Like
+    pipeline.update, it also writes the large stations next to it, by the core rule over the month
+    table and the API's days.parquet."""
+    monate = pl.DataFrame(
         rows,
         schema={"month": pl.String, "missing_hours": pl.Int32, "stations": pl.UInt32},
         orient="row",
-    ).write_parquet(path)
+    )
+    monate.write_parquet(path)
     monkeypatch.setattr(main, "MONATE_PATH", str(path))
+    start = full_coverage_start(dict(zip(monate["month"], monate["stations"], strict=True)))
+    days = pl.scan_parquet(main.DAYS_PATH)
+    evas = large_stations(days, start).collect()["eva"].to_list() if start else []
+    large = Path(path).with_name("large.parquet")
+    pl.DataFrame({"eva": evas}, schema={"eva": pl.String}).write_parquet(large)
+    monkeypatch.setattr(main, "LARGE_PATH", str(large))
 
 
 def write_tage(path, monkeypatch, rows: list[tuple[str, int]]) -> None:
