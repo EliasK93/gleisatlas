@@ -172,6 +172,7 @@ def test_fetch_does_nothing_without_a_data_url(remote, monkeypatch, tmp_path):
 def test_every_file_the_day_views_need_is_downloaded():
     names = {os.path.basename(p) for p in main.DATA_FILES}
     assert {"day_hours.parquet", "large.parquet", "days.parquet", "tage.parquet"} <= names
+    assert {"abschnitte.parquet", "linienweg.parquet"} <= names  # the line page
     assert not names & {"heute.parquet", "live_tage.parquet", "heute_rest.parquet"}
 
 

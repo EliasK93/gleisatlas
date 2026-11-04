@@ -126,6 +126,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/linie": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Line Page */
+        get: operations["getLinie"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/linie/abschnitte": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Line Abschnitte */
+        get: operations["getLinieAbschnitte"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/zeitverlauf": {
         parameters: {
             query?: never;
@@ -201,6 +235,17 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** Abschnitt */
+        Abschnitt: {
+            /** Von Eva */
+            von_eva: string;
+            /** Nach Eva */
+            nach_eva: string;
+            /** N */
+            n: number;
+            /** Minuten */
+            minuten: number;
+        };
         /** Cell */
         Cell: {
             /** N */
@@ -374,6 +419,49 @@ export interface components {
             alle: components["schemas"]["Deutschland"];
             fern: components["schemas"]["Deutschland"] | null;
             regional: components["schemas"]["Deutschland"] | null;
+        };
+        /** Linie */
+        Linie: {
+            /** Linie */
+            linie: string;
+            /** Name */
+            name: string;
+            /** Label */
+            label: string;
+            /** Typ */
+            typ: string;
+            /** Zug */
+            zug: boolean;
+            /** Ohne Echtzeit */
+            ohne_echtzeit: boolean;
+            gesamt: components["schemas"]["Stats"] | null;
+            /** Achse */
+            achse: string[];
+            /** Bahnhoefe */
+            bahnhoefe: components["schemas"]["LinienBahnhof"][];
+        };
+        /** LinienBahnhof */
+        LinienBahnhof: {
+            /** Eva */
+            eva: string;
+            /** Name */
+            name: string;
+            /** Lat */
+            lat: number | null;
+            /** Lon */
+            lon: number | null;
+            /** Pos */
+            pos: number | null;
+            /** N */
+            n: number;
+            /** Ausfallquote */
+            ausfallquote: number | null;
+            /** Median */
+            median: number | null;
+            /** P90 */
+            p90: number | null;
+            /** Puenktlich */
+            puenktlich: number | null;
         };
         /** Monat */
         Monat: {
@@ -715,6 +803,8 @@ export interface operations {
                 gattung?: "alle" | "regional" | "fern";
                 von?: string | null;
                 bis?: string | null;
+                /** @description With typ=linien: lines or single trains; ignored for stations. */
+                art?: "linien" | "zuege";
             };
             header?: never;
             path?: never;
@@ -862,6 +952,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["StationLinie"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    getLinie: {
+        parameters: {
+            query: {
+                linie: string;
+                von?: string | null;
+                bis?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Linie"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    getLinieAbschnitte: {
+        parameters: {
+            query: {
+                linie: string;
+                von?: string | null;
+                bis?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Abschnitt"][];
                 };
             };
             /** @description Validation Error */

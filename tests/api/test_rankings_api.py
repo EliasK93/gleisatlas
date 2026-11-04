@@ -35,12 +35,13 @@ LINES = [  # (linie, eva, gruppe, month, bucket, n)
     ("S1:10", "10", "regional", "2026-10", 10, 10),  # S1: n 20, punctual 0.5
     ("RB9:10", "10", "regional", "2026-09", 0, 50),  # outside the default period
 ]
-LINIEN = [
+LINIEN = [  # (linie, name, label, typ); zug and ohne_echtzeit are False, the tests below set them
     ("ICE 1:10", "ICE 1", "ICE 1", "ICE"),
     ("RE5:10", "RE5", "RE5", "RE"),
     ("S1:10", "S1", "S1 · Anna", "S"),
     ("RB9:10", "RB9", "RB9", "RB"),
 ]
+LINIEN_COLUMNS = ["linie", "name", "label", "typ", "zug", "ohne_echtzeit"]
 
 
 def frame(rows: list[tuple], columns: list[str]) -> pl.DataFrame:
@@ -58,7 +59,9 @@ def ranked(client: TestClient, tmp_path, monkeypatch) -> TestClient:
     frame(LINES, ["linie", "eva", "gruppe", "month", "bucket", "n"]).cast(
         {"bucket": pl.Int32}
     ).write_parquet(tmp_path / "r-lines.parquet")
-    frame(LINIEN, ["linie", "name", "label", "typ"]).write_parquet(tmp_path / "r-linien.parquet")
+    frame([(*row, False, False) for row in LINIEN], LINIEN_COLUMNS).write_parquet(
+        tmp_path / "r-linien.parquet"
+    )
     for name, file in [
         ("AGG_PATH", "r-agg"),
         ("STATIONS_PATH", "r-stations"),
@@ -146,6 +149,50 @@ def test_lines_carry_their_label_and_train_type(ranked: TestClient):
     assert rankings(ranked, typ="linien", min_n=50)["anzahl"] == 2
 
 
+def flagged_lines(tmp_path, monkeypatch) -> None:
+    """RE5 and S1 are lines, ICE 7 is a single train, S9 reports no live data."""
+    frame(
+        [
+            ("RE5:10", "10", "regional", "2026-10", 10, 300),
+            ("ICE 7:10", "10", "fern", "2026-10", 0, 100),
+            ("S9:10", "10", "regional", "2026-10", 0, 600),
+        ],
+        ["linie", "eva", "gruppe", "month", "bucket", "n"],
+    ).cast({"bucket": pl.Int32}).write_parquet(tmp_path / "f-lines.parquet")
+    frame(
+        [
+            ("RE5:10", "RE5", "RE5", "RE", False, False),
+            ("ICE 7:10", "ICE 7", "ICE 7 → Köln Hbf", "ICE", True, False),
+            ("S9:10", "S9", "S9", "S", False, True),
+        ],
+        LINIEN_COLUMNS,
+    ).write_parquet(tmp_path / "f-linien.parquet")
+    monkeypatch.setattr(main, "LINES_PATH", str(tmp_path / "f-lines.parquet"))
+    monkeypatch.setattr(main, "LINIEN_PATH", str(tmp_path / "f-linien.parquet"))
+
+
+def test_lines_and_single_trains_rank_apart(ranked: TestClient, tmp_path, monkeypatch):
+    flagged_lines(tmp_path, monkeypatch)
+    assert names(rankings(ranked, typ="linien", min_n=15)["beste"]) == ["RE5"]  # default: Linien
+    assert names(rankings(ranked, typ="linien", min_n=15, art="linien")["beste"]) == ["RE5"]
+    zuege = rankings(ranked, typ="linien", min_n=15, art="zuege")  # after the Linien: same cache
+    assert names(zuege["beste"]) == ["ICE 7 → Köln Hbf"]
+    assert zuege["anzahl"] == 1
+
+
+def test_a_line_without_live_data_never_ranks(ranked: TestClient, tmp_path, monkeypatch):
+    flagged_lines(tmp_path, monkeypatch)
+    for art in ("linien", "zuege"):
+        assert "S9" not in names(rankings(ranked, typ="linien", min_n=15, art=art)["beste"])
+    # the period still reports what the lines cover
+    assert rankings(ranked, typ="linien", min_n=15)["von"] == "2026-10"
+
+
+def test_art_does_not_change_the_station_rankings(ranked: TestClient):
+    plain = rankings(ranked, typ="bahnhoefe", min_n=15)
+    assert rankings(ranked, typ="bahnhoefe", min_n=15, art="zuege") == plain
+
+
 def test_cache_follows_a_rewritten_aggregate(ranked: TestClient):
     before = rankings(ranked, typ="bahnhoefe", min_n=15)
     assert names(before["beste"])[0] == "Cora"
@@ -202,6 +249,7 @@ def test_at_most_ten_entries(ranked: TestClient, tmp_path, monkeypatch):
         {},  # typ is required
         {"typ": "zuege"},
         {"typ": "linien", "metrik": "mittel"},
+        {"typ": "linien", "art": "alle"},
         {"typ": "linien", "min_n": 14},
         {"typ": "linien", "min_n": "x"},
         {"typ": "linien", "gattung": "bahn"},

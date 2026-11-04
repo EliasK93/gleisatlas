@@ -34,6 +34,8 @@ STATIONS_PATH = os.environ.get("STATIONS_PATH", "data/stations.parquet")
 MONATE_PATH = os.environ.get("MONATE_PATH", "data/monate.parquet")
 LINES_PATH = os.environ.get("LINES_PATH", "data/lines.parquet")
 LINIEN_PATH = os.environ.get("LINIEN_PATH", "data/linien.parquet")
+ABSCHNITTE_PATH = os.environ.get("ABSCHNITTE_PATH", "data/abschnitte.parquet")
+LINIENWEG_PATH = os.environ.get("LINIENWEG_PATH", "data/linienweg.parquet")
 DAYS_PATH = os.environ.get("DAYS_PATH", "data/days.parquet")
 TAGE_PATH = os.environ.get("TAGE_PATH", "data/tage.parquet")
 DAY_HOURS_PATH = os.environ.get("DAY_HOURS_PATH", "data/day_hours.parquet")
@@ -53,6 +55,8 @@ DATA_FILES = (
     MONATE_PATH,
     LINES_PATH,
     LINIEN_PATH,
+    ABSCHNITTE_PATH,
+    LINIENWEG_PATH,
     DAYS_PATH,
     TAGE_PATH,
     DAY_HOURS_PATH,
@@ -293,6 +297,38 @@ class StationLinie(Stats):
     linie: str
     name: str  # line label
     typ: str
+
+
+class LinienBahnhof(BaseModel):
+    eva: str
+    name: str
+    lat: float | None
+    lon: float | None
+    pos: int | None  # first place on the line's axis, from 0; None off it (a branch)
+    n: int  # 0 when the line has no stops there in the period: then all statistics are None
+    ausfallquote: float | None
+    median: float | None
+    p90: float | None
+    puenktlich: float | None
+
+
+class Linie(BaseModel):
+    linie: str
+    name: str
+    label: str
+    typ: str
+    zug: bool  # a single train number ("ICE 679"), not a line
+    ohne_echtzeit: bool  # almost all stops at exactly 0 minutes: the line has no live data
+    gesamt: Stats | None  # all the line's stations pooled for the period; None without stops
+    achse: list[str]  # EVAs of the axis in order; a station may repeat (ring, reversal)
+    bahnhoefe: list[LinienBahnhof]  # axis stations by first position, then the others by stops
+
+
+class Abschnitt(BaseModel):
+    von_eva: str
+    nach_eva: str
+    n: int  # trips over the section in the period
+    minuten: float  # mean change of the delay over the section; negative: minutes made up
 
 
 class Monat(BaseModel):
@@ -716,10 +752,18 @@ def line_stats_for(
     gattung: str,
     von: str | None,
     bis: str | None,
+    art: str,
 ) -> tuple[tuple[str, str, int] | None, list[Entry]]:
+    """(span of the period, ranked lines): the lines (or the single trains, `art`) with live data;
+    the span counts every line."""
     sel = selection(pl.scan_parquet(lines_path), gattung, None, von, bis)
     found = span(sel)
-    return found, [] if found is None else line_entries(sel, linien)
+    if found is None:
+        return None, []
+    ranked = pl.scan_parquet(linien).filter(
+        ~pl.col("ohne_echtzeit") & (pl.col("zug") == (art == "zuege"))
+    )
+    return found, line_entries(sel.join(ranked.select("linie"), on="linie", how="semi"), linien)
 
 
 LOW_N = 15  # as in the heatmap and the UI: below it a value is not shown
@@ -740,6 +784,10 @@ def rankings(
     gattung: Gattung = "alle",
     von: Month = None,
     bis: Month = None,
+    art: Annotated[
+        Literal["linien", "zuege"],
+        Query(description="With typ=linien: lines or single trains; ignored for stations."),
+    ] = "linien",
 ) -> Rangliste:
     von = period_start(von, bis)
     if typ == "bahnhoefe":
@@ -753,7 +801,7 @@ def rankings(
         ]
     else:
         mtimes = (os.stat(LINES_PATH).st_mtime_ns, os.stat(LINIEN_PATH).st_mtime_ns)
-        found, entries = line_stats_for(LINES_PATH, LINIEN_PATH, mtimes, gattung, von, bis)
+        found, entries = line_stats_for(LINES_PATH, LINIEN_PATH, mtimes, gattung, von, bis, art)
     worst, best = rank(entries, METRICS[metrik], min_n, k=len(entries))
 
     def show(e: Entry) -> RanglistenEintrag:
@@ -852,6 +900,91 @@ def station_linien(
     ]
 
 
+def known_line(linie: str) -> dict:
+    """The row of `linien.parquet` (linie, name, label, typ, zug, ohne_echtzeit); 404 for an unknown
+    line."""
+    rows = collect(pl.scan_parquet(LINIEN_PATH).filter(pl.col("linie") == linie))
+    if rows.is_empty():
+        raise HTTPException(status_code=404, detail="Unknown line")
+    return rows.row(0, named=True)
+
+
+LineId = Annotated[str, Query(max_length=200)]
+
+
+def line_sections(linie: str, von: str | None, bis: str | None) -> pl.DataFrame:
+    """The sections of a line in the period summed over its months: from_eva, to_eva, n, minutes;
+    only sections with trips, sorted."""
+    sel = selection(
+        pl.scan_parquet(ABSCHNITTE_PATH).filter(pl.col("linie") == linie), "alle", None, von, bis
+    )
+    return collect(
+        sel.group_by("from_eva", "to_eva")
+        .agg(n=pl.col("n").sum(), minutes=pl.col("minutes").sum())
+        .filter(pl.col("n") > 0)
+        .sort("from_eva", "to_eva")
+    )
+
+
+@app.get("/linie", response_model=Linie, operation_id="getLinie")
+def line_page(linie: LineId, von: Month = None, bis: Month = None) -> Linie:
+    head = known_line(linie)
+    start = period_start(von, bis)
+    sel = selection(
+        pl.scan_parquet(LINES_PATH).filter(pl.col("linie") == linie), "alle", None, start, bis
+    )
+    stats = stats_per_eva(sel)
+    pooled = cells_of(
+        sel.group_by("bucket").agg(n=pl.col("n").sum()).with_columns(linie=pl.lit(linie)), ["linie"]
+    )
+    walk = collect(
+        pl.scan_parquet(LINIENWEG_PATH)
+        .filter(pl.col("linie") == linie)
+        .sort("pos")
+        .select("eva", "pos")
+    )
+    achse = walk["eva"].to_list()  # a ring or a reversal visits a station twice
+    axis = dict(reversed(list(walk.iter_rows())))  # so a station keeps its first place
+    sections = line_sections(linie, start, bis)
+    evas = {*axis, *stats, *sections["from_eva"], *sections["to_eva"]}
+    named = named_stations().filter(
+        pl.col("eva").is_in(pl.Series(sorted(evas), dtype=pl.String).implode())
+    )  # a station without a name in the source is left out
+    empty = {"n": 0, "ausfallquote": None, "median": None, "p90": None, "puenktlich": None}
+    stations = [
+        LinienBahnhof(
+            eva=row["eva"],
+            name=row["name"],
+            lat=row["lat"],
+            lon=row["lon"],
+            pos=axis.get(row["eva"]),
+            **(to_stats(stats[row["eva"]]).model_dump() if row["eva"] in stats else empty),
+        )
+        for row in named.iter_rows(named=True)
+    ]
+    stations.sort(key=lambda s: (s.pos is None, s.pos or 0, -s.n, s.name))
+    return Linie(
+        linie=head["linie"],
+        name=head["name"],
+        label=head["label"],
+        typ=head["typ"] or "",
+        zug=head["zug"],
+        ohne_echtzeit=head["ohne_echtzeit"],
+        gesamt=to_stats(pooled[0][1]) if pooled else None,
+        achse=achse,
+        bahnhoefe=stations,
+    )
+
+
+@app.get("/linie/abschnitte", response_model=list[Abschnitt], operation_id="getLinieAbschnitte")
+def line_abschnitte(linie: LineId, von: Month = None, bis: Month = None) -> list[Abschnitt]:
+    known_line(linie)
+    return [
+        Abschnitt(von_eva=a, nach_eva=b, n=n, minuten=round(minutes / n, 2))
+        for a, b, n, minutes in line_sections(linie, period_start(von, bis), bis).iter_rows()
+    ]
+
+
 @app.get("/zeitverlauf", response_model=Zeitverlauf, operation_id="getZeitverlauf")
 def zeitverlauf(
     eva: Annotated[str | None, Query(pattern=DIGITS)] = None,
@@ -862,10 +995,7 @@ def zeitverlauf(
         raise HTTPException(status_code=422, detail="Give either eva or linie, not both")
     titel = None
     if linie:
-        labels = collect(pl.scan_parquet(LINIEN_PATH).filter(pl.col("linie") == linie))["label"]
-        if labels.is_empty():
-            raise HTTPException(status_code=404, detail="Unknown line")
-        titel = labels[0]
+        titel = known_line(linie)["label"]
         lf = pl.scan_parquet(LINES_PATH).filter(pl.col("linie") == linie)
     else:
         lf = pl.scan_parquet(AGG_PATH)
