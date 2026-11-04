@@ -20,6 +20,7 @@ import {
   IMPRESSUM,
   ImpressumPage,
   LegalLinks,
+  DatasetLink,
   LicenceLink,
   PrivacyPage,
 } from "./LegalPages";
@@ -28,7 +29,18 @@ import { setLang, useTheme, type ThemePref } from "./prefs";
 import RankingsPage from "./RankingsPage";
 import StationPage from "./StationPage";
 import { GlobalSearch, useSearchShortcut } from "./StationSearch";
-import { HEATMAP, LAGE, MAP, RANKINGS, Segmented, SoonTag, stationPath, ZEITVERLAUF } from "./ui";
+import {
+  HEATMAP,
+  LAGE,
+  MAP,
+  Page,
+  PageTitle,
+  RANKINGS,
+  Segmented,
+  SoonTag,
+  stationPath,
+  ZEITVERLAUF,
+} from "./ui";
 import ZeitverlaufPage from "./ZeitverlaufPage";
 
 export default function App() {
@@ -121,7 +133,9 @@ function Shell() {
             <b className="font-semibold text-text-2">
               {t("footer.disclaimer")} {t("legal.notDb")}
             </b>
-            <span>{tx("footer.attribution", { licence: <LicenceLink /> })}</span>
+            <span>
+              {tx("footer.attribution", { dataset: <DatasetLink />, licence: <LicenceLink /> })}
+            </span>
             <LegalLinks />
           </footer>
         )}
@@ -267,10 +281,8 @@ function DataNote({ className }: { className: string }) {
 
 function MorePage() {
   return (
-    <div className="mx-auto max-w-[1200px] px-4 pt-4 md:px-8 md:pt-6">
-      <h1 className="mb-3 text-[21px] leading-tight font-[650] tracking-[-0.015em] md:text-[26px]">
-        {t("nav.more")}
-      </h1>
+    <Page>
+      <PageTitle className="mb-3">{t("nav.more")}</PageTitle>
       <div className="card flex flex-col gap-0.5 p-2">
         <Soon icon="xfer" label="nav.transfer" />
         <Soon icon="info" label="nav.method" />
@@ -280,6 +292,6 @@ function MorePage() {
       <ThemeSwitch className="card mt-4" />
       <LangSwitch className="card mt-4" />
       <DataNote className="card mt-4 flex flex-col gap-1 text-xs text-text-3" />
-    </div>
+    </Page>
   );
 }

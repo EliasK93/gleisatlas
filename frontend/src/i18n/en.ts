@@ -4,7 +4,7 @@ export const en: Record<keyof typeof de, string> = {
   "app.title": "Gleisatlas",
   "footer.disclaimer": "Historical statistics, not a forecast or a guarantee.",
   "footer.attribution":
-    "Data: Deutsche Bahn actual data via piebro/deutsche-bahn-data, {licence}, aggregated",
+    "Data: Deutsche Bahn (via {dataset} and DB Timetables API), {licence}, aggregated",
 
   "nav.label": "Main navigation",
   "nav.discover": "Discover",
@@ -35,6 +35,8 @@ export const en: Record<keyof typeof de, string> = {
   "lang.en": "English",
 
   "data.status": "Data as of {month} · {stations} stations",
+  "data.dataset": "piebro/deutsche-bahn-data",
+  "data.datasetUrl": "https://huggingface.co/datasets/piebro/deutsche-bahn-data",
   "data.licence": "CC BY 4.0",
   "data.licenceUrl": "https://creativecommons.org/licenses/by/4.0/deed.en",
 
@@ -157,7 +159,8 @@ export const en: Record<keyof typeof de, string> = {
   "map.title": "How reliable is the railway?",
   "map.lead": "Every dot is a station. Click one.",
   "map.region": "Map of Germany with stations",
-  "map.attribution": "Data: Deutsche Bahn via piebro/deutsche-bahn-data, {licence}, aggregated",
+  "map.attribution":
+    "Data: Deutsche Bahn (via {dataset} and DB Timetables API), {licence}, aggregated",
   "map.attributionToggle": "Show or hide attributions",
   "map.zoomIn": "Zoom in",
   "map.zoomOut": "Zoom out",

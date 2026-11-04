@@ -16,6 +16,15 @@ export function LicenceLink() {
   );
 }
 
+/** The source dataset, named and linked; a placeholder value of the footer attribution. */
+export function DatasetLink() {
+  return (
+    <a href={t("data.datasetUrl")} target="_blank" rel="noopener" className="underline">
+      {t("data.dataset")}
+    </a>
+  );
+}
+
 const SECTIONS = ["controller", "hosting", "logs", "map", "storage", "rights"] as const;
 
 /** The two legal links, shared by the sidebar and the footer. They keep the query string like the other shell links. */

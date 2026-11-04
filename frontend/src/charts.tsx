@@ -4,10 +4,11 @@ import { LOCALE, t } from "./i18n";
 import {
   API_FIELD,
   DEFS,
-  display,
   formatDay,
   formatMonth,
+  formatRaw,
   int,
+  monthOf,
   withUnit,
   type Metric,
 } from "./metrics";
@@ -33,7 +34,7 @@ const MARKER_ROW = [11, 31];
 export const MARKER_TOP = 46;
 
 /** The first series colours as classes, spelled out so Tailwind sees them. */
-export const CAT = { stroke: "stroke-cat1", fill: "fill-cat1" };
+const CAT = { stroke: "stroke-cat1", fill: "fill-cat1" };
 export const CANCEL = { stroke: "stroke-cancel", fill: "fill-cancel" };
 
 const num = new Intl.NumberFormat(LOCALE);
@@ -62,14 +63,14 @@ export function trendValue(r: Row, metric: Metric) {
 /** The trend as the metric's own text ("78 %", "3 min"), or null when the day has none. */
 function trendText(r: Row, metric: Metric) {
   const v = r.trend?.[API_FIELD[metric]] ?? null;
-  return v === null ? null : DEFS[metric].format(display(metric, v)!);
+  return v === null ? null : formatRaw(metric, v);
 }
 
 /** Little data by the rule of `show()` (arrived stops for delays), or missing hours: dashed. */
 export const thin = (r: Row, metric: Metric) => !!show(metric, stats(r), "").low || r.missing > 0;
 
 /** The text of a row's tooltip: date, value or values (none when little data), trend, n, gaps. */
-export function tipOf(r: Row, metric: Metric) {
+function tipOf(r: Row, metric: Metric) {
   const parts = [rowLabel(r)];
   const s = stats(r);
   const low = !!show(metric, s, "").low;
@@ -130,7 +131,7 @@ export function Sized({
 
 /** A month names itself on the axis; a day only on the first of its month. */
 const axisLabel = (r: Row) =>
-  !isDay(r) ? formatMonth(r.key) : r.key.endsWith("-01") ? formatMonth(r.key.slice(0, 7)) : null;
+  !isDay(r) ? formatMonth(r.key) : r.key.endsWith("-01") ? formatMonth(monthOf(r.key)) : null;
 
 /**
  * The frame of a chart: gridlines with labels, month labels, and a transparent column per row that

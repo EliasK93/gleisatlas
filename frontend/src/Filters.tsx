@@ -1,8 +1,7 @@
-import { useQuery } from "@tanstack/react-query";
 import { Fragment, useEffect, useId, useRef } from "react";
 import { useSearchParams } from "react-router";
 import { clearParams, useSetParams } from "./useSetParams";
-import { api, lageDays, must, useDatenstand } from "./api";
+import { lageDays, useDatenstand, useStation } from "./api";
 import { t } from "./i18n";
 import { Icon } from "./Icon";
 import {
@@ -293,12 +292,7 @@ function StationFilter({
   const pop = useRef<HTMLDivElement>(null);
   const invoker = useRef<HTMLButtonElement>(null);
   const input = useRef<HTMLInputElement>(null);
-  const station = useQuery({
-    queryKey: ["station", eva],
-    queryFn: () => api.GET("/stationen/{eva}", { params: { path: { eva: eva! } } }).then(must),
-    enabled: !!eva && name === undefined,
-    staleTime: Infinity,
-  });
+  const station = useStation(eva, !!eva && name === undefined);
   return (
     <>
       <button

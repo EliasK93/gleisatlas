@@ -6,9 +6,9 @@ import { t } from "./i18n";
 import { ANCHORS, landName } from "./laender";
 import { NBSP, type Metric } from "./metrics";
 import type { components } from "./schema";
+import type { Tip } from "./ui";
 
 type Land = components["schemas"]["Land"];
-export type Tip = { text: string; x: number; y: number } | null;
 
 /**
  * The Live-Lage overview's state cards: one button for each of the 16 states at its anchor, on

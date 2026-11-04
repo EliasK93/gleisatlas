@@ -17,7 +17,7 @@ import workerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url";
 import { useEffect, useEffectEvent, useMemo, useRef, useState, type RefObject } from "react";
 import { Link, Navigate, useLocation, useSearchParams } from "react-router";
 import { clearParams, useSetParams } from "./useSetParams";
-import { api, lageDays, LIVE_REFRESH, must, useDatenstand } from "./api";
+import { api, lageDays, LIVE_REFRESH, must, useDatenstand, useStation } from "./api";
 import { AreaCard, stateTip } from "./AreaCard";
 import { Filters } from "./Filters";
 import { t, tx } from "./i18n";
@@ -42,13 +42,14 @@ import {
   tenths,
   weekdayOf,
   withParam,
+  within,
   writeFilters,
   type Filters as FilterKeys,
   type Metric,
 } from "./metrics";
 import { useTheme, type Theme } from "./prefs";
 import type { components } from "./schema";
-import { StateMarkers, type Tip } from "./StateMarkers";
+import { StateMarkers } from "./StateMarkers";
 import {
   EmptyCard,
   ErrorBanner,
@@ -61,6 +62,8 @@ import {
   stationPath,
   useNarrow,
   SlowHint,
+  TipBox,
+  type Tip,
 } from "./ui";
 
 type KartenStation = components["schemas"]["KartenStation"];
@@ -339,7 +342,7 @@ export default function MapPage({ day = false }: { day?: boolean }) {
     read.tag && datenstand && served
       ? read.tag > datenstand.letzter_tag && !served.has(read.tag)
         ? served.newest
-        : [datenstand.erster_tag, read.tag, served.newest].sort()[1]
+        : within(read.tag, datenstand.erster_tag, served.newest)
       : read.tag;
   const tag = day && wanted !== newest ? wanted : undefined;
   const shown = tag ?? newest;
@@ -478,7 +481,7 @@ export default function MapPage({ day = false }: { day?: boolean }) {
           </div>
           <MetricSwitch
             metric={f.k}
-            onMetric={(k) => setParams(withParam("k", k === "puenktlich" ? "" : k))}
+            onMetric={(k) => setParams(withParam("k", k))}
             className="-mx-2.5 -my-2 px-2.5 py-2 md:m-0 md:p-0"
             helpOnPhone={false}
           />
@@ -717,10 +720,11 @@ function StationMap({
     // first to sit below the zoom buttons.
     // The control renders HTML, like the style's own attribution links.
     const licence = `<a href="${t("data.licenceUrl")}" target="_blank" rel="noopener">${t("data.licence")}</a>`;
+    const dataset = `<a href="${t("data.datasetUrl")}" target="_blank" rel="noopener">${t("data.dataset")}</a>`;
     m.addControl(
       new AttributionControl({
         compact: true,
-        customAttribution: t("map.attribution", { licence }),
+        customAttribution: t("map.attribution", { dataset, licence }),
       }),
       "bottom-right",
     );
@@ -982,15 +986,7 @@ function StationMap({
           onHover={setHovered}
         />
       )}
-      {tip && (
-        <div
-          role="tooltip"
-          className="pointer-events-none absolute z-20 max-w-[260px] -translate-x-1/2 -translate-y-full rounded-[7px] bg-text px-[9px] py-1.5 text-[12.5px] text-bg shadow-card"
-          style={{ left: tip.x, top: tip.y - 12 }}
-        >
-          {tip.text}
-        </div>
-      )}
+      <TipBox tip={tip} local />
     </>
   );
 }
@@ -1118,13 +1114,8 @@ function StationPanel({
   onClose: () => void;
 }) {
   const { search } = useLocation();
-  const lookup = useQuery({
-    queryKey: ["station", eva],
-    queryFn: () => api.GET("/stationen/{eva}", { params: { path: { eva } } }).then(must),
-    // Until the map data is in, the station may still be part of it.
-    enabled: loaded && !station,
-    staleTime: Infinity,
-  });
+  // Until the map data is in, the station may still be part of it.
+  const lookup = useStation(eva, loaded && !station);
   const name = station?.name ?? lookup.data?.name ?? t("filter.eva", { eva });
   const tiles = station && METRICS.map((m) => ({ m, ...show(m, station, name) }));
   const [onTime, , bad] = tiles ?? [];

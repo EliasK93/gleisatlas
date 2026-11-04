@@ -40,9 +40,17 @@ test("the map renders the stations and has no footer", async ({ page }) => {
   const attribution = page.locator(".maplibregl-ctrl-attrib");
   await expect(
     attribution.getByText(
-      "Daten: Deutsche Bahn via piebro/deutsche-bahn-data, CC BY 4.0, aggregiert",
+      "Daten: Deutsche Bahn (via piebro/deutsche-bahn-data und DB Timetables API), CC BY 4.0, aggregiert",
     ),
   ).toBeAttached();
+  const dataset = attribution.getByRole("link", {
+    name: "piebro/deutsche-bahn-data",
+    includeHidden: true,
+  });
+  await expect(dataset).toHaveAttribute(
+    "href",
+    "https://huggingface.co/datasets/piebro/deutsche-bahn-data",
+  );
   // The compact control may be collapsed, which hides its links; they stay in the DOM.
   const licence = attribution.getByRole("link", { name: "CC BY 4.0", includeHidden: true });
   await expect(licence).toHaveAttribute(

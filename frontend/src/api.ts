@@ -31,6 +31,15 @@ export const useDatenstand = (refetchInterval: number | false = false) =>
     refetchInterval,
   });
 
+/** One station by EVA, for the name and the state; it never changes, so it is fetched once per session. */
+export const useStation = (eva: string | undefined, enabled: boolean) =>
+  useQuery({
+    queryKey: ["station", eva],
+    queryFn: () => api.GET("/stationen/{eva}", { params: { path: { eva: eva! } } }).then(must),
+    enabled,
+    staleTime: Infinity,
+  });
+
 /**
  * The days Live-Lage can show: the complete days, the collector's finished days after them (not
  * on the Karte, which stops at `letzter_tag`) and today. `newest` is the default one.

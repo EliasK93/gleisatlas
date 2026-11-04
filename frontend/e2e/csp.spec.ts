@@ -33,6 +33,12 @@ for (const scheme of ["light", "dark"] as const) {
         expect(response?.headers()["content-security-policy"]).toBe(
           swa.globalHeaders["Content-Security-Policy"],
         );
+        expect(response?.headers()["permissions-policy"]).toBe(
+          swa.globalHeaders["Permissions-Policy"],
+        );
+        expect(response?.headers()["cross-origin-opener-policy"]).toBe(
+          swa.globalHeaders["Cross-Origin-Opener-Policy"],
+        );
         // The theme script is inline: the hash in the policy has to allow it, or the page logs a violation.
         await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
         if (ready) await expect(ready(page)).toHaveAttribute("data-ready", "true");

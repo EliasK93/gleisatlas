@@ -1,5 +1,5 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { Fragment, useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useId, useRef, useState } from "react";
 import { Link, Navigate, useParams, useSearchParams } from "react-router";
 import { clearParams, useSetParams } from "./useSetParams";
 import { api, must, useMonthPeriod } from "./api";
@@ -12,6 +12,7 @@ import {
   DEFS,
   formatPeriod,
   int,
+  lineSearch,
   METRICS,
   readFilters,
   share,
@@ -39,6 +40,9 @@ import {
   ZEITVERLAUF,
   type Shown,
   SlowHint,
+  Page,
+  PageTitle,
+  Pulse,
 } from "./ui";
 import { StationSearch, useOpenStation } from "./StationSearch";
 import { Sparkline } from "./ZeitverlaufPage";
@@ -122,7 +126,7 @@ export default function StationPage() {
         period={period}
         heatmapTo={to(HEATMAP)}
         timelineTo={to(ZEITVERLAUF)}
-        onMetric={(k) => setParams(withParam("k", k === "puenktlich" ? "" : k))}
+        onMetric={(k) => setParams(withParam("k", k))}
       />
     );
 
@@ -137,9 +141,7 @@ export default function StationPage() {
             <span aria-hidden="true"> › </span>
             {name}
           </nav>
-          <h1 className="text-[21px] leading-tight font-[650] tracking-[-0.015em] md:text-[26px]">
-            {name}
-          </h1>
+          <PageTitle>{name}</PageTitle>
           <p className="mt-1 text-xs text-text-3">
             {[t("filter.eva", { eva }), data?.station.land].filter(Boolean).join(" · ")}
           </p>
@@ -155,10 +157,6 @@ export default function StationPage() {
     </Page>
   );
 }
-
-const Page = ({ children }: { children: ReactNode }) => (
-  <div className="mx-auto max-w-[1200px] px-4 pt-4 md:px-8 md:pt-6">{children}</div>
-);
 
 /** A page that is not built yet: dimmed, tagged "bald", not a link. */
 function SoonAction({ icon, label }: { icon: IconName; label: MessageKey }) {
@@ -186,8 +184,7 @@ function Skeleton() {
   return (
     <div className="flex flex-col gap-4">
       <SlowHint />
-      <div role="status" className="flex animate-pulse flex-col gap-4">
-        <span className="sr-only">{t("state.loading")}</span>
+      <Pulse className="flex animate-pulse flex-col gap-4">
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4 lg:gap-4">
           {[1, 2, 3, 4].map((i) => (
             <div key={i} className="h-[118px] rounded-xl bg-surface-2" />
@@ -198,7 +195,7 @@ function Skeleton() {
           <div className="h-[180px] rounded-xl bg-surface-2" />
           <div className="h-[180px] rounded-xl bg-surface-2" />
         </div>
-      </div>
+      </Pulse>
     </div>
   );
 }
@@ -397,12 +394,7 @@ function MiniHeatmap({
   });
   let body;
   if (q.isError) body = <p className="text-text-2">{t("state.error")}</p>;
-  else if (!q.data)
-    body = (
-      <div role="status" className="h-[130px] animate-pulse rounded-lg bg-surface-2">
-        <span className="sr-only">{t("state.loading")}</span>
-      </div>
-    );
+  else if (!q.data) body = <Pulse className="h-[130px] animate-pulse rounded-lg bg-surface-2" />;
   else body = <HeatGrid data={q.data} metric={metric} />;
   return (
     <section aria-labelledby="st-hm" className="card min-w-0">
@@ -533,12 +525,7 @@ function Lines({ eva, f }: { eva: string; f: FilterKeys }) {
   const lines = q.data && (order === "worst" ? q.data : bestFirst(q.data));
   let body;
   if (q.isError) body = <ErrorBanner onRetry={() => q.refetch()} />;
-  else if (!lines)
-    body = (
-      <div role="status" className="h-[180px] animate-pulse rounded-lg bg-surface-2">
-        <span className="sr-only">{t("state.loading")}</span>
-      </div>
-    );
+  else if (!lines) body = <Pulse className="h-[180px] animate-pulse rounded-lg bg-surface-2" />;
   else if (lines.length === 0) body = <p className="text-text-2">{t("station.lines.none")}</p>;
   else
     body = (
@@ -562,7 +549,7 @@ function Lines({ eva, f }: { eva: string; f: FilterKeys }) {
                   ref={i === LINES_FIRST ? firstNew : undefined}
                   to={{
                     pathname: ZEITVERLAUF,
-                    search: writeFilters({ k: f.k, g: f.g, linie: l.linie }).toString(),
+                    search: lineSearch(f, l.linie),
                   }}
                   className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-2 rounded-lg border border-border p-3 hover:bg-surface-2 md:grid-cols-[minmax(0,1.3fr)_minmax(0,1.2fr)_52px_72px_104px] md:gap-y-0 md:rounded-none md:border-0 md:border-b md:px-1 md:py-2.5"
                 >

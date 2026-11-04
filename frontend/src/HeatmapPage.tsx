@@ -32,6 +32,10 @@ import {
   useNarrow,
   useTip,
   SlowHint,
+  Page,
+  PageTitle,
+  TableToggle,
+  Pulse,
 } from "./ui";
 
 type Heatmap = components["schemas"]["Heatmap"];
@@ -86,19 +90,17 @@ export default function HeatmapPage() {
         data={data}
         metric={f.k}
         period={period}
-        onMetric={(k) => setParams(withParam("k", k === "puenktlich" ? "" : k))}
+        onMetric={(k) => setParams(withParam("k", k))}
       />
     );
 
   return (
-    <div className="mx-auto max-w-[1200px] px-4 pt-4 md:px-8 md:pt-6">
+    <Page>
       <MusterSwitch />
       <div className="mb-4 flex flex-wrap items-end justify-between gap-4">
         <div>
           <p className="mb-1.5 text-[12.5px] text-text-3">{t("hm.crumb")}</p>
-          <h1 className="text-[21px] leading-tight font-[650] tracking-[-0.015em] md:text-[26px]">
-            {t("hm.title")}
-          </h1>
+          <PageTitle>{t("hm.title")}</PageTitle>
           <p className="mt-1.5 max-w-[68ch] text-text-2">
             {t("hm.lead", { metric: t(`metric.${f.k}`) })}
           </p>
@@ -107,7 +109,7 @@ export default function HeatmapPage() {
       </div>
       <Filters />
       {body}
-    </div>
+    </Page>
   );
 }
 
@@ -292,16 +294,7 @@ function HeatmapView({
               {t("hm.onlyCancelledLegend")}
             </span>
           )}
-          <button
-            type="button"
-            aria-pressed={asTable}
-            onClick={() => setAsTable(!asTable)}
-            className={`hit ml-auto cursor-pointer rounded-md px-2 py-1 ${
-              asTable ? "bg-accent-soft text-accent" : "text-text-3 hover:text-text"
-            }`}
-          >
-            {t("hm.asTable")}
-          </button>
+          <TableToggle on={asTable} onToggle={() => setAsTable(!asTable)} />
         </div>
       </div>
 
@@ -326,8 +319,7 @@ function Skeleton() {
   return (
     <div className="flex flex-col gap-4">
       <SlowHint />
-      <div role="status" className="card">
-        <span className="sr-only">{t("state.loading")}</span>
+      <Pulse className="card">
         <div className="grid animate-pulse grid-cols-7 gap-0.5 md:grid-cols-24">
           {Array.from({ length: 168 }, (_, i) => (
             <div
@@ -336,7 +328,7 @@ function Skeleton() {
             />
           ))}
         </div>
-      </div>
+      </Pulse>
     </div>
   );
 }

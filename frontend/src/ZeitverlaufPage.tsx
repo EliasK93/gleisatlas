@@ -29,9 +29,11 @@ import {
 import { Filters } from "./Filters";
 import { t } from "./i18n";
 import {
+  firstDay,
   formatMonth,
   formatPeriod,
   int,
+  monthOf,
   readFilters,
   withParam,
   writeFilters,
@@ -52,6 +54,10 @@ import {
   MusterSwitch,
   PRIMARY,
   SlowHint,
+  Page,
+  PageTitle,
+  TableToggle,
+  Pulse,
 } from "./ui";
 import { clearParams, useSetParams } from "./useSetParams";
 
@@ -183,20 +189,18 @@ export default function ZeitverlaufPage() {
         metric={f.k}
         timetable={ds.fahrplanwechsel}
         coverage={ds.vollabdeckung_ab}
-        onMetric={(k) => setParams(withParam("k", k === "puenktlich" ? "" : k))}
+        onMetric={(k) => setParams(withParam("k", k))}
       />
     );
   }
 
   return (
-    <div className="mx-auto max-w-[1200px] px-4 pt-4 md:px-8 md:pt-6">
+    <Page>
       <MusterSwitch />
       <div className="mb-4 flex flex-wrap items-end justify-between gap-4">
         <div>
           <p className="mb-1.5 text-[12.5px] text-text-3">{t("nav.discover")}</p>
-          <h1 className="text-[21px] leading-tight font-[650] tracking-[-0.015em] md:text-[26px]">
-            {t("nav.timeline")}
-          </h1>
+          <PageTitle>{t("nav.timeline")}</PageTitle>
           <p className="mt-1.5 max-w-[68ch] text-text-2">{t(day ? "zv.lead.day" : "zv.lead")}</p>
         </div>
         <ShareButton />
@@ -214,7 +218,7 @@ export default function ZeitverlaufPage() {
         </div>
       )}
       {body}
-    </div>
+    </Page>
   );
 }
 
@@ -245,7 +249,7 @@ function View({
 
   // The timetable change labels sit above the coverage label, so two neighbours never overlap.
   const at = (date: string) => {
-    const key = day ? (date.length === 7 ? `${date}-01` : date) : date.slice(0, 7);
+    const key = day ? firstDay(date) : monthOf(date);
     return rows.findIndex((r) => r.key === key);
   };
   // The start of full coverage only means something when earlier months are shown too.
@@ -276,7 +280,7 @@ function View({
     ),
   );
   const cancelValues = rows.flatMap((r) => [cancelRate(r), trendValue(r, "ausfall")]);
-  const [first, last] = [rows[0].key.slice(0, 7), rows[rows.length - 1].key.slice(0, 7)];
+  const [first, last] = [monthOf(rows[0].key), monthOf(rows[rows.length - 1].key)];
   const mainName = cancel ? names.ausfall : delay ? names.delay : names.puenktlich;
 
   /** The cancellation rate: lines per day, bars per month. */
@@ -419,23 +423,14 @@ function View({
               {widened && (
                 <span>
                   {t("zv.legend.coverage", {
-                    until: formatMonth(rows[at(coverage) - 1].key.slice(0, 7)),
+                    until: formatMonth(monthOf(rows[at(coverage) - 1].key)),
                     from: formatMonth(coverage),
                   })}
                 </span>
               )}
             </>
           )}
-          <button
-            type="button"
-            aria-pressed={asTable}
-            onClick={() => setAsTable(!asTable)}
-            className={`hit ml-auto cursor-pointer rounded-md px-2 py-1 ${
-              asTable ? "bg-accent-soft text-accent" : "text-text-3 hover:text-text"
-            }`}
-          >
-            {t("hm.asTable")}
-          </button>
+          <TableToggle on={asTable} onToggle={() => setAsTable(!asTable)} />
         </div>
       </section>
 
@@ -511,11 +506,10 @@ function Skeleton() {
   return (
     <div className="flex flex-col gap-4">
       <SlowHint />
-      <div role="status" className="flex flex-col gap-4">
-        <span className="sr-only">{t("state.loading")}</span>
+      <Pulse className="flex flex-col gap-4">
         <div className="h-[330px] animate-pulse rounded-xl bg-surface-2" />
         <div className="h-[220px] animate-pulse rounded-xl bg-surface-2" />
-      </div>
+      </Pulse>
     </div>
   );
 }
@@ -544,11 +538,7 @@ export function Sparkline({
   if (q.isError || datenstand.isError)
     body = <ErrorBanner onRetry={() => (q.isError ? q.refetch() : datenstand.refetch())} />;
   else if (q.data === undefined || !datenstand.data)
-    body = (
-      <div role="status" className="h-[110px] animate-pulse rounded-lg bg-surface-2">
-        <span className="sr-only">{t("state.loading")}</span>
-      </div>
-    );
+    body = <Pulse className="h-[110px] animate-pulse rounded-lg bg-surface-2" />;
   else if (!rows.some((r) => r.n > 0))
     body = <p className="text-text-2">{t("station.history.none")}</p>;
   else

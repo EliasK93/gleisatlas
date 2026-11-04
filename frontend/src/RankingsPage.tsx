@@ -9,6 +9,7 @@ import {
   API_FIELD,
   formatPeriod,
   int,
+  lineSearch,
   MIN_NS,
   readFilters,
   readRank,
@@ -36,6 +37,9 @@ import {
   useNarrow,
   ZEITVERLAUF,
   SlowHint,
+  Page,
+  PageTitle,
+  Pulse,
 } from "./ui";
 
 type Rangliste = components["schemas"]["Rangliste"];
@@ -116,14 +120,12 @@ export default function RankingsPage() {
       : "";
 
   return (
-    <div className="mx-auto max-w-[1200px] px-4 pt-4 md:px-8 md:pt-6">
+    <Page>
       <MusterSwitch />
       <div className="mb-4 flex flex-wrap items-end justify-between gap-4">
         <div>
           <p className="mb-1.5 text-[12.5px] text-text-3">{t("nav.discover")}</p>
-          <h1 className="text-[21px] leading-tight font-[650] tracking-[-0.015em] md:text-[26px]">
-            {t("nav.rankings")}
-          </h1>
+          <PageTitle>{t("nav.rankings")}</PageTitle>
           <p className="mt-1.5 max-w-[68ch] text-text-2">{t("rk.lead")}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -141,7 +143,7 @@ export default function RankingsPage() {
       <div className="card mb-4 flex flex-col gap-3">
         <MetricSwitch
           metric={f.k}
-          onMetric={(k) => setParams(withParam("k", k === "puenktlich" ? "" : k))}
+          onMetric={(k) => setParams(withParam("k", k))}
           className="-mx-4 -my-2 px-4 py-2 md:m-0 md:p-0"
         />
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
@@ -157,7 +159,7 @@ export default function RankingsPage() {
         </div>
       </div>
       {body}
-    </div>
+    </Page>
   );
 }
 
@@ -183,8 +185,6 @@ function Lists({
   // Station rows keep the filters; the rankings keys are this page's own. A line row opens the
   // time series of that line in the same category and metric.
   const search = writeFilters(filters).toString();
-  const lineSearch = (linie: string) =>
-    writeFilters({ k: filters.k, g: filters.g, linie }).toString();
   const shown = narrow ? COLUMNS.filter((c) => c.key === tab) : COLUMNS;
   return (
     <>
@@ -224,7 +224,7 @@ function Lists({
                   to={
                     rank.typ === "bahnhoefe"
                       ? { pathname: stationPath(e.id), search }
-                      : { pathname: ZEITVERLAUF, search: lineSearch(e.id) }
+                      : { pathname: ZEITVERLAUF, search: lineSearch(filters, e.id) }
                   }
                 />
               ))}
@@ -290,8 +290,7 @@ function Skeleton() {
   return (
     <div className="flex flex-col gap-4">
       <SlowHint />
-      <div role="status" className="grid animate-pulse gap-4 xl:grid-cols-2">
-        <span className="sr-only">{t("state.loading")}</span>
+      <Pulse className="grid animate-pulse gap-4 xl:grid-cols-2">
         {[0, 1].map((c) => (
           <div key={c} className="card flex flex-col gap-2">
             {Array.from({ length: 10 }, (_, i) => (
@@ -299,7 +298,7 @@ function Skeleton() {
             ))}
           </div>
         ))}
-      </div>
+      </Pulse>
     </div>
   );
 }

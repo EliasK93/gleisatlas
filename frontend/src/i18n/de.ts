@@ -2,7 +2,7 @@ export const de = {
   "app.title": "Gleisatlas",
   "footer.disclaimer": "Historische Statistik, keine Prognose oder Garantie.",
   "footer.attribution":
-    "Daten: Deutsche Bahn Ist-Daten via piebro/deutsche-bahn-data, {licence}, aggregiert",
+    "Daten: Deutsche Bahn (via {dataset} und DB Timetables API), {licence}, aggregiert",
 
   "nav.label": "Hauptnavigation",
   "nav.discover": "Entdecken",
@@ -33,6 +33,8 @@ export const de = {
   "lang.en": "English",
 
   "data.status": "Datenstand: {month} · {stations} Bahnhöfe",
+  "data.dataset": "piebro/deutsche-bahn-data",
+  "data.datasetUrl": "https://huggingface.co/datasets/piebro/deutsche-bahn-data",
   "data.licence": "CC BY 4.0",
   "data.licenceUrl": "https://creativecommons.org/licenses/by/4.0/deed.de",
 
@@ -161,7 +163,8 @@ export const de = {
   "map.title": "Wie zuverlässig ist die Bahn?",
   "map.lead": "Jeder Punkt ist ein Bahnhof – ein Klick zeigt die Details.",
   "map.region": "Deutschlandkarte mit Bahnhöfen",
-  "map.attribution": "Daten: Deutsche Bahn via piebro/deutsche-bahn-data, {licence}, aggregiert",
+  "map.attribution":
+    "Daten: Deutsche Bahn (via {dataset} und DB Timetables API), {licence}, aggregiert",
   "map.attributionToggle": "Quellenangaben ein- oder ausblenden",
   "map.zoomIn": "Vergrößern",
   "map.zoomOut": "Verkleinern",

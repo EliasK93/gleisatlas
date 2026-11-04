@@ -14,6 +14,13 @@ test("the shell shows title, disclaimer and attribution", async ({ page }) => {
   const footer = page.getByRole("contentinfo");
   await expect(footer).toContainText("Historische Statistik, keine Prognose oder Garantie");
   await expect(footer).toContainText("Kein Angebot der Deutschen Bahn");
+  await expect(footer).toContainText(
+    "Daten: Deutsche Bahn (via piebro/deutsche-bahn-data und DB Timetables API), CC BY 4.0, aggregiert",
+  );
+  await expect(footer.getByRole("link", { name: "piebro/deutsche-bahn-data" })).toHaveAttribute(
+    "href",
+    "https://huggingface.co/datasets/piebro/deutsche-bahn-data",
+  );
   const licence = footer.getByRole("link", { name: "CC BY 4.0" });
   await expect(licence).toHaveAttribute(
     "href",

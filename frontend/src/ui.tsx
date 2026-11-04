@@ -36,6 +36,7 @@ export type Shown = {
  * Delay metrics only see arrived stops, so they count those; Ausfälle counts all stops.
  */
 export function show(metric: Metric, s: Stats | undefined, slot: string): Shown {
+  // ponytail: the API's `shown(...)` is a second implementation of this rule and nothing checks that they agree; serve the flag in the API if one of them changes
   const n = s?.n ?? 0;
   const label = (key: "hm.low" | "hm.onlyCancelled") => t(key, { slot, n: int(n) });
   if (!s || n < LOW_N) return { text: "–", fill: "hatch", label: label("hm.low"), low: true };
@@ -73,6 +74,51 @@ export function SlowHint() {
   if (ms < SLOW_MS) return null;
   return <p className="text-[13px] text-text-2">{t("state.slow", { s: Math.floor(ms / 1000) })}</p>;
 }
+
+/** The width, gutters and top space every page shares. */
+export const Page = ({ children }: { children: ReactNode }) => (
+  <div className="mx-auto max-w-[1200px] px-4 pt-4 md:px-8 md:pt-6">{children}</div>
+);
+
+/** A page's h1; `className` adds spacing. */
+export const PageTitle = ({
+  className = "",
+  children,
+}: {
+  className?: string;
+  children: ReactNode;
+}) => (
+  <h1
+    className={`${className} text-[21px] leading-tight font-[650] tracking-[-0.015em] md:text-[26px]`}
+  >
+    {children}
+  </h1>
+);
+
+/** The "Als Tabelle" toggle under a chart or heatmap. */
+export const TableToggle = ({ on, onToggle }: { on: boolean; onToggle: () => void }) => (
+  <button
+    type="button"
+    aria-pressed={on}
+    onClick={onToggle}
+    className={`hit ml-auto cursor-pointer rounded-md px-2 py-1 ${
+      on ? "bg-accent-soft text-accent" : "text-text-3 hover:text-text"
+    }`}
+  >
+    {t("hm.asTable")}
+  </button>
+);
+
+/**
+ * A loading skeleton's status region, named for screen readers; `className` brings the shape and
+ * the `animate-pulse` of the skeleton, and `children` its blocks.
+ */
+export const Pulse = ({ className, children }: { className: string; children?: ReactNode }) => (
+  <div role="status" className={className}>
+    <span className="sr-only">{t("state.loading")}</span>
+    {children}
+  </div>
+);
 
 const SEG = "rounded-[7px] px-[11px] py-[5px] text-[13px] font-medium whitespace-nowrap";
 const segState = (on: boolean) => (on ? "bg-surface text-text shadow-sm" : "text-text-2");
@@ -224,13 +270,19 @@ export function useTip() {
   return [tip, setTip] as const;
 }
 
-/** The floating tooltip box at the pointer. */
-export const TipBox = ({ tip }: { tip: Tip }) =>
+/**
+ * The floating tooltip box at the pointer: by default in window coordinates, kept inside the
+ * window; `local` places it inside the nearest positioned parent, as the map does.
+ */
+export const TipBox = ({ tip, local }: { tip: Tip; local?: boolean }) =>
   tip && (
     <div
       role="tooltip"
-      className="pointer-events-none fixed z-50 max-w-[260px] -translate-x-1/2 -translate-y-full rounded-[7px] bg-text px-[9px] py-1.5 text-[12.5px] text-bg shadow-card"
-      style={{ left: Math.min(Math.max(tip.x, 138), innerWidth - 138), top: tip.y - 12 }}
+      className={`pointer-events-none ${local ? "absolute z-20" : "fixed z-50"} max-w-[260px] -translate-x-1/2 -translate-y-full rounded-[7px] bg-text px-[9px] py-1.5 text-[12.5px] text-bg shadow-card`}
+      style={{
+        left: local ? tip.x : Math.min(Math.max(tip.x, 138), innerWidth - 138),
+        top: tip.y - 12,
+      }}
     >
       {tip.text}
     </div>

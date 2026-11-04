@@ -89,11 +89,12 @@ export const REFERENCE_WEEKS = 12;
 /** Class 1 (much better than usual) … 5 (much worse), 3 = as usual. */
 export type Class = 1 | 2 | 3 | 4 | 5;
 
+/** A raw API value as the metric's text (the scale of `show`, without "~" or a low-data mark). */
+export const formatRaw = (m: Metric, v: number) => DEFS[m].format(display(m, v) ?? v);
+
 /** A normal or a day figure as text: punctuality with one decimal, the rest as the scale shows it. */
 export function figureText(m: Metric, v: number): string {
-  return m === "puenktlich"
-    ? withUnit(oneDecimal.format(v * 100), "unit.pct")
-    : DEFS[m].format(display(m, v) ?? v);
+  return m === "puenktlich" ? withUnit(oneDecimal.format(v * 100), "unit.pct") : formatRaw(m, v);
 }
 
 /**
@@ -107,7 +108,7 @@ export function deviation(
   const cls = s.klasse?.[API_FIELD[m]] ?? null;
   const raw = s.normal?.[API_FIELD[m]] ?? null;
   if (cls === null || raw === null) return null;
-  return { cls: cls as Class, normal: DEFS[m].format(display(m, raw)!) };
+  return { cls: cls as Class, normal: formatRaw(m, raw) };
 }
 
 /**
@@ -324,6 +325,7 @@ export function writeFilters({
 }
 
 /** The rankings page's own URL keys: what it lists and the minimum sample. */
+// ponytail: four minimum-sample values only, though the API accepts any value from 15; a number field when users want other limits
 export const MIN_NS = [100, 500, 1000, 5000] as const;
 export type Rank = { typ: "linien" | "bahnhoefe"; min: number };
 
@@ -356,6 +358,10 @@ export const withParam = (key: string, value: string) => (p: URLSearchParams) =>
   else p.delete(key);
   return writeRank(readFilters(p), readRank(p));
 };
+
+/** The search string of a line's time series: the line in the page's category and metric. */
+export const lineSearch = (f: Pick<Filters, "k" | "g">, linie: string) =>
+  writeFilters({ k: f.k, g: f.g, linie }).toString();
 
 /**
  * URL updater for the period: sets `edge` and, when that crosses the other edge (shown or

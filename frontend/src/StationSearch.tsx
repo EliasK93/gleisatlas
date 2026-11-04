@@ -54,6 +54,7 @@ export function StationSearch({
     placeholderData: keepPreviousData,
   });
   const list = term && open ? (hits.data ?? []) : [];
+  // ponytail: the duplicate-name hint only counts the eight results shown; ask the API for the total if namesakes beyond eight confuse
   const same = (name: string) => list.filter((s) => s.name === name).length;
   const style = STYLE[variant];
   const optionId = (eva: string) => `${id}-${eva}`;
@@ -76,6 +77,7 @@ export function StationSearch({
       <label className="hit block">
         <input
           ref={inputRef}
+          maxLength={100}
           data-global-search={variant === "global" || undefined}
           role="combobox"
           aria-label={label}
