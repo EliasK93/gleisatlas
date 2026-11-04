@@ -28,7 +28,7 @@ Source file 2026-09, stations with a name in the source:
 - Same-name fallback: an unmatched station takes the coordinates of the one located station with exactly the same name. This places 7 of the 10, leaving 5,216 of 5,219 stations (99.9 % of stops).
 - Still unmatched: Berlin-Karlshorst (7,785 stops), Bochum-Langendreer (3,587) and Bürstadt (Ried) (2,723). They stay searchable and keep their station page, but are not on the map. Since then the three have been placed by adding their IBNR to their Wikidata items; on the months to 2026-09 only Trebitz (b Könnern), one stop and no Wikidata item, is left.
 
-Reproduce: `uv run python -m pipeline.coords`, then `uv run python -m pipeline.update`.
+Reproduce: `uv run python -m pipeline.update` (fetches the coordinates when the file is missing). `uv run python -m pipeline.coords` refreshes them.
 
 ## Consequences
 

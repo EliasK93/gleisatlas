@@ -12,8 +12,8 @@ Today so far comes from two places: `pipeline.update` writes the current day fro
 
 Commands (from the repo root):
 
-- `uv run python -m pipeline.coords` runs one SPARQL query against Wikidata and writes `data/coords.parquet`. Needs network access; run it once and again to refresh.
-- `uv run python -m pipeline.update` is the one command for the data. It lists the monthly files on HuggingFace, downloads and processes every month whose folder `data/months/YYYY-MM/` is missing or incomplete, then processes the complete raw days after the last month (see "Raw days"), then combines everything, and last writes today so far (see "Today so far"). A second run downloads no month again (AC-1) and no raw day that is done. It reads `data/coords.parquet` and aborts before fetching anything if the file is missing, so run `pipeline.coords` first.
+- `uv run python -m pipeline.coords` runs one SPARQL query against Wikidata and writes `data/coords.parquet`. Needs network access. `pipeline.update` runs it on the first run when the file is missing, and never refreshes an existing file, so run this command to refresh the coordinates.
+- `uv run python -m pipeline.update` is the one command for the data. It lists the monthly files on HuggingFace, downloads and processes every month whose folder `data/months/YYYY-MM/` is missing or incomplete, then processes the complete raw days after the last month (see "Raw days"), then combines everything, and last writes today so far (see "Today so far"). A second run downloads no month again (AC-1) and no raw day that is done. It reads `data/coords.parquet`, and when the file is missing it fetches the coordinates first (one Wikidata query, before anything else).
 - `uv run python -m pipeline.live` makes one run of the live collector for the large stations (see "Live collector"); it needs the DB API key in the environment.
 
 After a change to the per-month logic (cleaning, line names, coverage rule) the existing month folders are stale: delete `data/months/` and run `pipeline.update` again. The skip check only looks for the folder, not for the version of the code that wrote it.
