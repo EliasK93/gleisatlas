@@ -9,7 +9,7 @@ import pytest
 
 from core.periods import full_coverage_start, large_stations
 from pipeline.raw import RawSource
-from pipeline.update import day_complete, update
+from pipeline.update import day_complete, main, update
 from tests.conftest import complete
 from tests.pipeline.test_raw import Response, at, fchg_stop, plan_stop, write_raw, xml
 
@@ -727,3 +727,17 @@ def test_combine_sums_a_raw_day_with_the_same_day_from_a_monthly_file(data_dir, 
     # The monthly stop and the raw 08:00 stop are summed; the raw copy of the monthly one
     # (recorded before October) is left out, so nothing is counted twice.
     assert one.select("bucket", "n").rows() == [(0, 2)]
+
+
+@pytest.mark.parametrize("exists", [False, True])
+def test_main_fetches_the_coordinates_only_when_the_file_is_missing(tmp_path, monkeypatch, exists):
+    monkeypatch.chdir(tmp_path)
+    if exists:
+        (tmp_path / "data").mkdir()
+        (tmp_path / "data" / "coords.parquet").touch()
+    calls: list[str] = []
+    monkeypatch.setattr("pipeline.update.fetch_coords", lambda argv: calls.append("coords"))
+    monkeypatch.setattr("pipeline.update.remote_source", lambda: None)
+    monkeypatch.setattr("pipeline.update.update", lambda *args: calls.append("update"))
+    main([])
+    assert calls == (["update"] if exists else ["coords", "update"])

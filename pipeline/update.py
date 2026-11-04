@@ -28,6 +28,8 @@ from pipeline.aggregate import (
     stations,
     with_coords,
 )
+from pipeline.coords import OUT as COORDS
+from pipeline.coords import main as fetch_coords
 from pipeline.download import REPO, download
 from pipeline.live import _write, large_evas
 from pipeline.raw import RawSource, day_tables, fchg_pass, raw_gaps, remote_source, stop_rows
@@ -382,6 +384,8 @@ def remote_months() -> list[str]:
 def main(argv: list[str]) -> None:
     if argv:
         sys.exit("usage: python -m pipeline.update")
+    if not COORDS.exists():
+        fetch_coords([])
     update(
         Path("data"),
         remote_months,
