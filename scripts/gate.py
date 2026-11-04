@@ -64,7 +64,8 @@ def fingerprint() -> str | None:
     with tempfile.TemporaryDirectory() as tmp:
         copy = Path(tmp) / "index"
         if index.exists():
-            shutil.copyfile(index, copy)
+            # copy2 keeps the mtime, which git's racy-clean check compares entries against
+            shutil.copy2(index, copy)
         env = {**os.environ, "GIT_INDEX_FILE": str(copy)}
         for cmd in (["git", "add", "-A"], ["git", "write-tree"]):
             p = subprocess.run(cmd, cwd=ROOT, env=env, capture_output=True, text=True)

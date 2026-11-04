@@ -67,6 +67,22 @@ def test_the_hook_runs_the_checks_after_a_changed_byte(repo: Path, monkeypatch: 
     assert runs(repo) == 2
 
 
+def test_the_hook_runs_the_checks_after_a_same_size_edit_in_the_index_timestamp(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """Same size and mtime as the index entry: only git's racy-clean check, which compares the
+    entry with the index file's own mtime, makes git read the content."""
+    old = (1_000_000_000_000_000_000, 1_000_000_000_000_000_000)
+    os.utime(repo / "a.txt", ns=old)
+    git(repo, "add", "-A")
+    gate_main(monkeypatch, "--hook")
+    (repo / "a.txt").write_text("two")
+    for path in (repo / "a.txt", repo / ".git" / "index"):
+        os.utime(path, ns=old)
+    assert gate_main(monkeypatch, "--hook") == 0
+    assert runs(repo) == 2
+
+
 def test_the_hook_runs_the_checks_after_a_new_untracked_file(
     repo: Path, monkeypatch: pytest.MonkeyPatch
 ):
