@@ -12,8 +12,10 @@ export default defineConfig({
   // The map's data-ready can take longer than the default 5 s when every worker draws a map at
   // once. Waits return as soon as they pass, so this costs time only on a real failure.
   expect: { timeout: 15_000 },
-  // Playwright defaults to en-US; the German UI is the default for the existing specs.
-  use: { baseURL: DEV, locale: "de-DE" },
+  // Playwright defaults to en-US; the German UI is the default for the existing specs. `locale`
+  // only emulates the page's language: a native date field takes its field order from the
+  // browser's own language (US on a Linux runner), so `--lang` keeps typed dates DD.MM.YYYY.
+  use: { baseURL: DEV, locale: "de-DE", launchOptions: { args: ["--lang=de-DE"] } },
   projects: [
     { name: "chromium", use: { ...devices["Desktop Chrome"] }, testIgnore: "csp.spec.ts" },
     { name: "mobile", use: { ...devices["Pixel 7"] }, testIgnore: "csp.spec.ts" },
