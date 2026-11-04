@@ -26,8 +26,8 @@ CHECKS: list[tuple[str, list[str], Path]] = [
         (f"frontend {s}", [NPM, "run", s], ROOT / "frontend")
         for s in ("typecheck", "lint", "format:check", "gen:check", "test:e2e")
     ),
-    # after test:e2e, whose production build writes the licence file; on a difference, copy it:
-    # cp frontend/dist-e2e/licenses.txt THIRD_PARTY_LICENSES.md
+    # after test:e2e, whose production build writes the licence file; on a difference,
+    # `uv run python scripts/format.py` copies it over
     (
         "licence file",
         [
