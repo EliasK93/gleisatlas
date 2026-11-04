@@ -18,4 +18,5 @@ def category_expr(train_type: pl.Expr) -> pl.Expr:
 
 
 def is_excluded_expr(train_type: pl.Expr) -> pl.Expr:
-    return train_type.is_in(EXCLUDED)
+    """True for the bus types; a stop without a type stays."""
+    return train_type.is_in(EXCLUDED).fill_null(False)

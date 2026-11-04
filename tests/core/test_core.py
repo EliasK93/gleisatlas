@@ -5,10 +5,15 @@ from datetime import timedelta
 import polars as pl
 import pytest
 
-from core.categories import category_expr
+from core.categories import category_expr, is_excluded_expr
 from core.delay import arrival_delay_expr, plausible_expr
 from core.stations import LAND_CODES, ibnr_expr
 from core.stats import cell_stats, cell_stats_frame, delay_bins, quantile
+
+
+def test_only_bus_types_are_excluded_and_a_stop_without_a_type_stays():
+    df = pl.DataFrame({"t": ["Bus", "SEV", "ICE", None]}, schema={"t": pl.String})
+    assert df.select(is_excluded_expr(pl.col("t")))["t"].to_list() == [True, True, False, False]
 
 
 def test_ibnr_strips_leading_zeros():

@@ -62,7 +62,10 @@ def networks(members: pl.DataFrame) -> pl.DataFrame:
 
 
 def line_ids(nets: pl.DataFrame) -> pl.DataFrame:
-    """Add `linie` = "{name}:{net}", stable as months are added."""
+    """Add `linie` = "{name}:{net}", stable as months are added.
+    ponytail: when a network gains a station with a lower EVA in a later month its id changes and a
+    saved link to the old id gives 404; fine while a link is cheap to recreate from the rankings,
+    keep a map of old ids if saved links start to matter."""
     return nets.with_columns(linie=pl.concat_str("name", pl.lit(":"), "net"))
 
 
@@ -95,6 +98,9 @@ def line_table(nets: pl.DataFrame, stops: pl.DataFrame, ends: pl.DataFrame) -> p
         .agg(pl.col("dest").head(2))
     )
     name, dests = pl.col("name"), pl.col("dest")
+    # ponytail: a train-number line is a name matching `^\S+ \d+$`, so a source line number with a
+    # space before its digits matches too (2 labels in the real data); flag train-number names in
+    # `line_name_expr` if more show up.
     first, second = dests.list.get(0, null_on_oob=True), dests.list.get(1, null_on_oob=True)
     return (
         lines.select("linie", "name")
