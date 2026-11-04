@@ -75,9 +75,12 @@ Details in [day-history.md](day-history.md).
 - [x] Every page offers the four metrics (Pünktlichkeit, Typische Verspätung, Schlechteste 10 %, Ausfälle) through the same switch with an explanation line under it, and `k` survives every page change (re-check: `npm --prefix frontend run test:e2e`, `frontend/e2e/metric-help.spec.ts`, and in `zeitverlauf.spec.ts` the tests "the P90 view draws the P90 as the line, with the band reaching down to the median" and "the cancellation view has the cancellation rate as its only chart")
 
 ## M8 Line detail page (v0.3)
-- [ ] Line detail page with the line's stations and statistics
-- [ ] Zeitfresser: the sections between stations coloured by where trains lose or make up time
-- [ ] Bildfahrplan: the graphic timetable of the line for one day, planned against actual. Needs data per run (about 82 MB per month with all stations, compact): decide where it lives first
+Details in [lines.md](lines.md).
+- [ ] Line detail page `/linie/<id>` with the line's stations along its route and their statistics; line rows in the Rankings and in the station's line table open it (re-check: `uv run pytest -q`, `tests/api/test_line_api.py`, `tests/core/test_sections.py`, `tests/pipeline/test_update.py` (`test_combine_writes_the_sections_and_the_axis_of_a_line`, `test_combine_turns_the_axis_to_the_label_order`); `npm --prefix frontend run test:e2e`, `frontend/e2e/line.spec.ts` and the line-row tests in `rankings.spec.ts` and `station.spec.ts`)
+- [ ] Zeitfresser: the sections between stations coloured by where trains lose or make up time, on a map and as a strip, with the mean minutes per section (re-check: `tests/core/test_sections.py`, `tests/pipeline/test_aggregate.py` (`test_sections_count_and_sum_the_changes_per_line_and_month`), `frontend/e2e/line.spec.ts` (the strip, the direction toggle, the step colours); the colour limits are confirmed in the product owner's test round)
+- [ ] Whole-line tiles on the line page, lines marked without live data and left out of the Rankings, a Rankings switch Linien · Einzelzüge (re-check: `tests/core/test_lines.py`, `tests/api/test_rankings_api.py`, `tests/api/test_line_api.py`, `frontend/e2e/line.spec.ts` and `frontend/e2e/rankings.spec.ts`; the list is in [lines.md](lines.md) §5)
+- [ ] Bildfahrplan: the graphic timetable of the line for one day, planned against actual. It keeps the last 28 days of per-trip data (about 47 MB, decided) in a table `combine` writes; where it is served on Azure is decided first ([lines.md](lines.md) §7)
+- [ ] Maybe: network-wide Zeitfresser records as a Rankings tab "Abschnitte" (the worst and best sections, per station pair and direction, pooled over all lines, with a minimum of trips; each row links to its lines). Decide after the Bildfahrplan.
 
 ## M9+ Planner (v1.0)
 - [ ] Connection-source spike (ADR)

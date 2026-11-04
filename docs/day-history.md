@@ -14,7 +14,7 @@ Day-level history: a daily time series with a 28-day trend in place of the month
 
 - One point per calendar day of the data: punctuality, cancellation rate, median and P90, each with `n`. A faint line shows the daily values, a bold line the trend.
 - Days with missing source hours are drawn dashed and listed in the tooltip. They still show their own values but never feed the trend. The same goes for days with little data: a day feeds a metric's trend only when its value would be shown, by the same rule as the dashed days.
-- Timetable changes stay marked. Days are the default view; a Tag/Monat switch returns to the monthly series. Line series and the station sparkline stay monthly.
+- Timetable changes stay marked. Days are the default view; a Tag/Monat switch returns to the monthly series. Line series and the station sparkline stay monthly ([lines.md](lines.md)).
 - The table mode lists the days.
 
 **Live-Lage** (`/lage`, optionally `?tag=YYYY-MM-DD`):
@@ -70,7 +70,7 @@ Day-level history: a daily time series with a 28-day trend in place of the month
 - **Day gaps use the same `GAP_SHARE` rule as the months.** `day_gaps` counts the thin hours of the month's hour table per calendar day, so the days add up to the month's `missing_hours`. Reason: one definition of "incomplete" for the month and the day views.
 - **The trend is a centred 28-day median over days without gaps and with enough data, with at least 14 values.** A day with little data is one whose value the UI would not show (the low-data rule of [app-shell.md](app-shell.md) §2). Reason: a median ignores single bad days (strikes, storms) and a gap day would pull the line down for a reason that is not the railway; a trend drawn from days that the same page dashes as too thin would break the rule that no value is shown below the limit; with fewer than 14 values the line would claim a trend from too little.
 - **Days are the default view, months a switch.** Reason: the daily series is the richer view and was the point of the feature; months stay for the long run and for readers who want the earlier chart.
-- **Line series and the station sparkline stay monthly until the line page.** Reason: per-line days need per-run data that the line detail page brings; the day table has no line key.
+- **Line series and the station sparkline stay monthly, also now that the line page exists ([lines.md](lines.md)).** Reason: the day table has no line key, and a daily line series needs the per-trip window that the line page's Bildfahrplan will bring ([lines.md](lines.md) §7).
 - **A separate route `/tagesverlauf` instead of a parameter on `/zeitverlauf`.** Reason: the monthly contract, its models and its tests stay unchanged, and the daily series has fields the monthly one does not (gap hours, trend) and no `linie`.
 - **On Live-Lage, the normal is the median of the same weekday over the previous 12 weeks, without gap days and nationwide holidays, needing at least 8 valid days.** Reason: the same weekday removes the weekly rhythm, 12 weeks are recent enough to follow the timetable and long enough for a stable median, and holidays and gap days are not normal days. Fewer than 8 values would make the median depend on a few days.
 - **The reference days reach back over the whole history; there is no cut at the full-coverage month.** Reason: Live-Lage lists only the 131 large stations, which the source covered over the whole history, so Germany's normal never mixes two station sets. The list of `referenztage` is what the Germany normal and the station normals rest on.

@@ -25,6 +25,7 @@ All views are addressable through hash/path routes with query parameters → **s
 | Discover ("Entdecken") | **Map** (start page) | `/karte?k=median&g=regional` |
 | Discover | Live-Lage (the map for one day) | `/lage?tag=2026-09-15` |
 | Discover | Station detail | `/bahnhof/8000105?von=2025-11&bis=2026-09` |
+| Discover | Line detail (stations, Zeitfresser) | `/linie/RE57%3A08000037?von=2025-11&richtung=2` |
 | Discover | Weekday × hour | `/muster/heatmap?bhf=8000105&g=fern` |
 | Discover | Rankings | `/muster/rankings?typ=linien&min=1000` |
 | Discover | Time series | `/muster/zeitverlauf?bhf=8000105` |
@@ -47,7 +48,7 @@ PLANEN
   → Verbindung planen
   ⇄ Umstieg prüfen
 BALD                              ← greyed out, "bald" badge, not clickable
-  Verspätungsketten · Gespeicherte Fahrten
+  Gespeicherte Fahrten
 ────────────
   ⓘ So liest man die Zahlen
   Datenstand: Sep 2026 · CC BY 4.0
@@ -267,7 +268,7 @@ One horizontal track per connection on a **time axis shared by all results** (e.
 
 - *Live-Lage heute*: additional row in the expanded arrival band ("Heute: +4 min") – space reserved on the right.
 - *Weather correlation*: another tab in the time series.
-- *Delay chains*: own page under Discover (line as a route, delay per stop).
+- *Delay chains*: the Bildfahrplan on the line page (`/linie/<id>`, [lines.md](lines.md)), the line as a route with the delay per stop for one day; the sections of the line page already show where time is lost.
 - *Save a recurring trip*: star button on connections, list under Plan (local in the browser, no account).
 
 ## 10. Assumptions
