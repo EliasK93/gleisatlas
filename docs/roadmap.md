@@ -47,7 +47,7 @@ Details and the runbook in [deployment.md](deployment.md).
 - [x] Local request log: with `LOG_FILE` set, the API also writes its request lines, timestamped, to a plain-text file, so they outlive the terminal window (re-check: `uv run pytest -q`, `test_the_log_file_gets_timestamped_lines_and_is_detached_again`)
 
 ## M6 Daily history and the day map (v0.3)
-Details in [day-history.md](day-history.md). Built on a per-day delay histogram (about 36 MB over 27 months, measured on 2025-06 and 2026-09).
+Details in [day-history.md](day-history.md). Built on a per-day delay histogram (about 36 MB, estimated on 2025-06 and 2026-09).
 - [x] Daily time series with a 28-day trend as the default; the monthly view stays as a switch (re-check: `uv run pytest -q`, `tests/api/test_tagesverlauf_api.py`, `tests/core/test_holidays.py`; `npm --prefix frontend run test:e2e`, the "day view" tests in `frontend/e2e/zeitverlauf.spec.ts`)
 - [x] Day map: the map coloured by one past day against each station's normal for that weekday (noise-aware classes), with a card for Germany showing its step and deviation (re-check: `uv run pytest -q`, `tests/core/test_normal.py`, `tests/api/test_tageskarte_api.py`; `npm --prefix frontend run test:e2e`, `frontend/e2e/lage.spec.ts`; the map is the page Live-Lage since the section below)
 
@@ -58,7 +58,7 @@ Details in [pipeline.md](pipeline.md) (raw days) and [day-history.md](day-histor
 - [x] Live source for "today": where the live state comes from, how it is collected and where it runs (re-check: [adr/0002-live-source.md](adr/0002-live-source.md) is accepted)
 - [x] Day × hour histogram over all days, all four metrics, so any past day can be cut at any hour (re-check: `uv run pytest -q`, `test_day_hours_sum_over_the_hour_to_days`, `test_day_hours_sum_an_edge_day_and_add_up_to_days_of_the_large_stations`, `test_day_hours_take_the_raw_days_too`)
 - [x] Collector for the large stations: `fchg` every 15 minutes and each `plan` slice once, writing `heute.parquet`; tested against a fake API with the raw days' XML, the run with the real key is a platform check (re-check: `uv run pytest -q`, `tests/pipeline/test_live.py`; [day-history.md](day-history.md) §6)
-- [x] The other stations from the source's partial raw day, written by `pipeline.update` as `heute_rest.parquet` (re-check: `uv run pytest -q`, `tests/pipeline/test_rest.py`)
+- [x] The source's partial raw day as a fallback for the large stations the collector has not completed yet, written by `pipeline.update` as `heute_rest.parquet` (re-check: `uv run pytest -q`, `tests/pipeline/test_rest.py`)
 - [x] "Heute" in the day view: today so far against the same hours of the reference days, two freshness levels, the time of the data, a fallback to the last complete day (re-check: `uv run pytest -q`, `tests/api/test_heute_api.py`; `npm --prefix frontend run test:e2e`, the "today" tests in `frontend/e2e/lage.spec.ts`; details in [day-history.md](day-history.md))
 
 ## Move to a VPS

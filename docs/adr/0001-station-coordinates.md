@@ -26,7 +26,7 @@ Source file 2026-09, stations with a name in the source:
 - 99.5 % of all stops belong to stations with coordinates.
 - Only 10 named stations are unmatched by IBNR. Most are secondary EVAs that Wikidata does not list, such as the S-Bahn platforms of Berlin-Charlottenburg (`08089165`, 22,981 stops) next to the main EVA `08010403`.
 - Same-name fallback: an unmatched station takes the coordinates of the one located station with exactly the same name. This places 7 of the 10, leaving 5,216 of 5,219 stations (99.9 % of stops).
-- Still unmatched: Berlin-Karlshorst (7,785 stops), Bochum-Langendreer (3,587) and Bürstadt (Ried) (2,723). They stay searchable and keep their station page, but are not on the map. Since then the three have been placed by adding their IBNR to their Wikidata items; over 27 months only Trebitz (b Könnern), one stop and no Wikidata item, is left.
+- Still unmatched: Berlin-Karlshorst (7,785 stops), Bochum-Langendreer (3,587) and Bürstadt (Ried) (2,723). They stay searchable and keep their station page, but are not on the map. Since then the three have been placed by adding their IBNR to their Wikidata items; on the months to 2026-09 only Trebitz (b Könnern), one stop and no Wikidata item, is left.
 
 Reproduce: `uv run python -m pipeline.coords`, then `uv run python -m pipeline.update`.
 

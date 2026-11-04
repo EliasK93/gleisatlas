@@ -73,7 +73,7 @@ Timetable apps (bahn.de, DB Navigator) optimise for the connection that is *sche
 
 ### 3.4 Idea backlog (open, unprioritised)
 
-On the daily time series (v0.3): a smoothed trend line, a calendar view, marked events (weather, holidays, strikes) and the 10 worst and best days; this is where the weather correlation (F6) would live · passenger-rights calculator (how often ≥ 60/120 min) · calendar export of the chosen connection · effect of timetable changes / construction work · holiday effects · compare regional vs. long-distance for the same relation · cause statistics (if a data source provides them) · records independent of delays: stations with the most/fewest stops, lines or trains per hour, lines with the most/fewest stops (needs a minimum sample, since one-off trains fill the "fewest" lists) · cross-border trains: the source only has German stations, so a train abroad ends at the border and its line names the last German station; marking such lines as "section in Germany" is small, the full run would need an own collector against foreign sources (see 3.3). On hold: a personal trip log with its own balance, and a saved "recurring trip" with a weekly report. Further ideas are welcome: add new items here, do not build them directly.
+On the daily time series (v0.3): a calendar view, marked events (weather, holidays, strikes) and the 10 worst and best days; this is where the weather correlation (F6) would live · passenger-rights calculator (how often ≥ 60/120 min) · calendar export of the chosen connection · effect of timetable changes / construction work · holiday effects · compare regional vs. long-distance for the same relation · cause statistics (if a data source provides them) · records independent of delays: stations with the most/fewest stops, lines or trains per hour, lines with the most/fewest stops (needs a minimum sample, since one-off trains fill the "fewest" lists) · cross-border trains: the source only has German stations, so a train abroad ends at the border and its line names the last German station; marking such lines as "section in Germany" is small, the full run would need an own collector against foreign sources (see 3.3). On hold: a personal trip log with its own balance, and a saved "recurring trip" with a weekly report. Further ideas are welcome: add new items here, do not build them directly.
 
 ---
 
@@ -82,9 +82,9 @@ On the daily time series (v0.3): a smoothed trend line, a calendar view, marked 
 ### 4.1 Historical delays – `piebro/deutsche-bahn-data`
 
 - Source: HuggingFace dataset `piebro/deutsche-bahn-data` (code: github.com/piebro/deutsche-bahn-data). License **CC BY 4.0 (Deutsche Bahn)** → attribution in UI and README is mandatory.
-- Basis: DB Timetables API (IRIS), polled 4× daily.
+- Basis: DB Timetables API (IRIS), scheduled 4× daily (the real runs are irregular, 3 to 6 a day, [ADR 0002](docs/adr/0002-live-source.md)).
 - Coverage: about 135 large stations from 2024-07, **all stations from 2025-11-02**.
-- Freshness: monthly Parquet files (`monthly_processed_data/data-YYYY-MM.parquet`, up to the end of the previous month) + raw data (`raw_data/`: the raw Timetables responses, four collection runs a day) with ~6 h lag.
+- Freshness: monthly Parquet files (`monthly_processed_data/data-YYYY-MM.parquet`, up to the end of the previous month) + raw data (`raw_data/`: the raw Timetables responses, four scheduled collection runs a day) up to about 10 h behind.
 - Relevant columns: `eva`, `station_name`, `train_type`, `train_number`, `line_number` (null for long-distance), `train_line_ride_id`, `train_line_station_num`, `arrival_planned_time`, `arrival_change_time`, `departure_planned_time`, `departure_change_time`, `arrival_is_canceled`, `departure_is_canceled`, `delay_in_min`. The files contain more columns (e.g. `time`, `xml_station_name`, `id`, `is_additional_stop`); see [docs/pipeline.md](docs/pipeline.md) for the findings.
 - Known problems: missing hours 2025-11 to 2026-07 (among others 102 h in July 2026); schema changes in 2026-05 and 2026-08 (make the pipeline robust against schema changes, validate the schema on import).
 - Time zone: Europe/Berlin, no conversion in the dataset.
@@ -168,7 +168,7 @@ Weather correlation · comparison with official DB statistics.
 | API contract | **OpenAPI-first**; the TS client is generated from the schema | Clean interface between backend and frontend. |
 | Design | Target in [docs/design.md](docs/design.md) and [docs/design/mockup.html](docs/design/mockup.html); theme tokens as CSS custom properties | One source for colours and spacing; dark mode without restyling. |
 | i18n | Message catalog from the start, German and English catalogs | UI language is switchable. |
-| Hosting (see [docs/deployment.md](docs/deployment.md)) | Frontend: Azure Static Web Apps (Free) · Backend: Azure Container Apps (Consumption, scale-to-zero) · Aggregates: Azure Blob Storage · infrastructure as code (Bicep) | Low fixed cost, scales to zero. |
+| Hosting (see [docs/deployment.md](docs/deployment.md)) | Frontend: Azure Static Web Apps (Free) · Backend: Azure Container Apps (Consumption, scale-to-zero) · Collector for today: a scheduled Container Apps job · Aggregates: Azure Blob Storage · infrastructure as code (Bicep) | Low fixed cost, scales to zero. |
 | Operating cost | Low fixed cost; **Azure budget** on the resource group with e-mail alerts at 50 % and 90 % actual and 100 % forecast (amount is a deploy parameter) | Costs stay visible, and Azure has no hard cap. |
 | Aggregate size | Target < 2 GB deployed; otherwise fall back to a watchlist (configurable station list) | Cost, cold-start time. |
 | Repo | Monorepo: `core/`, `pipeline/`, `backend/`, `frontend/`, `scripts/`, `docs/` (incl. `docs/adr/`) and `infra/` | Clear working areas. |
@@ -204,8 +204,10 @@ See [docs/roadmap.md](docs/roadmap.md).
 - [ ] AC-13: The transfer recommendation gives the P80/P90/P95 transfer time for a test station.
 
 ### UI and operation
-- [ ] AC-14: Both main areas are usable at 375 px width without horizontal scrolling.
-- [ ] AC-15: A search URL can be shared and reproduces the same view.
+- [x] AC-14, Discover: the map, Live-Lage, the station page and the pattern pages are usable at 375 px width without horizontal scrolling. (`frontend/e2e/map.spec.ts`, "panel is a bottom sheet above the tab bar, legend collapsed, no sideways scroll"; `frontend/e2e/lage.spec.ts`, "the page has no sideways scroll, with the legend open too"; `frontend/e2e/station.spec.ts`, "one column, tiles 2 × 2, no sideways scroll"; `frontend/e2e/shell.spec.ts`, "tab bar replaces the sidebar, heatmap is transposed, no sideways scroll"; `frontend/e2e/zeitverlauf.spec.ts`, "the day view fits 375 px without sideways scroll and shows its trend")
+- [ ] AC-14, Plan: the connection comparison is usable at 375 px width without horizontal scrolling.
+- [x] AC-15, Discover: the filters of a page are in its URL, so a shared link reproduces the same view. (`frontend/e2e/rankings.spec.ts`, "the URL drives the request and the controls"; `frontend/e2e/period.spec.ts`, "picking von and bis writes them to the URL and the next request carries them"; `frontend/e2e/lage.spec.ts`, "land in the URL opens the state's card and survives a change of day; an unknown one shows Germany")
+- [ ] AC-15, Plan: a search URL of the connection comparison can be shared and reproduces the same view.
 - [ ] AC-16: A budget with alerts is set up on the Azure resource group and its alert e-mail tested; the first full month of operation stays within it.
 - [x] AC-17: CC BY 4.0 attribution is visible in UI and README. (`frontend/e2e/shell.spec.ts`, "the shell shows title, disclaimer and attribution"; the "Train data" row of the README's licences table)
 

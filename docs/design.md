@@ -18,15 +18,15 @@ Three principles from which all detailed decisions follow:
 
 ### 1.1 Pages and URLs
 
-All views are addressable through hash/path routes with query parameters → **shareable links** (filters, station, metric and map section live in the URL).
+All views are addressable through hash/path routes with query parameters → **shareable links** (filters, station and metric live in the URL; the map position does not).
 
 | Area | Page | Route (example) |
 |---|---|---|
-| Discover ("Entdecken") | **Map** (start page) | `/karte?k=puenktlich&z=6/51.1/10.4&g=nah` |
+| Discover ("Entdecken") | **Map** (start page) | `/karte?k=median&g=regional` |
 | Discover | Live-Lage (the map for one day) | `/lage?tag=2026-09-15` |
 | Discover | Station detail | `/bahnhof/8000105?von=2025-11&bis=2026-09` |
 | Discover | Weekday × hour | `/muster/heatmap?bhf=8000105&g=fern` |
-| Discover | Rankings | `/muster/rankings?typ=linien&min_n=200` |
+| Discover | Rankings | `/muster/rankings?typ=linien&min=1000` |
 | Discover | Time series | `/muster/zeitverlauf?bhf=8000105` |
 | Plan ("Planen") | Plan a connection | `/planen?von=…&nach=…&an=08:00-09:30&tag=di&deadline=09:00` |
 | Plan | Check a transfer | `/umstieg?bhf=8000261&an=RE4&ab=ICE599` |
@@ -193,7 +193,7 @@ The accent is deliberately **indigo** – it does not sit on the reliability sca
 | **Insight sentence** | automatically generated one-sentence summary in a typographic style without emoji (bold highlighted number) | – |
 | **Mini bar** | Inline bar in tables | – |
 | **Bottom sheet** (mobile) | Panel with handle, 3 snap levels | Drawer (vaul) |
-| **Statistics note** | permanent footer: "Historische Statistik, keine Prognose oder Garantie. Daten: DB-Ist-Daten via piebro/deutsche-bahn-data, CC BY 4.0." | – |
+| **Statistics note** | permanent footer: "Historische Statistik, keine Prognose oder Garantie. Kein Angebot der Deutschen Bahn. Daten: Deutsche Bahn (via piebro/deutsche-bahn-data und DB Timetables API), CC BY 4.0, aggregiert" | – |
 
 ### 4.1 Arrival band – the core visualisation
 

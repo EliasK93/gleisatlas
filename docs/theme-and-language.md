@@ -76,7 +76,7 @@ None. The English terms are set (Punctuality, Typical delay, Worst 10%, Cancella
 
 ## 8 Known shortcuts
 
-- No plural forms in either catalog: a count of one reads "1 stops" in English and "1 Halte" in German. Add a plural key when a page shows small counts.
+- No plural forms in the catalogs, except the one key `lage.stations.one` ("1 großer Bahnhof", "1 large station"), which `stationCount` in `AreaCard.tsx` picks for a count of one: a count of one elsewhere reads "1 stops" in English and "1 Halte" in German. Add a plural key, or a plural helper once a second count needs one, when a page shows small counts.
 - The theme rule exists twice, in the inline script in `index.html` and in `prefs.ts`. Reason: the script has to run before the bundle to avoid the flash. A change to the key or the rule goes into both; `prefs.ts` sets `data-theme` again when it loads, so it stays the authority if they drift, and `theme.spec.ts` covers the stored value and the system fallback after a reload.
 - A language switch reloads the page, so an open tooltip or a typed search term is lost. Module-level texts and formatters stay plain constants.
 - `<html lang>` is set when the bundle loads; the HTML says `de` until then.
