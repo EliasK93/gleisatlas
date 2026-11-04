@@ -281,4 +281,3 @@ output webHostname string = web.properties.defaultHostname
 output registryName string = registry.name
 output registryServer string = registry.properties.loginServer
 output storageName string = storage.name
-output workspaceId string = logs.properties.customerId

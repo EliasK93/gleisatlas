@@ -5,7 +5,6 @@ from typing import Any
 
 import pytest
 
-from backend import main
 from scripts import azure
 from scripts.azure import DATA_FILES, budget_start, narrow_csp
 
@@ -67,10 +66,6 @@ def az_calls(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> list[list[str]]
 
 def uploads(calls: list[list[str]]) -> list[str]:
     return [c[c.index("--name") + 1] for c in calls if c[1:4] == ["storage", "blob", "upload"]]
-
-
-def test_the_uploaded_files_are_the_ones_the_api_downloads():
-    assert sorted(DATA_FILES) == sorted(Path(p).stem for p in main.DATA_FILES)
 
 
 def test_data_uploads_exactly_the_data_files_and_nothing_else(az_calls: list[list[str]]):
@@ -161,8 +156,10 @@ def test_deploy_hands_the_db_key_to_az_in_a_parameters_file_that_is_deleted(
     assert azure.main(["deploy"]) == 0
     first, second = deployments(calls)
     named = parameter_files(second)
-    assert len(named) == 1 and not parameter_files(first)  # phase 2 only
-    assert json.loads(files[0])["parameters"] == {
+    assert len(named) == 1
+    assert "dbApiKey" not in json.loads(files[0])["parameters"]  # phase 2 only
+    assert json.loads(files[1])["parameters"] == {
+        "budgetEmail": {"value": "budget@example.org"},
         "dbClientId": {"value": DB_CLIENT},
         "dbApiKey": {"value": DB_KEY},
     }
@@ -182,8 +179,7 @@ def test_deploy_asks_for_the_db_key_hidden_and_skips_the_job_without_it(
     monkeypatch.setattr(azure.getpass, "getpass", lambda prompt: (asked.append(prompt), "")[1])
     assert azure.main(["deploy"]) == 0
     assert len(asked) == 1  # no client id: the key is not asked for
-    assert files == []
-    assert not [p for c in calls for p in parameter_files(c)]
+    assert not [f for f in files if "dbClientId" in f or "dbApiKey" in f]
     assert "collector job: no DB key given" in capsys.readouterr().out
 
 
@@ -203,6 +199,44 @@ def test_the_parameters_file_is_deleted_when_the_deployment_fails(deploy_run, mo
     with pytest.raises(SystemExit):
         azure.main(["deploy"])
     assert named and not Path(named[0]).exists()
+
+
+def test_child_processes_never_get_the_db_key(monkeypatch):
+    monkeypatch.setenv("DB_CLIENT_ID", DB_CLIENT)
+    monkeypatch.setenv("DB_API_KEY", DB_KEY)
+    envs: list[dict[str, str]] = []
+
+    def fake(cmd: list[str], **kw: Any):
+        envs.append(kw["env"])
+        return azure.subprocess.CompletedProcess(cmd, 0, "", "")
+
+    monkeypatch.setattr(azure.subprocess, "run", fake)
+    azure.exec_(["npm"], None, True)
+    azure.exec_(["npm"], {"VITE_API_URL": ORIGIN}, False)
+    assert all(not {"DB_CLIENT_ID", "DB_API_KEY"} & set(env) for env in envs)
+    assert envs[1]["VITE_API_URL"] == ORIGIN and "PATH" in envs[0]
+
+
+def test_the_budget_e_mail_reaches_az_only_in_a_parameters_file(deploy_run, monkeypatch, capsys):
+    calls, files = deploy_run
+    monkeypatch.delenv("DB_CLIENT_ID", raising=False)
+    monkeypatch.setattr(azure.getpass, "getpass", lambda prompt: "")
+    assert azure.main(["deploy"]) == 0
+    named = [p for c in deployments(calls) for p in parameter_files(c)]
+    assert len(named) == 2  # both phases
+    assert all(Path(p).name.startswith("gleisatlas-secure-") for p in named)
+    assert all(p.endswith(".json") and not Path(p).exists() for p in named)
+    for content in files:
+        assert json.loads(content)["parameters"]["budgetEmail"] == {"value": "budget@example.org"}
+    assert not [c for c in calls if any("budget@example.org" in a for a in c)]
+    assert "budget@example.org" not in capsys.readouterr().out
+
+
+def test_the_account_line_names_the_subscription_but_not_the_user(monkeypatch, capsys):
+    me = {"name": "my-subscription", "user": {"name": "someone@example.org"}}
+    monkeypatch.setattr(azure, "run", lambda cmd, **_: json.dumps(me))
+    azure.account()
+    assert capsys.readouterr().out == "subscription: my-subscription\n"
 
 
 def test_data_stops_before_any_upload_when_a_file_is_missing(

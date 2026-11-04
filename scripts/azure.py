@@ -7,8 +7,8 @@
 All three talk to the signed-in `az` account. Steps stream their output; the first failure stops the
 script with the step, the command and the error, exit code 1. Personal values come from the
 environment (GLEISATLAS_BUDGET_EMAIL, GLEISATLAS_BUDGET_AMOUNT) or a prompt, never from the repo;
-so does the collector job's DB key (DB_CLIENT_ID, DB_API_KEY, or a hidden prompt), which reaches
-`az` only in a temporary parameters file.
+so does the collector job's DB key (DB_CLIENT_ID, DB_API_KEY, or a hidden prompt). The key and the
+e-mail address reach `az` only in a temporary parameters file, and no child process gets the key.
 """
 
 import argparse
@@ -31,6 +31,9 @@ from typing import NoReturn
 from urllib.parse import urlsplit
 
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+from backend import main as api  # noqa: E402
+
 WIN = sys.platform == "win32"
 AZ, NPM, NPX = ("az.cmd", "npm.cmd", "npx.cmd") if WIN else ("az", "npm", "npx")
 
@@ -46,17 +49,11 @@ PROVIDERS = (
     "Microsoft.ManagedIdentity",
     "Microsoft.Consumption",
 )
-DATA_FILES = (
-    "aggregate",
-    "stations",
-    "monate",
-    "lines",
-    "linien",
-    "days",
-    "tage",
-    "day_hours",
-    "large",
-)
+DATA_FILES = tuple(Path(p).stem for p in api.DATA_FILES)  # the files the API downloads at start
+DB_ENV = ("DB_CLIENT_ID", "DB_API_KEY")
+# ponytail: the committed CSP allows any Container App in the region, since the API's host differs
+# on every fresh deploy; `narrow_csp` tightens the built copy, a build uploaded without this script
+# keeps the wildcard. A custom domain would keep the host stable and the wildcard could go.
 CSP_WILDCARD = "https://*.swedencentral.azurecontainerapps.io"
 SWA_CLI = "@azure/static-web-apps-cli@2.0.10"
 DEPLOY_STEPS = 14
@@ -93,7 +90,8 @@ def step(n: int, total: int, title: str) -> None:
 
 def exec_(cmd: list[str], env: dict[str, str] | None, capture: bool) -> tuple[int, str, str]:
     """Exit code, stdout and stderr; az warnings go to stderr, so stdout stays parseable."""
-    full_env = {**os.environ, **env} if env else None
+    # No child needs the collector's key: npm and the npx package tree must not see it.
+    full_env = {k: v for k, v in os.environ.items() if k not in DB_ENV} | (env or {})
     p = subprocess.run(
         cmd,
         cwd=ROOT,
@@ -143,7 +141,7 @@ def status(url: str, method: str = "GET") -> int:
 
 def account() -> None:
     info = json.loads(run([AZ, "account", "show", "--output", "json"], capture=True))
-    print(f"subscription: {info['name']}, user: {info['user']['name']}")
+    print(f"subscription: {info['name']}")
 
 
 def personal(name: str, prompt: str) -> str:
@@ -164,13 +162,11 @@ def db_key() -> dict[str, str]:
 
 @contextmanager
 def parameters_file(values: dict[str, str]) -> Iterator[list[str]]:
-    """`--parameters` arguments for secure values: a temporary parameters file, so they are never
-    on a command line or in the output; the file is deleted afterwards, also on a failure."""
-    if not values:
-        yield []
-        return
+    """`--parameters` arguments for secret or personal values: a temporary parameters file, so they
+    are never on a command line or in the output; the file is deleted afterwards, also on a
+    failure."""
     # in the user's temp folder (its ACL on Windows, mode 0600 elsewhere)
-    fd, path = tempfile.mkstemp(suffix=".json")
+    fd, path = tempfile.mkstemp(prefix="gleisatlas-secure-", suffix=".json")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             json.dump(
@@ -247,17 +243,17 @@ def deploy() -> None:
         [AZ, "deployment", "group", "show", "--resource-group", GROUP, "--name", "main"]
         + ["--query", "properties.parameters.budgetStartDate.value", "--output", "tsv"]
     )
-    params = [f"budgetEmail={email}", f"budgetAmount={amount}"]
-    params.append(f"budgetStartDate={budget_start(last, date.today())}")
+    params = [f"budgetAmount={amount}", f"budgetStartDate={budget_start(last, date.today())}"]
 
-    def deployment(extra: list[str]) -> None:
-        run(
-            [AZ, "deployment", "group", "create", "--resource-group", GROUP]
-            + ["--template-file", "infra/main.bicep", "--output", "none"]
-            + ["--parameters", *params, *extra]
-        )
+    def deployment(secure: dict[str, str], extra: list[str]) -> None:
+        with parameters_file({"budgetEmail": email, **secure}) as files:
+            run(
+                [AZ, "deployment", "group", "create", "--resource-group", GROUP]
+                + ["--template-file", "infra/main.bicep", "--output", "none"]
+                + ["--parameters", *params, *files, *extra]
+            )
 
-    deployment([])
+    deployment({}, [])
 
     step(5, total, "Read the deployment outputs")
     out = outputs()
@@ -285,8 +281,7 @@ def deploy() -> None:
     print("COST: the Container App is billed only while a replica runs (scales to zero when idle)")
     if db:
         print("COST: the collector job runs every 15 minutes, billed per second of each run")
-    with parameters_file(db) as secure:
-        deployment([f"image={out['registryServer']}/api:{tag}", *secure])
+    deployment(db, [f"image={out['registryServer']}/api:{tag}"])
 
     step(10, total, "Wait for the API's cold start")
     api_url = outputs()["apiUrl"]

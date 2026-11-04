@@ -12,6 +12,9 @@ playwright-report/
 *.tsbuildinfo
 CLAUDE.local.md
 *.local
+.env
+.env.*
+!frontend/.env.development
 logs/
 scripts/commit.ps1
 .vscode/
