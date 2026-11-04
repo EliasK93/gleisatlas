@@ -312,6 +312,54 @@ def test_bad_bodies_are_skipped_and_asked_for_again(data_dir, server, clock):
     assert server.calls.count(f"{API}/plan/{A}/261104/05") == 2
 
 
+def test_a_plan_slice_answered_404_is_an_hour_without_trains(data_dir, server, clock):
+    server.plans[(A, 8)] = [plan_stop("a-1-1", "2611040800")]
+    server.status[f"/plan/{A}/261104/05"] = 404
+    assert evas(collect(data_dir, server, clock)) == [A]
+    clock.t += timedelta(minutes=15)
+    collect(data_dir, server, clock)
+    assert server.calls.count(f"{API}/plan/{A}/261104/05") == 1  # fetched: not asked again
+
+
+def test_the_summary_counts_the_plan_slices_answered_404(data_dir, server, clock):
+    for hour in (5, 6):
+        server.status[f"/plan/{A}/261104/0{hour}"] = 404
+    summary = live.run(data_dir, server.get, clock.now, clock.sleep)
+    assert "(0 failed, 2 empty)" in summary
+
+
+SPRING = date(2027, 3, 28)  # CEST starts at 02:00 local: the day has no 02:00
+
+
+def test_the_hours_of_a_day_follow_the_clock_changes():
+    assert live._hours(SPRING) == [h for h in range(24) if h != 2]
+    assert live._hours(date(2026, 10, 25)) == list(range(24))  # the doubled 02:00 is one slice
+
+
+def test_on_the_night_the_clocks_go_forward_today_needs_no_slice_for_0200(data_dir, server):
+    server.day = SPRING
+    server.plans[(A, 8)] = [plan_stop("a-1-1", "2703280800")]
+    server.status[f"/plan/{A}/270328/02"] = 500  # whatever DB answers for the missing hour
+    clock = Clock(datetime(2027, 3, 28, 12, 37, tzinfo=UTC))  # 14:37 CEST
+    assert counts(collect(data_dir, server, clock)) == [(A, 8, 0, 1)]
+    assert not [c for c in server.plan_calls() if c.endswith("/270328/02")]
+
+
+def test_the_night_the_clocks_go_forward_is_one_23_hour_day(data_dir, server):
+    server.day = SPRING
+    server.plans[(A, 8)] = [plan_stop("a-1-1", "2703280800")]
+    server.status[f"/plan/{A}/270328/02"] = 500
+    for t in (  # 00:30 CET, 12:30 CEST, 23:30 CEST
+        datetime(2027, 3, 27, 23, 30, tzinfo=UTC),
+        datetime(2027, 3, 28, 10, 30, tzinfo=UTC),
+        datetime(2027, 3, 28, 21, 30, tzinfo=UTC),
+    ):
+        run_at(data_dir, server, t)
+    summary = run_at(data_dir, server, datetime(2027, 3, 28, 23, 5, tzinfo=UTC))  # 01:05 CEST
+    assert "kept 2027-03-28: 2 stations" in summary
+    assert rows_of(kept(data_dir), SPRING) == [(8, "fern", A, 0, 1)]
+
+
 @pytest.mark.parametrize("refused", [401, 403])
 def test_a_refused_key_stops_the_run_at_once_and_writes_nothing(data_dir, server, clock, refused):
     server.plans[(A, 8)] = [plan_stop("a-1-1", "2611040800")]

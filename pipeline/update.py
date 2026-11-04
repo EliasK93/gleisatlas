@@ -1,7 +1,6 @@
 """The one pipeline command: process every remote month not yet done, then the complete raw days
 after the last month and the current day so far, then combine."""
 
-import os
 import re
 import shutil
 import sys
@@ -30,7 +29,7 @@ from pipeline.aggregate import (
     with_coords,
 )
 from pipeline.download import REPO, download
-from pipeline.live import large_evas
+from pipeline.live import _write, large_evas
 from pipeline.raw import RawSource, day_tables, fchg_pass, raw_gaps, remote_source, stop_rows
 
 MONTH_FILES = (
@@ -64,6 +63,9 @@ FULL_RUN = 0.9
 
 
 def _complete(month_dir: Path) -> bool:
+    # ponytail: looks only at the folder, so a month HuggingFace replaces later is not fetched again
+    # and a change to the per-month logic needs data/months/ deleted by hand; record a version per
+    # folder if either happens often.
     return all((month_dir / f"{name}.parquet").exists() for name in MONTH_FILES)
 
 
@@ -250,10 +252,10 @@ def update_rest(data_dir: Path, raw: RawSource, now: datetime, large: list[str])
     today = rows.sort("time", "id").lazy().filter(pl.col("arrival_planned_time").dt.date() == day)
     keep = pl.col("eva").is_in(sorted(answered & set(large)))
     rest = day_hours(today).filter(pl.col("hour") < cut, keep)
-    out = data_dir / "heute_rest.parquet"
-    tmp_out = out.with_name(f"{out.name}.tmp")
-    rest.with_columns(stand=pl.lit(stand, pl.Datetime("us", "UTC"))).write_parquet(tmp_out)
-    os.replace(tmp_out, out)
+    _write(
+        rest.with_columns(stand=pl.lit(stand, pl.Datetime("us", "UTC"))),
+        data_dir / "heute_rest.parquet",
+    )
     print(f"{day} so far: {rest['n'].sum()} stops before {cut:02d}:00 from raw, stand {stand}")
 
 
@@ -281,7 +283,9 @@ def write_large(data_dir: Path) -> list[str]:
 
 def combine(data_dir: Path) -> None:
     """Write the files the API reads from all complete month folders; the day tables (`days`,
-    `day_hours`, `tage`) also take the raw days after the last month."""
+    `day_hours`, `tage`) also take the raw days after the last month.
+    ponytail: rewrites every file on every run, also when nothing is new; skip unchanged inputs if
+    the run time starts to matter."""
     dirs = sorted(d for d in (data_dir / "months").glob("????-??") if _complete(d))
     raw_dirs = _raw_dirs(data_dir)
     aggregates = [d / "aggregate.parquet" for d in dirs]

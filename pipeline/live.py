@@ -13,7 +13,7 @@ yesterday into `data/live_tage.parquet` (`day_hours` rows), so the days after th
 raw day stay available.
 
 With DATA_URL set (the Azure job) the files come from and go back to that blob container (`sync`).
-A refused key (HTTP 401 or 403) ends the run at once without writing anything."""
+A refused key (HTTP 401 or 403) ends the run at once without saving this run's state."""
 
 import http.client
 import json
@@ -80,6 +80,20 @@ def _stops(path: Path) -> Stops:
     return {r[0]: r[1:] for r in pl.read_parquet(path).iter_rows()} if path.exists() else {}
 
 
+def _slices(path: Path) -> set[tuple[str, int]]:
+    """The fetched plan slices (eva, local hour) in a slices.parquet."""
+    return set(pl.read_parquet(path).iter_rows()) if path.exists() else set()
+
+
+def _hours(day: date) -> list[int]:
+    """The local hours `day` has, the hours of its plan slices: no 02:00 on the night the clocks go
+    forward; on the night they go back the doubled 02:00 is one slice."""
+    start, end = local_midnight_utc(day), local_midnight_utc(day + timedelta(days=1))
+    steps = (end - start) // timedelta(hours=1)
+    at = (start.replace(tzinfo=UTC) + timedelta(hours=k) for k in range(steps))
+    return sorted({local_time(t).hour for t in at})
+
+
 def _naive(t: datetime) -> datetime:
     """Run times are stored as naive UTC: Python's zoneinfo needs the tzdata package on Windows to
     read an aware column."""
@@ -106,9 +120,9 @@ def _finalize(
 ) -> str:
     """Write the day of the state folder `state` (folded up to this run, whose start is among its
     runs) into live_tage.parquet and mark the folder; returns a note for the summary. Only stations
-    with all 24 plan slices of the day and changes from this run count. A day is dropped when the
-    gap from its local midnight to the first answered run, or between two runs, is longer than
-    MAX_RUN_GAP (`fchg` reaches only that far back), or when it had no run of its own.
+    with every plan slice of the day (`_hours`) and changes from this run count. A day is dropped
+    when the gap from its local midnight to the first answered run, or between two runs, is longer
+    than MAX_RUN_GAP (`fchg` reaches only that far back), or when it had no run of its own.
     ponytail: a station whose changes failed in this run is lost for the day, even when it
     answered in the runs since midnight; the next run could still add it, at the price of keeping
     the day open for hours."""
@@ -118,9 +132,8 @@ def _finalize(
     else:
         note = f", dropped {day}: runs more than {MAX_RUN_GAP.total_seconds() / 3600:g} hours apart"
     if all(b - a <= MAX_RUN_GAP for a, b in zip(times, times[1:], strict=False)):
-        slices_path = state / "slices.parquet"
-        slices = set(pl.read_parquet(slices_path).iter_rows()) if slices_path.exists() else set()
-        ready = [e for e in evas if e in fresh and all((e, h) in slices for h in range(24))]
+        slices, hours = _slices(state / "slices.parquet"), _hours(day)
+        ready = [e for e in evas if e in fresh and all((e, h) in slices for h in hours)]
         rows = merge(*stops).sort("time", "id")  # the tie order of the raw days
         planned = rows.lazy().filter(pl.col("arrival_planned_time").dt.date() == day)
         new = day_hours(planned).filter(pl.col("eva").is_in(ready))
@@ -139,7 +152,7 @@ def run(
 ) -> str:
     """One run against `get`; `now` gives aware UTC times. Returns a one-line summary.
     ponytail: the day's state (a few MB) is reread and rewritten whole on every run; append per
-    run if the runs get slow on the VPS."""
+    run if the runs get slow."""
     t0 = now()  # the time of the data: the changes come first
     start = local_time(t0)
     day, hour = start.date(), start.hour
@@ -157,7 +170,8 @@ def run(
         (_stops(before / "plan.parquet"), _stops(before / "fchg.parquet")) if folding else ({}, {})
     )
     slices_path = state / "slices.parquet"
-    slices = set(pl.read_parquet(slices_path).iter_rows()) if slices_path.exists() else set()
+    slices, hours = _slices(slices_path), _hours(day)
+    past = [h for h in hours if h < hour]
 
     evas = large_evas(data_dir)
     if not evas:
@@ -166,12 +180,15 @@ def run(
         )
     # The changes, then the slices before the cut station by station (so a first run of the day
     # makes stations ready one after another), then the hours ahead of all stations.
+    # ponytail: a slice that never succeeds is asked for again on every run and keeps its station
+    # grey, which the API cannot tell from a station without arrivals; count the misses per slice
+    # and give up after a few if the first full runs show such slices.
     jobs: list[tuple[str, int | None]] = [(e, None) for e in evas]
-    jobs += [(e, h) for e in evas for h in range(hour) if (e, h) not in slices]
-    ahead = range(hour, min(24, hour + AHEAD + 1))
+    jobs += [(e, h) for e in evas for h in past if (e, h) not in slices]
+    ahead = [h for h in hours if hour <= h <= hour + AHEAD]
     jobs += [(e, h) for h in ahead for e in evas if (e, h) not in slices]
     fresh: set[str] = set()  # stations whose changes came in this run
-    made, failed, stop = 0, 0, ""
+    made, failed, empty, stop = 0, 0, 0, ""
     for eva, h in jobs:
         if made:
             sleep(PACE)
@@ -186,6 +203,10 @@ def run(
             break
         if status in (401, 403):  # the key is refused: no more requests, and nothing is written
             sys.exit(f"stopped by HTTP {status}: the DB API refused the key")
+        if h is not None and status == 404:  # an hour without trains: fetched, nothing to fold
+            slices.add((eva, h))
+            empty += 1
+            continue
         ok = status == 200 and bool(body.strip())
         if ok:
             try:
@@ -221,14 +242,14 @@ def run(
             stops = (plan_before, fchg_before)
             note = _finalize(data_dir, before, day - timedelta(days=1), stops, fresh, evas)
     # Without this run's changes a station's planned stops would all look on time.
-    ready = [e for e in evas if e in fresh and all((e, h) in slices for h in range(hour))]
+    ready = [e for e in evas if e in fresh and all((e, h) in slices for h in past)]
     rows = merge(plan, fchg).sort("time", "id")  # the tie order of the raw days
     today = rows.lazy().filter(pl.col("arrival_planned_time").dt.date() == day)
     heute = day_hours(today).filter(pl.col("hour") < hour, pl.col("eva").is_in(ready))
     stand = pl.lit(t0, pl.Datetime("us", "UTC"))
     _write(heute.with_columns(stand=stand), data_dir / "heute.parquet")
     return (
-        f"{day} before {hour:02d}:00: {made} requests ({failed} failed),"
+        f"{day} before {hour:02d}:00: {made} requests ({failed} failed, {empty} empty),"
         f" {len(ready)} of {len(evas)} stations{stop}{note}"
     )
 

@@ -15,7 +15,7 @@ from typing import NamedTuple
 
 import polars as pl
 
-from pipeline.aggregate import COLUMNS, clean, day_hours, days, hour_table
+from pipeline.aggregate import COLUMNS, clean, day_hours, days, hour_table, missing_per_day
 
 PLAN, FCHG = "timetables/v1/plan", "timetables/v1/fchg"
 PLAN_COLUMNS = ("id", "eva", "p_type", "p_number", "p_ar", "p_dp")
@@ -195,15 +195,13 @@ def raw_gaps(hours: pl.DataFrame, day_list: list[date]) -> pl.DataFrame:
     start, end = (
         datetime.combine(d, time()) for d in (min(day_list), max(day_list) + timedelta(1))
     )
-    return (
-        hour_table(hours, start, end)
-        .group_by(day=pl.col("hour").dt.date())
-        .agg(missing_hours=pl.col("thin").sum().cast(pl.Int32))
-        .sort("day")
-    )
+    return missing_per_day(hour_table(hours, start, end))
 
 
 def remote_source() -> RawSource:
+    # ponytail: no retry on network errors, a failure stops the update and running it again is the
+    # remedy (days that are done are skipped); add retries if failures become common. No pinned
+    # dataset `revision` either, as in `pipeline.download`.
     # Imported here: the live collector imports this module in the API image, which has no
     # huggingface-hub (the `pipeline` dependency group).
     from huggingface_hub import HfApi, hf_hub_download

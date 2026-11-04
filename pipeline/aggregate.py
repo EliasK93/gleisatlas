@@ -204,6 +204,15 @@ def hour_table(per_hour: pl.DataFrame, start: datetime, end: datetime) -> pl.Dat
     )
 
 
+def missing_per_day(table: pl.DataFrame) -> pl.DataFrame:
+    """(day, missing_hours) of a `hour_table`, one row per calendar day."""
+    return (
+        table.group_by(day=pl.col("hour").dt.date())
+        .agg(missing_hours=pl.col("thin").sum().cast(pl.Int32))
+        .sort("day")
+    )
+
+
 def _hour_counts(month_rows: pl.LazyFrame, month: str) -> pl.DataFrame:
     """`hour_table` over the real month, from the rows' `time`."""
     start = datetime.strptime(month, "%Y-%m")
@@ -217,13 +226,7 @@ def _hour_counts(month_rows: pl.LazyFrame, month: str) -> pl.DataFrame:
 def day_gaps(lf: pl.LazyFrame, month: str) -> pl.DataFrame:
     """(day, missing_hours): `meta`'s missing hours counted per calendar day of the month, days
     without a gap included."""
-    month_rows = clean(lf).filter(_month == month)
-    return (
-        _hour_counts(month_rows, month)
-        .group_by(day=pl.col("hour").dt.date())
-        .agg(missing_hours=pl.col("thin").sum().cast(pl.Int32))
-        .sort("day")
-    )
+    return missing_per_day(_hour_counts(clean(lf).filter(_month == month), month))
 
 
 def meta(lf: pl.LazyFrame, month: str) -> pl.DataFrame:
