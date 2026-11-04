@@ -8,6 +8,12 @@ import polars as pl
 from core.categories import category_expr, is_excluded_expr
 from core.delay import arrival_delay_expr, plausible_expr
 from core.lines import destination_expr, line_name_expr, networks
+from core.sections import (
+    section_changes,
+    stop_delay_expr,
+    stop_number_expr,
+    trip_key_expr,
+)
 from core.stations import ibnr_expr
 
 COLUMNS = frozenset(
@@ -137,6 +143,51 @@ def ends(lf: pl.LazyFrame) -> pl.DataFrame:
         .group_by(keys)
         .agg(n=pl.len())
         .sort(keys)
+        .collect()
+    )
+
+
+def _trip_stops(lf: pl.LazyFrame, **extra: pl.Expr) -> pl.LazyFrame:
+    """Every stop (first stops included) with its trip and stop number; stops without either are
+    left out."""
+    return (
+        clean(lf)
+        .select(
+            name=line_name_expr(),
+            trip=trip_key_expr(),
+            num=stop_number_expr(),
+            eva="eva",
+            **extra,
+        )
+        .filter(pl.col("trip").is_not_null(), pl.col("num").is_not_null())
+    )
+
+
+def sections(lf: pl.LazyFrame) -> pl.DataFrame:
+    """Sections between consecutive stops of a trip per line name and month of the end stop:
+    (name, from_eva, to_eva, month, n, minutes), `minutes` the sum of the delay changes."""
+    keys = ["name", "from_eva", "to_eva", "month"]
+    return (
+        section_changes(_trip_stops(lf, month=_month, delay=stop_delay_expr()), "name", "month")
+        .group_by(keys)
+        .agg(n=pl.len(), minutes=pl.col("change").sum().cast(pl.Int64))
+        .sort(keys)
+        .collect()
+    )
+
+
+def routes(lf: pl.LazyFrame) -> pl.DataFrame:
+    """The stop patterns of a line name: (name, pattern, trips), `pattern` the EVAs in stop order;
+    a trip with one stop has no route."""
+    return (
+        _trip_stops(lf)
+        .sort("trip", "num")
+        .group_by("trip")
+        .agg(pl.col("name").first(), pattern=pl.col("eva"))
+        .filter(pl.col("pattern").list.len() >= 2)
+        .group_by("name", "pattern")
+        .agg(trips=pl.len())
+        .sort("name", "pattern")
         .collect()
     )
 

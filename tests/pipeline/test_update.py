@@ -152,10 +152,11 @@ def test_combine_station_keeps_the_newest_name_that_is_not_null(data_dir, tmp_pa
 def test_combine_lines_networks_and_labels(data_dir, fetch):
     run(data_dir, fetch)
     linien = pl.read_parquet(data_dir / "linien.parquet")
+    assert linien.columns == ["linie", "name", "label", "typ", "zug", "ohne_echtzeit"]
     assert linien.rows() == [
-        ("ICE 123:1", "ICE 123", "ICE 123 → Beta", "ICE"),
-        ("S1:3", "S1", "S1 Delta – Gamma", "S"),
-        ("S1:5", "S1", "S1 Zeta", "S"),
+        ("ICE 123:1", "ICE 123", "ICE 123 → Beta", "ICE", True, False),
+        ("S1:3", "S1", "S1 Delta – Gamma", "S", False, False),
+        ("S1:5", "S1", "S1 Zeta", "S", False, False),
     ]
     lines = pl.read_parquet(data_dir / "lines.parquet")
     assert lines.columns == ["linie", "eva", "gruppe", "month", "bucket", "n"]
@@ -163,6 +164,34 @@ def test_combine_lines_networks_and_labels(data_dir, fetch):
     assert ice.group_by("month").agg(pl.col("n").sum()).sort("month").rows() == [
         ("2026-09", 2),
         ("2026-10", 1),
+    ]
+
+
+def test_a_line_with_500_stops_all_on_time_is_marked_without_live_data(data_dir, tmp_path):
+    def stops(line: str, count: int) -> list[Row]:
+        def planned(i: int) -> str:
+            return f"2026-09-07 {8 + i // 60:02}:{i % 60:02}"
+
+        return [
+            ("1", "Alpha", "S", line, f"{line}{i}", f"{line}-{i}", planned(i), "Beta")
+            for i in range(count)
+        ]
+
+    rows = stops("S9", 500) + stops("S8", 499) + stops("S7", 500)
+    df = src(rows).with_columns(
+        # S7 runs ten minutes late, S9 and S8 report no delay at all
+        arrival_change_time=pl.when(pl.col("line_number") == "S7")
+        .then(pl.col("arrival_planned_time") + pl.duration(minutes=10))
+        .otherwise(pl.col("arrival_change_time"))
+    )
+    path = tmp_path / "sep.parquet"
+    df.write_parquet(path)
+    update(data_dir, lambda: ["2026-09"], lambda _: path)
+    linien = pl.read_parquet(data_dir / "linien.parquet")
+    assert linien.select("name", "zug", "ohne_echtzeit").rows() == [
+        ("S7", False, False),  # enough stops, but late
+        ("S8", False, False),  # on time, but 499 stops
+        ("S9", False, True),
     ]
 
 
@@ -181,7 +210,7 @@ def test_bare_number_and_prefixed_name_become_one_line(data_dir, tmp_path):
     src(oct_).write_parquet(paths["2026-10"])
     update(data_dir, lambda: list(paths), lambda month: paths[month])
     assert pl.read_parquet(data_dir / "linien.parquet").rows() == [
-        ("RE57:1", "RE57", "RE57 Beta", "RE")
+        ("RE57:1", "RE57", "RE57 Beta", "RE", False, False)
     ]
     lines = pl.read_parquet(data_dir / "lines.parquet")
     assert lines["linie"].unique().to_list() == ["RE57:1"]
@@ -199,8 +228,8 @@ def test_bare_numbers_of_different_train_types_stay_apart(data_dir, tmp_path):
     src(rows).write_parquet(path)
     update(data_dir, lambda: ["2026-09"], lambda _: path)
     assert pl.read_parquet(data_dir / "linien.parquet").rows() == [
-        ("RE1:1", "RE1", "RE1 Gamma", "RE"),
-        ("S1:1", "S1", "S1 Beta", "S"),
+        ("RE1:1", "RE1", "RE1 Gamma", "RE", False, False),
+        ("S1:1", "S1", "S1 Beta", "S", False, False),
     ]
 
 
@@ -353,6 +382,76 @@ def test_large_parquet_is_written_empty_without_a_month_before_full_coverage(dat
     run(data_dir, fetch)  # September already has most of the stations: no month before it
     large = pl.read_parquet(data_dir / "large.parquet")
     assert (large.schema, large.height) == (pl.Schema({"eva": pl.String}), 0)
+
+
+@pytest.mark.parametrize("table", ["sections", "routes"])
+def test_month_without_the_line_section_tables_is_reprocessed(data_dir, fetch, fetched, table):
+    run(data_dir, fetch)
+    (data_dir / "months" / "2026-09" / f"{table}.parquet").unlink()
+    run(data_dir, fetch)
+    assert fetched == ["2026-09", "2026-10", "2026-09"]
+    assert (data_dir / "months" / "2026-09" / f"{table}.parquet").exists()
+
+
+def with_ids(rows: list[Row], nums: list[int], delays: list[int]) -> pl.DataFrame:
+    """`src` rows with the source's `id` (ride id, planned day, stop number) and arrival delays."""
+    return src(rows).with_columns(
+        id=pl.Series([f"{r[5]}-2609070800-{n}" for r, n in zip(rows, nums, strict=True)]),
+        train_line_station_num=pl.Series(nums, dtype=pl.Int32),
+        arrival_change_time=pl.col("arrival_planned_time")
+        + pl.duration(minutes=pl.lit(pl.Series(delays))),
+    )
+
+
+def test_combine_writes_the_sections_and_the_axis_of_a_line(data_dir, tmp_path):
+    def trip(ride: str, day: str, evas: list[str], delays: list[int]) -> pl.DataFrame:
+        rows: list[Row] = [
+            (e, f"S{e}", "RE", "RE5", ride, ride, f"{day} 08:{10 * i:02d}", "Gamma")
+            for i, e in enumerate(evas)
+        ]
+        return with_ids(rows, list(range(1, len(evas) + 1)), delays)
+
+    sep = pl.concat(
+        [
+            trip("t1", "2026-09-07", ["1", "2", "3"], [0, 3, 5]),
+            trip("t2", "2026-09-07", ["1", "2"], [0, 2]),
+        ]
+    )
+    paths = {"2026-09": tmp_path / "sep.parquet", "2026-10": tmp_path / "oct.parquet"}
+    sep.write_parquet(paths["2026-09"])
+    trip("t3", "2026-10-05", ["1", "2"], [0, 4]).write_parquet(paths["2026-10"])
+    update(data_dir, lambda: list(paths), lambda month: paths[month])
+    sections = pl.read_parquet(data_dir / "abschnitte.parquet")
+    assert sections.columns == ["linie", "from_eva", "to_eva", "month", "n", "minutes"]
+    assert sections.rows() == [
+        ("RE5:1", "1", "2", "2026-09", 2, 5),
+        ("RE5:1", "2", "3", "2026-09", 1, 2),
+        ("RE5:1", "1", "2", "2026-10", 1, 4),
+    ]
+    # the axis comes from the newest month with routes: October only runs 1-2
+    axis = pl.read_parquet(data_dir / "linienweg.parquet")
+    assert axis.columns == ["linie", "pos", "eva"]
+    assert axis.rows() == [("RE5:1", 0, "1"), ("RE5:1", 1, "2")]
+
+
+def test_combine_turns_the_axis_to_the_label_order(data_dir, tmp_path):
+    # The most travelled pattern runs 1-2-3, but the trains' final destination is the third
+    # station, so the label starts there and the axis does too.
+    rows: list[Row] = [
+        (e, f"S{e}", "RE", "RE5", "t1", "t1", f"2026-09-07 08:{10 * i:02d}", "S3")
+        for i, e in enumerate(["1", "2", "3"])
+    ]
+    path = tmp_path / "sep.parquet"
+    with_ids(rows, [1, 2, 3], [0, 1, 2]).write_parquet(path)
+    update(data_dir, lambda: ["2026-09"], lambda month: path)
+    axis = pl.read_parquet(data_dir / "linienweg.parquet")
+    assert axis.rows() == [("RE5:1", 0, "3"), ("RE5:1", 1, "2"), ("RE5:1", 2, "1")]
+
+
+def test_combine_without_ids_writes_empty_section_tables(data_dir, fetch):
+    run(data_dir, fetch)
+    assert pl.read_parquet(data_dir / "abschnitte.parquet").height == 0
+    assert pl.read_parquet(data_dir / "linienweg.parquet").height == 0
 
 
 def test_monate(data_dir, fetch):

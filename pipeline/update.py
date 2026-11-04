@@ -12,8 +12,16 @@ from pathlib import Path
 import polars as pl
 from huggingface_hub import list_repo_files
 
-from core.lines import line_ids, line_table, networks
+from core.lines import (
+    is_train_number,
+    line_ids,
+    line_table,
+    networks,
+    no_live_data,
+    top_ends,
+)
 from core.periods import full_coverage_start, large_stations, local_midnight_utc, local_time
+from core.sections import line_axis, orient_axis
 from pipeline.aggregate import (
     aggregate,
     coverage_report,
@@ -25,6 +33,8 @@ from pipeline.aggregate import (
     lines,
     meta,
     month_networks,
+    routes,
+    sections,
     stations,
     with_coords,
 )
@@ -44,6 +54,8 @@ MONTH_FILES = (
     "days",
     "day_gaps",
     "day_hours",
+    "sections",
+    "routes",
 )
 AGGREGATE_ORDER = ("month", "eva", "weekday", "hour", "gruppe", "bucket")
 DAYS_ORDER = ("day", "eva", "gruppe", "bucket")
@@ -93,6 +105,8 @@ def process(src: Path, month: str, out: Path) -> str:
         "days": days(lf),
         "day_gaps": day_gaps(lf, month),
         "day_hours": day_hours(lf),
+        "sections": sections(lf),
+        "routes": routes(lf),
     }
     for name, df in tables.items():
         df.write_parquet(tmp / f"{name}.parquet")
@@ -339,15 +353,62 @@ def combine(data_dir: Path) -> None:
     by_name = _read(dirs, "lines")
     stops = by_name.group_by("name", "eva", "train_type").agg(pl.col("n").sum())
     all_ends = _read(dirs, "ends").group_by("name", "eva", "dest").agg(pl.col("n").sum())
-    line_table(nets, stops, all_ends).write_parquet(data_dir / "linien.parquet")
     keys = ["linie", "eva", "gruppe", "month", "bucket"]
-    (
-        by_name.join(line_ids(nets).select("name", "eva", "linie"), on=["name", "eva"])
+    line_of = line_ids(nets).select("name", "eva", "linie")
+    cells = (
+        by_name.join(line_of, on=["name", "eva"])
         .group_by(keys)
         .agg(pl.col("n").sum())
         .sort(keys, nulls_last=True)
-        .write_parquet(data_dir / "lines.parquet")
     )
+    cells.write_parquet(data_dir / "lines.parquet")
+    n, bucket = pl.col("n"), pl.col("bucket")
+    counts = cells.group_by("linie").agg(
+        n=n.sum(),
+        zero=n.filter(bucket == 0).sum(),
+        cancelled=n.filter(bucket.is_null()).sum(),
+    )
+    flags = counts.select(
+        "linie", ohne_echtzeit=no_live_data(pl.col("n"), pl.col("zero"), pl.col("cancelled"))
+    )
+    (
+        line_table(nets, stops, all_ends)
+        .join(flags, on="linie", how="left")
+        .with_columns(zug=is_train_number(pl.col("name")))
+        .select("linie", "name", "label", "typ", "zug", "ohne_echtzeit")
+        .write_parquet(data_dir / "linien.parquet")
+    )
+    write_line_sections(data_dir, dirs, line_of, top_ends(all_ends, line_of))
+
+
+def write_line_sections(
+    data_dir: Path, dirs: list[Path], line_of: pl.DataFrame, line_ends: pl.DataFrame
+) -> None:
+    """Write `abschnitte.parquet` (the sections per line and month) and `linienweg.parquet` (the
+    station order of each line, turned to the label's order), both only for the lines of
+    `linien.parquet`. `line_of` is (name, eva, linie); a section finds its line by its first
+    station, a pattern as well. `line_ends` is (linie, dest list), the label's end stations.
+    ponytail: the axis comes from the newest month in which the line has routes; revisit if a
+    route changes inside a period."""
+    known = pl.read_parquet(data_dir / "linien.parquet").select("linie")
+
+    def of_line(df: pl.DataFrame, first: str) -> pl.DataFrame:
+        return df.join(line_of, left_on=["name", first], right_on=["name", "eva"]).join(
+            known, on="linie", how="semi"
+        )
+
+    (
+        of_line(_read(dirs, "sections"), "from_eva")
+        .select("linie", "from_eva", "to_eva", "month", "n", "minutes")
+        .sort("linie", "month", "from_eva", "to_eva")
+        .write_parquet(data_dir / "abschnitte.parquet")
+    )
+    patterns = of_line(
+        _read(dirs, "routes").with_columns(first=pl.col("pattern").list.first()), "first"
+    )
+    newest = patterns.filter(pl.col("month") == pl.col("month").max().over("linie"))
+    names = pl.read_parquet(data_dir / "stations.parquet").select("eva", "name")
+    orient_axis(line_axis(newest), names, line_ends).write_parquet(data_dir / "linienweg.parquet")
 
 
 def update(

@@ -19,9 +19,23 @@ def at(hhmm: str | None, day: str = DAY) -> dt | None:
     return dt.fromisoformat(f"{day} {hhmm}") if hhmm else None
 
 
+TYPED = {
+    "arrival_planned_time": pl.Datetime("us"),
+    "arrival_change_time": pl.Datetime("us"),
+    "departure_planned_time": pl.Datetime("us"),
+    "departure_change_time": pl.Datetime("us"),
+    "arrival_is_canceled": pl.Boolean,
+    "departure_is_canceled": pl.Boolean,
+    "train_line_station_num": pl.Int32,
+}
+
+
 def complete(df: pl.DataFrame) -> pl.DataFrame:
-    """Add every source column the test does not set as NULL strings (strict schema check)."""
-    return df.with_columns(pl.lit(None, pl.String).alias(c) for c in COLUMNS if c not in df.columns)
+    """Add every source column the test does not set as NULLs (strict schema check): the columns
+    the section rule computes with in their real type, the rest as strings."""
+    return df.with_columns(
+        pl.lit(None, TYPED.get(c, pl.String)).alias(c) for c in COLUMNS if c not in df.columns
+    )
 
 
 # (train_type, planned, changed, cancelled, eva, event day for `time`, line, train no., ride id,
@@ -88,6 +102,8 @@ def client(
     monkeypatch.setattr(main, "DAYS_PATH", str(data / "days.parquet"))
     monkeypatch.setattr(main, "TAGE_PATH", str(data / "tage.parquet"))
     monkeypatch.setattr(main, "DAY_HOURS_PATH", str(data / "day_hours.parquet"))
+    monkeypatch.setattr(main, "ABSCHNITTE_PATH", str(data / "abschnitte.parquet"))
+    monkeypatch.setattr(main, "LINIENWEG_PATH", str(data / "linienweg.parquet"))
     monkeypatch.setattr(main, "HEUTE_PATH", str(tmp_path / "missing-heute.parquet"))
     monkeypatch.setattr(main, "HEUTE_REST_PATH", str(tmp_path / "missing-heute-rest.parquet"))
     monkeypatch.setattr(main, "LIVE_TAGE_PATH", str(tmp_path / "missing-live-tage.parquet"))

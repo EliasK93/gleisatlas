@@ -14,6 +14,8 @@ from pipeline.aggregate import (
     dropped,
     lines,
     meta,
+    routes,
+    sections,
     stations,
     with_coords,
 )
@@ -291,3 +293,73 @@ def test_day_gaps_follow_the_real_clock_changes():
     assert gaps["missing_hours"].sum() == 0
     october = weighted(dt(2026, 10, 1), dt(2026, 11, 1), lambda h: 40 if h.hour == 2 else 20)
     assert day_gaps(october.lazy(), "2026-10")["missing_hours"].sum() == 0
+
+
+def trips() -> pl.DataFrame:
+    """RE5 over stations 1-2-3 (the first stop has a departure only) and a short turn 1-2."""
+    # (ride, stop number, eva, planned minute of the day, arrival delay or None, departure delay)
+    stops = [
+        ("t1", 1, "1", 480, None, 2),
+        ("t1", 2, "2", 490, 5, 5),
+        ("t1", 3, "3", 500, 9, None),
+        ("t2", 1, "1", 540, None, 0),
+        ("t2", 2, "2", 550, 4, None),
+    ]
+    day = dt(2026, 9, 7)
+
+    def at(minute: int, delay: int | None) -> dt | None:
+        return None if delay is None else day + timedelta(minutes=minute + delay)
+
+    return complete(
+        pl.DataFrame(
+            {
+                "id": [f"{r}-2609070800-{n}" for r, n, *_ in stops],
+                "train_line_station_num": pl.Series([s[1] for s in stops], dtype=pl.Int32),
+                "eva": [s[2] for s in stops],
+                "train_type": "RE",
+                "line_number": "RE5",
+                "time": day,
+                "arrival_planned_time": [
+                    None if s[4] is None else day + timedelta(minutes=s[3]) for s in stops
+                ],
+                "arrival_change_time": [at(s[3], s[4]) for s in stops],
+                "arrival_is_canceled": False,
+                "departure_planned_time": [
+                    None if s[5] is None else day + timedelta(minutes=s[3]) for s in stops
+                ],
+                "departure_change_time": [at(s[3], s[5]) for s in stops],
+                "departure_is_canceled": False,
+            }
+        )
+    )
+
+
+def test_sections_count_and_sum_the_changes_per_line_and_month():
+    out = sections(trips().lazy())
+    assert out.schema == pl.Schema(
+        {
+            "name": pl.String,
+            "from_eva": pl.String,
+            "to_eva": pl.String,
+            "month": pl.String,
+            "n": pl.UInt32,
+            "minutes": pl.Int64,
+        }
+    )
+    assert out.sort("from_eva").rows() == [
+        ("RE5", "1", "2", "2026-09", 2, (5 - 2) + (4 - 0)),
+        ("RE5", "2", "3", "2026-09", 1, 9 - 5),
+    ]
+
+
+def test_routes_are_the_stop_patterns_with_their_trips():
+    out = routes(trips().lazy())
+    assert out.schema == pl.Schema(
+        {"name": pl.String, "pattern": pl.List(pl.String), "trips": pl.UInt32}
+    )
+    assert out.rows() == [("RE5", ["1", "2"], 1), ("RE5", ["1", "2", "3"], 1)]
+
+
+def test_sections_and_routes_of_a_source_without_ids_are_empty(source: pl.DataFrame):
+    assert sections(source.lazy()).height == 0
+    assert routes(source.lazy()).height == 0
