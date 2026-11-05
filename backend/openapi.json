@@ -747,6 +747,56 @@
     }
    }
   },
+  "/linie/fahrplan": {
+   "get": {
+    "summary": "Line Fahrplan",
+    "operationId": "getLinieFahrplan",
+    "parameters": [
+     {
+      "name": "linie",
+      "in": "query",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "maxLength": 200,
+       "title": "Linie"
+      }
+     },
+     {
+      "name": "tag",
+      "in": "query",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "format": "date",
+       "title": "Tag"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Fahrplan"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/zeitverlauf": {
    "get": {
     "summary": "Zeitverlauf",
@@ -1267,6 +1317,48 @@
     ],
     "title": "Deutschland"
    },
+   "Fahrplan": {
+    "properties": {
+     "tag": {
+      "type": "string",
+      "title": "Tag"
+     },
+     "fahrten": {
+      "items": {
+       "$ref": "#/components/schemas/Fahrt"
+      },
+      "type": "array",
+      "title": "Fahrten"
+     }
+    },
+    "type": "object",
+    "required": [
+     "tag",
+     "fahrten"
+    ],
+    "title": "Fahrplan"
+   },
+   "Fahrt": {
+    "properties": {
+     "zug": {
+      "type": "string",
+      "title": "Zug"
+     },
+     "halte": {
+      "items": {
+       "$ref": "#/components/schemas/Halt"
+      },
+      "type": "array",
+      "title": "Halte"
+     }
+    },
+    "type": "object",
+    "required": [
+     "zug",
+     "halte"
+    ],
+    "title": "Fahrt"
+   },
    "Gruppe": {
     "properties": {
      "n": {
@@ -1338,6 +1430,78 @@
     },
     "type": "object",
     "title": "HTTPValidationError"
+   },
+   "Halt": {
+    "properties": {
+     "eva": {
+      "type": "string",
+      "title": "Eva"
+     },
+     "an_plan": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "An Plan"
+     },
+     "an_ist": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "An Ist"
+     },
+     "ab_plan": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Ab Plan"
+     },
+     "ab_ist": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Ab Ist"
+     },
+     "ausfall_an": {
+      "type": "boolean",
+      "title": "Ausfall An"
+     },
+     "ausfall_ab": {
+      "type": "boolean",
+      "title": "Ausfall Ab"
+     }
+    },
+    "type": "object",
+    "required": [
+     "eva",
+     "an_plan",
+     "an_ist",
+     "ab_plan",
+     "ab_ist",
+     "ausfall_an",
+     "ausfall_ab"
+    ],
+    "title": "Halt",
+    "description": "Minutes since local midnight of the Fahrplan's day (beyond 1440 past midnight), None where\nthe time is missing. `ist` is the change time, else the planned time; None when cancelled."
    },
    "Heatmap": {
     "properties": {
@@ -1639,6 +1803,30 @@
       },
       "type": "array",
       "title": "Bahnhoefe"
+     },
+     "fahrplan_von": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "date"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Fahrplan Von"
+     },
+     "fahrplan_bis": {
+      "anyOf": [
+       {
+        "type": "string",
+        "format": "date"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Fahrplan Bis"
      }
     },
     "type": "object",
@@ -1651,7 +1839,9 @@
      "ohne_echtzeit",
      "gesamt",
      "achse",
-     "bahnhoefe"
+     "bahnhoefe",
+     "fahrplan_von",
+     "fahrplan_bis"
     ],
     "title": "Linie"
    },

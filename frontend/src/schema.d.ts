@@ -160,6 +160,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/linie/fahrplan": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Line Fahrplan */
+        get: operations["getLinieFahrplan"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/zeitverlauf": {
         parameters: {
             query?: never;
@@ -324,6 +341,20 @@ export interface components {
             normal: components["schemas"]["Normal"];
             klasse: components["schemas"]["Klasse"];
         };
+        /** Fahrplan */
+        Fahrplan: {
+            /** Tag */
+            tag: string;
+            /** Fahrten */
+            fahrten: components["schemas"]["Fahrt"][];
+        };
+        /** Fahrt */
+        Fahrt: {
+            /** Zug */
+            zug: string;
+            /** Halte */
+            halte: components["schemas"]["Halt"][];
+        };
         /** Gruppe */
         Gruppe: {
             /** N */
@@ -343,6 +374,27 @@ export interface components {
         HTTPValidationError: {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
+        };
+        /**
+         * Halt
+         * @description Minutes since local midnight of the Fahrplan's day (beyond 1440 past midnight), None where
+         *     the time is missing. `ist` is the change time, else the planned time; None when cancelled.
+         */
+        Halt: {
+            /** Eva */
+            eva: string;
+            /** An Plan */
+            an_plan: number | null;
+            /** An Ist */
+            an_ist: number | null;
+            /** Ab Plan */
+            ab_plan: number | null;
+            /** Ab Ist */
+            ab_ist: number | null;
+            /** Ausfall An */
+            ausfall_an: boolean;
+            /** Ausfall Ab */
+            ausfall_ab: boolean;
         };
         /** Heatmap */
         Heatmap: {
@@ -439,6 +491,10 @@ export interface components {
             achse: string[];
             /** Bahnhoefe */
             bahnhoefe: components["schemas"]["LinienBahnhof"][];
+            /** Fahrplan Von */
+            fahrplan_von: string | null;
+            /** Fahrplan Bis */
+            fahrplan_bis: string | null;
         };
         /** LinienBahnhof */
         LinienBahnhof: {
@@ -1018,6 +1074,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Abschnitt"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    getLinieFahrplan: {
+        parameters: {
+            query: {
+                linie: string;
+                tag: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Fahrplan"];
                 };
             };
             /** @description Validation Error */

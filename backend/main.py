@@ -46,6 +46,8 @@ HEUTE_REST_PATH = os.environ.get("HEUTE_REST_PATH", "data/heute_rest.parquet")
 LIVE_TAGE_PATH = os.environ.get("LIVE_TAGE_PATH", "data/live_tage.parquet")
 # the large stations (one column `eva`), written by pipeline.update
 LARGE_PATH = os.environ.get("LARGE_PATH", "data/large.parquet")
+# the last 28 days' trips, one row per stop (pipeline.update); the Bildfahrplan reads one line's day
+FAHRTEN_PATH = os.environ.get("FAHRTEN_PATH", "data/fahrten.parquet")
 # see backend/fetch.py. These are downloaded at start. The files of the collector (HEUTE_PATH,
 # LIVE_TAGE_PATH) change while the API runs: fetch.refresh_live keeps them current, and
 # HEUTE_REST_PATH (piebro's raw data, written by pipeline.update) is never downloaded.
@@ -61,6 +63,7 @@ DATA_FILES = (
     TAGE_PATH,
     DAY_HOURS_PATH,
     LARGE_PATH,
+    FAHRTEN_PATH,
 )
 HEUTE_MAX_AGE = timedelta(hours=2)  # an older collector run is no "today"
 
@@ -322,6 +325,8 @@ class Linie(BaseModel):
     gesamt: Stats | None  # all the line's stations pooled for the period; None without stops
     achse: list[str]  # EVAs of the axis in order; a station may repeat (ring, reversal)
     bahnhoefe: list[LinienBahnhof]  # axis stations by first position, then the others by stops
+    fahrplan_von: date | None  # first and last day of the line's trips; None without any
+    fahrplan_bis: date | None
 
 
 class Abschnitt(BaseModel):
@@ -329,6 +334,29 @@ class Abschnitt(BaseModel):
     nach_eva: str
     n: int  # trips over the section in the period
     minuten: float  # mean change of the delay over the section; negative: minutes made up
+
+
+class Halt(BaseModel):
+    """Minutes since local midnight of the Fahrplan's day (beyond 1440 past midnight), None where
+    the time is missing. `ist` is the change time, else the planned time; None when cancelled."""
+
+    eva: str
+    an_plan: int | None
+    an_ist: int | None
+    ab_plan: int | None
+    ab_ist: int | None
+    ausfall_an: bool
+    ausfall_ab: bool
+
+
+class Fahrt(BaseModel):
+    zug: str  # "RE 10423"
+    halte: list[Halt]  # in stop order
+
+
+class Fahrplan(BaseModel):
+    tag: str  # 'YYYY-MM-DD', the day the trips start
+    fahrten: list[Fahrt]  # by the departure of their first stop
 
 
 class Monat(BaseModel):
@@ -926,6 +954,15 @@ def line_sections(linie: str, von: str | None, bis: str | None) -> pl.DataFrame:
     )
 
 
+def fahrplan_fenster(linie: str) -> tuple[date | None, date | None]:
+    """The first and last day of the line's trips in the trip table; (None, None) without any. The
+    file is sorted by line, so the filter reads only that line's row groups."""
+    if not os.path.exists(FAHRTEN_PATH):
+        return None, None
+    days = pl.scan_parquet(FAHRTEN_PATH).filter(pl.col("linie") == linie)
+    return collect(days.select(pl.col("day").min(), bis=pl.col("day").max())).row(0)
+
+
 @app.get("/linie", response_model=Linie, operation_id="getLinie")
 def line_page(linie: LineId, von: Month = None, bis: Month = None) -> Linie:
     head = known_line(linie)
@@ -963,6 +1000,7 @@ def line_page(linie: LineId, von: Month = None, bis: Month = None) -> Linie:
         for row in named.iter_rows(named=True)
     ]
     stations.sort(key=lambda s: (s.pos is None, s.pos or 0, -s.n, s.name))
+    von_tag, bis_tag = fahrplan_fenster(linie)
     return Linie(
         linie=head["linie"],
         name=head["name"],
@@ -973,6 +1011,8 @@ def line_page(linie: LineId, von: Month = None, bis: Month = None) -> Linie:
         gesamt=to_stats(pooled[0][1]) if pooled else None,
         achse=achse,
         bahnhoefe=stations,
+        fahrplan_von=von_tag,
+        fahrplan_bis=bis_tag,
     )
 
 
@@ -983,6 +1023,49 @@ def line_abschnitte(linie: LineId, von: Month = None, bis: Month = None) -> list
         Abschnitt(von_eva=a, nach_eva=b, n=n, minuten=round(minutes / n, 2))
         for a, b, n, minutes in line_sections(linie, period_start(von, bis), bis).iter_rows()
     ]
+
+
+@app.get("/linie/fahrplan", response_model=Fahrplan, operation_id="getLinieFahrplan")
+def line_fahrplan(linie: LineId, tag: date) -> Fahrplan:
+    known_line(linie)
+    von, bis = fahrplan_fenster(linie)
+    if von is None or bis is None or not von <= tag <= bis:
+        window = f"{von}..{bis}" if von and bis else "none"
+        raise HTTPException(status_code=422, detail=f"No trips for that day; available: {window}")
+
+    def event(kind: str, short: str) -> dict[str, pl.Expr]:
+        """The table holds minutes since the trip day and the delay (null: on time)."""
+        plan, delay = pl.col(f"{short}_plan").cast(pl.Int32), pl.col(f"{short}_delay")
+        gone = pl.col(f"{kind}_is_canceled").fill_null(False)
+        return {
+            f"{short}_plan": plan,
+            f"{short}_ist": pl.when(~gone).then(plan + delay.fill_null(0)),
+            f"ausfall_{short}": gone,
+        }
+
+    rows = collect(
+        pl.scan_parquet(FAHRTEN_PATH)
+        .filter((pl.col("linie") == linie) & (pl.col("day") == tag))
+        .sort("trip", "num")
+        .select(
+            "trip",
+            "zug",
+            "eva",
+            **event("arrival", "an"),
+            **event("departure", "ab"),
+        )
+    )
+    trips: dict[str, Fahrt] = {}  # in trip order; the sort below is stable
+    for row in rows.iter_rows(named=True):
+        trips.setdefault(row["trip"], Fahrt(zug=row["zug"], halte=[])).halte.append(
+            Halt(**{k: row[k] for k in Halt.model_fields})
+        )
+
+    def first_departure(fahrt: Fahrt) -> int:
+        first = fahrt.halte[0]
+        return first.ab_plan if first.ab_plan is not None else first.an_plan or 0
+
+    return Fahrplan(tag=tag.isoformat(), fahrten=sorted(trips.values(), key=first_departure))
 
 
 @app.get("/zeitverlauf", response_model=Zeitverlauf, operation_id="getZeitverlauf")

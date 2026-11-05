@@ -104,6 +104,7 @@ def client(
     monkeypatch.setattr(main, "DAY_HOURS_PATH", str(data / "day_hours.parquet"))
     monkeypatch.setattr(main, "ABSCHNITTE_PATH", str(data / "abschnitte.parquet"))
     monkeypatch.setattr(main, "LINIENWEG_PATH", str(data / "linienweg.parquet"))
+    monkeypatch.setattr(main, "FAHRTEN_PATH", str(tmp_path / "missing-fahrten.parquet"))
     monkeypatch.setattr(main, "HEUTE_PATH", str(tmp_path / "missing-heute.parquet"))
     monkeypatch.setattr(main, "HEUTE_REST_PATH", str(tmp_path / "missing-heute-rest.parquet"))
     monkeypatch.setattr(main, "LIVE_TAGE_PATH", str(tmp_path / "missing-live-tage.parquet"))
