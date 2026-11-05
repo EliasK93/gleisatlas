@@ -1,6 +1,10 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import {
   abschnitteFixture,
+  FAHRPLAN_BIS,
+  FAHRPLAN_VON,
+  fahrplanFixture,
+  fontsReady,
   LINE_ID,
   LINE_PATH,
   lineFixture,
@@ -683,5 +687,437 @@ test.describe("mobile", () => {
       page.getByText("Äste und Abschnitte mit ausgelassenen Halten (4)"),
     ];
     for (const c of controls) expect(await tall(c), `${await c.textContent()}`).toBe(true);
+  });
+});
+
+test.describe("Bildfahrplan", () => {
+  const bf = (page: Page) => section(page, "Bildfahrplan");
+  const chart = (page: Page) => page.getByTestId("bildfahrplan");
+  const trips = (page: Page) => chart(page).locator("[data-trip]");
+  const trip = (page: Page, zug: string) => chart(page).locator(`[data-trip="${zug}"]`);
+  const ist = (page: Page, zug: string) => trip(page, zug).locator('[data-path="ist"] line');
+  /** Hovers the first actual segment of a trip; a scroll clears the tooltip, so it comes first. */
+  const hoverTrip = async (page: Page, zug: string) => {
+    await fontsReady(page);
+    await chart(page).scrollIntoViewIfNeeded();
+    await ist(page, zug).first().hover();
+  };
+  const dayField = (page: Page) => page.getByLabel("Tag des Bildfahrplans");
+  const asked = (requests: URL[]) =>
+    requests.filter((u) => u.pathname === "/linie/fahrplan").map((u) => queryOf(u));
+  const strokes = (l: Locator) =>
+    l.evaluateAll((all) => all.map((e) => getComputedStyle(e).stroke));
+  const rgb = (hex: string) =>
+    `rgb(${[1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16)).join(", ")})`;
+  const withFahrplan = (
+    page: Page,
+    linie?: Parameters<typeof mockApi>[10],
+    fahrplan?: Parameters<typeof mockApi>[12],
+  ) => mockApi(page, U, U, U, U, U, U, U, U, U, linie, U, fahrplan);
+  /** The fixture's day with only the trips that `keep` names. */
+  const only = (keep: (zug: string) => boolean) => (id: string, tag: string) => {
+    const day = fahrplanFixture(id, tag);
+    return { ...day, fahrten: day.fahrten.filter((f) => keep(f.zug)) };
+  };
+
+  test("it follows the Zeitfresser, asks for the newest day and holds the day field to the window", async ({
+    page,
+  }) => {
+    const requests = await mockApi(page);
+    await page.goto(LINE_PATH);
+    await expect(trips(page)).toHaveCount(3);
+    await expect(chart(page)).toHaveAttribute("data-trips", "3");
+    expect(asked(requests)).toEqual([{ linie: LINE_ID, tag: FAHRPLAN_BIS }]);
+    await expect(dayField(page)).toHaveValue(FAHRPLAN_BIS);
+    await expect(dayField(page)).toHaveAttribute("min", FAHRPLAN_VON);
+    await expect(dayField(page)).toHaveAttribute("max", FAHRPLAN_BIS);
+    await expect(page).not.toHaveURL(/tag=/);
+    await expect(bf(page)).toContainText("Gestrichelt der Fahrplan");
+    await expect(chart(page)).toHaveAccessibleName(
+      "Bildfahrplan RE57 Dortmund Hbf – Warburg (Westf), Mi., 30.09.2026: 3 Fahrten",
+    );
+    expect((await bf(page).boundingBox())!.y).toBeGreaterThan(
+      (await section(page, "Zeitfresser").boundingBox())!.y,
+    );
+  });
+
+  test("picking a day writes tag and asks for that day; the newest day is not written", async ({
+    page,
+  }) => {
+    const requests = await mockApi(page);
+    await page.goto(`${LINE_PATH}?k=p90`);
+    await expect(trips(page)).toHaveCount(3);
+    await dayField(page).fill("2026-09-20");
+    await expect(page).toHaveURL(/\?tag=2026-09-20&k=p90$/);
+    await expect.poll(() => asked(requests).at(-1)).toEqual({ linie: LINE_ID, tag: "2026-09-20" });
+    await expect(chart(page)).toHaveAccessibleName(/So\., 20\.09\.2026/);
+    await dayField(page).fill(FAHRPLAN_BIS);
+    await expect(page).toHaveURL(new RegExp(`${LINE_PATH}\\?k=p90$`));
+  });
+
+  test("a tag inside the window is kept; the newest day, one outside or an invalid one is dropped", async ({
+    page,
+  }) => {
+    const requests = await mockApi(page);
+    await page.goto(`${LINE_PATH}?tag=2026-09-20`);
+    await expect(trips(page)).toHaveCount(3);
+    await expect(dayField(page)).toHaveValue("2026-09-20");
+    await expect(page).toHaveURL(/\?tag=2026-09-20$/);
+    expect(asked(requests).at(-1)).toEqual({ linie: LINE_ID, tag: "2026-09-20" });
+    for (const tag of [FAHRPLAN_BIS, "2026-09-16", "2026-10-01", "2026-02-31"]) {
+      await page.goto(`${LINE_PATH}?tag=${tag}&k=p90`);
+      await expect(page).toHaveURL(new RegExp(`${LINE_PATH}\\?k=p90$`));
+      await expect(dayField(page)).toHaveValue(FAHRPLAN_BIS);
+    }
+    // No request ever names a day outside the window.
+    expect(asked(requests).every((q) => q.tag >= FAHRPLAN_VON && q.tag <= FAHRPLAN_BIS)).toBe(true);
+  });
+
+  test("each trip has a dashed planned path and an actual path; branch trips are counted, not drawn", async ({
+    page,
+  }) => {
+    await mockApi(page);
+    await page.goto(LINE_PATH);
+    await expect(trips(page)).toHaveCount(3);
+    expect(
+      await trips(page).evaluateAll((all) => all.map((g) => g.getAttribute("data-trip"))),
+    ).toEqual(["RE 10101", "RE 10102", "RE 10199"]);
+    for (const zug of ["RE 10101", "RE 10102", "RE 10199"]) {
+      await expect(trip(page, zug).locator('[data-path="plan"]')).toHaveCount(1);
+      await expect(trip(page, zug).locator('[data-path="ist"]')).toHaveCount(1);
+    }
+    const plan = trip(page, "RE 10101").locator('[data-path="plan"]');
+    await expect(plan).toHaveAttribute("stroke-dasharray", /\d/);
+    await expect(plan).toHaveCSS("stroke", "rgb(101, 109, 126)");
+    await expect(bf(page)).toContainText("1 Fahrt auf einem Ast nicht gezeigt");
+
+    await withFahrplan(page, U, (id, tag) => {
+      const day = fahrplanFixture(id, tag);
+      return { ...day, fahrten: [...day.fahrten, { ...day.fahrten[2], zug: "RE 10151" }] };
+    });
+    await page.goto(LINE_PATH);
+    await expect(trips(page)).toHaveCount(3);
+    await expect(bf(page)).toContainText("2 Fahrten auf Ästen nicht gezeigt");
+  });
+
+  test("the actual path takes the delay step at each segment's end and breaks at a cancelled stop", async ({
+    page,
+  }) => {
+    const R = LIGHT.map(rgb);
+    await mockApi(page);
+    await page.goto(LINE_PATH);
+    await expect(trips(page)).toHaveCount(3);
+    // +1, +1, +3, +3, +8 min; then +2, +2, +5 min
+    expect(await strokes(ist(page, "RE 10101"))).toEqual([R[1], R[1], R[2], R[2], R[4]]);
+    expect(await strokes(ist(page, "RE 10199"))).toEqual([R[2], R[2], R[3]]);
+    // Warburg to Soest and the stop at Soest; nothing into or out of the cancelled Hamm.
+    expect(await strokes(ist(page, "RE 10102"))).toEqual([R[0], R[0]]);
+    await expect(chart(page).getByTestId("cancel")).toHaveCount(1);
+    const cancel = trip(page, "RE 10102").getByTestId("cancel");
+    await expect(cancel).toHaveText("✕");
+    await expect(cancel).toHaveCSS("fill", "rgb(93, 102, 117)");
+    const legend = bf(page).getByRole("list", { name: "Farbstufen der Verspätung" });
+    await expect(legend.getByRole("listitem")).toHaveText([
+      "<1 min",
+      "1–2",
+      "2–4",
+      "4–7",
+      "≥7 min",
+    ]);
+    await expect(bf(page)).toContainText("Fahrplan");
+    await expect(bf(page)).toContainText("fällt aus");
+  });
+
+  test("the time axis runs past midnight for a night trip and opens at 06:00", async ({ page }) => {
+    await mockApi(page);
+    await page.goto(LINE_PATH);
+    const hours = chart(page).getByTestId("hour");
+    await expect(hours).toHaveCount(26);
+    await expect(hours.first()).toHaveText("00:00");
+    await expect(hours.last()).toHaveText("01:00");
+    const six = hours.nth(6);
+    await expect(six).toHaveText("06:00");
+    const scroller = chart(page).locator("xpath=..");
+    expect(await scroller.evaluate((e) => e.scrollLeft)).toBeGreaterThan(0);
+    const box = (await scroller.boundingBox())!;
+    const at = (await six.boundingBox())!;
+    expect(at.x).toBeGreaterThanOrEqual(box.x);
+    expect(at.x + at.width).toBeLessThan(box.x + 60);
+    // Without the night trip the axis ends at 24:00.
+    await withFahrplan(
+      page,
+      U,
+      only((zug) => zug !== "RE 10199"),
+    );
+    await page.goto(LINE_PATH);
+    await expect(trips(page)).toHaveCount(2);
+    await expect(hours).toHaveCount(25);
+  });
+
+  test("hovering a trip highlights it and names its stops with planned time and delay", async ({
+    page,
+  }) => {
+    await mockApi(page);
+    await page.goto(LINE_PATH);
+    await expect(trips(page)).toHaveCount(3);
+    const tip = page.getByRole("tooltip");
+    await hoverTrip(page, "RE 10101");
+    await expect(tip).toHaveText(
+      "RE 10101: Dortmund Hbf 06:00 ±0 min · Hamm (Westf) Hbf 06:20 +1 min · Soest 06:40 +3 min · Warburg (Westf) 07:30 +8 min",
+    );
+    await expect(trip(page, "RE 10102")).toHaveCSS("opacity", "0.25");
+    await expect(trip(page, "RE 10101")).toHaveCSS("opacity", "1");
+    await hoverTrip(page, "RE 10102");
+    await expect(tip).toContainText("RE 10102: Warburg (Westf) 07:00 ±0 min");
+    await expect(tip).toContainText("Hamm (Westf) Hbf 08:00 fällt aus");
+    await expect(trip(page, "RE 10101")).toHaveCSS("opacity", "0.25");
+  });
+
+  test("the trips are listed in a closed group as the chart's text", async ({ page }) => {
+    await mockApi(page);
+    await page.goto(LINE_PATH);
+    const summary = bf(page).getByText("Fahrten als Liste (3)");
+    await expect(summary).toBeVisible();
+    const table = bf(page).getByRole("table");
+    await expect(table).toBeHidden();
+    await summary.click();
+    const rows = table.getByRole("row");
+    await expect(rows).toHaveCount(4);
+    await expect(rows.first().getByRole("columnheader")).toHaveText([
+      "Zug",
+      "Von",
+      "Bis",
+      "Abfahrt (Plan)",
+      "Verspätung am Ende",
+    ]);
+    const expected = [
+      ["RE 10101", "Dortmund Hbf", "Warburg (Westf)", "06:00", "+8 min"],
+      ["RE 10102", "Warburg (Westf)", "Dortmund Hbf", "07:00", "±0 min"],
+      ["RE 10199", "Dortmund Hbf", "Soest", "23:40", "+5 min"],
+    ];
+    for (const [i, cells] of expected.entries())
+      await expect(rows.nth(i + 1).getByRole("cell")).toHaveText(cells);
+  });
+
+  test("a ring trip takes each visit of its repeated station nearest its neighbours", async ({
+    page,
+  }) => {
+    const [dortmund, hamm, soest] = lineFixture().bahnhoefe;
+    const [D, H, S] = [dortmund.eva, hamm.eva, soest.eva];
+    const halt = (eva: string, an: number | null, ab: number | null) => ({
+      eva,
+      an_plan: an,
+      an_ist: an,
+      ab_plan: ab,
+      ab_ist: ab,
+      ausfall_an: false,
+      ausfall_ab: false,
+    });
+    await withFahrplan(
+      page,
+      () => ({ ...lineFixture(), achse: [D, H, S, D], bahnhoefe: [dortmund, hamm, soest] }),
+      (_id, tag) => ({
+        tag,
+        fahrten: [
+          {
+            zug: "S 1",
+            halte: [halt(D, null, 360), halt(H, 380, 381), halt(S, 400, 401), halt(D, 430, null)],
+          },
+          {
+            zug: "S 2",
+            halte: [halt(D, null, 500), halt(S, 520, 521), halt(H, 540, 541), halt(D, 560, null)],
+          },
+        ],
+      }),
+    );
+    await page.goto(LINE_PATH);
+    await expect(trips(page)).toHaveCount(2);
+    const ys = async (zug: string) =>
+      ((await trip(page, zug).locator('[data-path="plan"]').getAttribute("points")) ?? "")
+        .trim()
+        .split(/\s+/)
+        .map((p) => Number(p.split(",")[1]));
+    // S 1 runs down from the first Dortmund to the last, S 2 up from the last to the first.
+    const one = await ys("S 1");
+    expect(one).toEqual([...one].sort((a, b) => a - b));
+    expect(one.at(-1)).toBeGreaterThan(one[0]);
+    const two = await ys("S 2");
+    expect(two).toEqual([...two].sort((a, b) => b - a));
+    expect(two[0]).toBe(one.at(-1));
+    expect(two.at(-1)).toBe(one[0]);
+  });
+
+  test("a ring trip that does not start at the seam draws no segment across the chart", async ({
+    page,
+  }) => {
+    const [D, H, S, W] = lineFixture().bahnhoefe.map((s) => s.eva);
+    const halt = (eva: string, an: number | null, ab: number | null) => ({
+      eva,
+      an_plan: an,
+      an_ist: an,
+      ab_plan: ab,
+      ab_ist: ab,
+      ausfall_an: false,
+      ausfall_ab: false,
+    });
+    await withFahrplan(
+      page,
+      () => ({ ...lineFixture(), achse: [D, H, S, W, D] }),
+      (_id, tag) => ({
+        tag,
+        fahrten: [
+          {
+            zug: "S 3",
+            halte: [
+              halt(S, null, 400),
+              halt(W, 450, 451),
+              halt(D, 520, 521),
+              halt(H, 540, 541),
+              halt(S, 560, null),
+            ],
+          },
+        ],
+      }),
+    );
+    await page.goto(LINE_PATH);
+    await expect(trips(page)).toHaveCount(1);
+    const height = Number(await chart(page).getAttribute("height"));
+    // Every step of every polyline (planned and the hover line) and every actual segment.
+    const steps = await trip(page, "S 3").evaluate((g) => [
+      ...Array.from(g.querySelectorAll("polyline")).flatMap((p) => {
+        const ys = (p.getAttribute("points") ?? "")
+          .trim()
+          .split(/\s+/)
+          .map((pt) => Number(pt.split(",")[1]));
+        return ys.slice(1).map((y, k) => Math.abs(y - ys[k]));
+      }),
+      ...Array.from(g.querySelectorAll('[data-path="ist"] line')).map((l) =>
+        Math.abs(Number(l.getAttribute("y2")) - Number(l.getAttribute("y1"))),
+      ),
+    ]);
+    expect(steps.length).toBeGreaterThan(0);
+    expect(Math.max(...steps)).toBeLessThan(height / 2);
+    // Both pieces are drawn: Soest to the closing Dortmund, and Hamm on to Soest.
+    await expect(trip(page, "S 3").locator('[data-path="plan"]')).toHaveCount(2);
+  });
+
+  test("without a trip window the card says so, asks nothing and drops the tag", async ({
+    page,
+  }) => {
+    const requests = await withFahrplan(page, () => ({
+      ...lineFixture(),
+      fahrplan_von: null,
+      fahrplan_bis: null,
+    }));
+    await page.goto(`${LINE_PATH}?tag=2026-09-20`);
+    await expect(bf(page)).toContainText("Für den Bildfahrplan liegen keine Fahrten vor.");
+    await expect(page).not.toHaveURL(/tag=/);
+    await expect(dayField(page)).toHaveCount(0);
+    await expect(chart(page)).toHaveCount(0);
+    expect(asked(requests)).toEqual([]);
+  });
+
+  test("a day without trips says so and keeps the day field", async ({ page }) => {
+    await withFahrplan(
+      page,
+      U,
+      only(() => false),
+    );
+    await page.goto(LINE_PATH);
+    await expect(bf(page)).toContainText("Für diesen Tag liegen keine Fahrten der Linie vor.");
+    await expect(chart(page)).toHaveCount(0);
+    await expect(dayField(page)).toHaveValue(FAHRPLAN_BIS);
+  });
+
+  test("a failed day shows the error in the card and a retry draws it", async ({ page }) => {
+    let calls = 0;
+    await withFahrplan(page, U, (id, tag) => (calls++ === 0 ? null : fahrplanFixture(id, tag)));
+    await page.goto(LINE_PATH);
+    await expect(bf(page).getByRole("alert")).toContainText("Daten konnten nicht geladen werden.");
+    await expect(stops(page)).toHaveCount(6);
+    await bf(page).getByRole("button", { name: "Erneut versuchen" }).click();
+    await expect(trips(page)).toHaveCount(3);
+  });
+
+  test.describe("dark theme", () => {
+    test.use({ colorScheme: "dark" });
+
+    test("the paths, the steps and the cancelled mark take the dark tokens", async ({ page }) => {
+      await mockApi(page);
+      await page.goto(LINE_PATH);
+      await expect(trips(page)).toHaveCount(3);
+      const R = DARK.map(rgb);
+      expect(await strokes(ist(page, "RE 10101"))).toEqual([R[1], R[1], R[2], R[2], R[4]]);
+      await expect(trip(page, "RE 10101").locator('[data-path="plan"]')).toHaveCSS(
+        "stroke",
+        "rgb(131, 139, 153)",
+      );
+      await expect(chart(page).getByTestId("cancel")).toHaveCSS("fill", "rgb(138, 147, 163)");
+    });
+  });
+
+  test.describe("English", () => {
+    test.use({ locale: "en-US" });
+
+    test("the Bildfahrplan reads in English", async ({ page }) => {
+      await mockApi(page);
+      await page.goto(LINE_PATH);
+      const card = section(page, "Graphic timetable");
+      await expect(card).toContainText("1 trip on a branch not shown");
+      await expect(card.getByText("Trips as a list (3)")).toBeVisible();
+      await expect(page.getByLabel("Day of the graphic timetable")).toHaveValue(FAHRPLAN_BIS);
+      await expect(chart(page)).toHaveAccessibleName(/^Graphic timetable RE57 .*: 3 trips$/);
+      await hoverTrip(page, "RE 10102");
+      await expect(page.getByRole("tooltip")).toContainText("Hamm (Westf) Hbf 08:00 cancelled");
+    });
+  });
+
+  test.describe("mobile", () => {
+    test.skip(({ isMobile }) => !isMobile, "mobile layout");
+
+    test("the plot scrolls inside its card, the station names stay, and a tap shows the trip", async ({
+      page,
+    }) => {
+      await mockApi(page);
+      await page.goto(LINE_PATH);
+      await expect(trips(page)).toHaveCount(3);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+        true,
+      );
+      const scroller = chart(page).locator("xpath=..");
+      expect(await scroller.evaluate((e) => e.scrollWidth > e.clientWidth)).toBe(true);
+      const name = bf(page).getByTestId("bf-stations").getByText("Warburg (Westf)");
+      await name.scrollIntoViewIfNeeded();
+      const before = (await name.boundingBox())!;
+      await scroller.evaluate((e) => (e.scrollLeft = e.scrollWidth));
+      const after = (await name.boundingBox())!;
+      expect(after.x).toBe(before.x);
+      expect(after.x).toBeGreaterThanOrEqual(0);
+      expect(after.x + after.width).toBeLessThanOrEqual((await scroller.boundingBox())!.x + 1);
+
+      // Back to 06:00, and the scroll's event done before the tap (a scroll clears the tooltip).
+      await scroller.evaluate((e) => (e.scrollLeft = 360));
+      await page.evaluate(() => new Promise(requestAnimationFrame));
+      const tip = page.getByRole("tooltip");
+      await ist(page, "RE 10101").first().tap();
+      await expect(tip).toContainText("RE 10101");
+      await page.getByRole("heading", { level: 1 }).tap();
+      await expect(tip).toHaveCount(0);
+    });
+
+    test("the day field has a hit area of at least 44 px", async ({ page }) => {
+      await mockApi(page);
+      await page.goto(LINE_PATH);
+      await expect(trips(page)).toHaveCount(3);
+      const tall = await dayField(page).evaluate((el) => {
+        el.scrollIntoView({ block: "center" });
+        const r = el.getBoundingClientRect();
+        const x = r.left + r.width / 2;
+        const y = r.top + r.height / 2;
+        const hit = el.closest("label")!;
+        return [-21, 21].every((dy) => hit.contains(document.elementFromPoint(x, y + dy)));
+      });
+      expect(tall).toBe(true);
+    });
   });
 });

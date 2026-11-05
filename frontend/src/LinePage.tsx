@@ -2,6 +2,7 @@ import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 import { useId, type ReactNode } from "react";
 import { Link, Navigate, useParams, useSearchParams } from "react-router";
 import { api, must, useMonthPeriod } from "./api";
+import { Bildfahrplan } from "./Bildfahrplan";
 import { Filters } from "./Filters";
 import { t } from "./i18n";
 import { LineMap } from "./LineMap";
@@ -62,10 +63,11 @@ export default function LinePage() {
   const valid = id.length > 0 && id.length <= MAX_LINE_ID;
   const [params] = useSearchParams();
   const setParams = useSetParams();
-  // A line has one train type and is itself the page, so category, station, day, state, line and
-  // view keys have no meaning here.
+  const read = readFilters(params);
+  // A line has one train type and is itself the page, so category, station, state, line and view
+  // keys have no meaning here. The day is the Bildfahrplan's, settled once the line is known.
   const f: FilterKeys = {
-    ...readFilters(params),
+    ...read,
     g: undefined,
     bhf: undefined,
     tag: undefined,
@@ -97,11 +99,24 @@ export default function LinePage() {
     placeholderData: (previous, query) => (query?.queryKey[1] === id ? previous : undefined),
   });
 
+  const data = q.data;
+  // The Bildfahrplan's day stays while the line loads; then only a day of its trip window that is
+  // not the newest one (the default) is kept.
+  const tag =
+    data === undefined
+      ? read.tag
+      : read.tag &&
+          data?.fahrplan_von &&
+          data.fahrplan_bis &&
+          read.tag >= data.fahrplan_von &&
+          read.tag < data.fahrplan_bis
+        ? read.tag
+        : undefined;
+
   // Drop invalid or unknown keys once, so a shared link only carries what the page shows.
-  const clean = writeFilters(f).toString();
+  const clean = writeFilters({ ...f, tag }).toString();
   if (clean !== params.toString()) return <Navigate to={{ search: clean }} replace />;
 
-  const data = q.data;
   if (!valid || data === null)
     return (
       <Page>
@@ -140,8 +155,10 @@ export default function LinePage() {
         sections={sections}
         f={f}
         direction={f.richtung === "2" ? 2 : 1}
+        tag={tag}
         onMetric={(k) => setParams(withParam("k", k))}
         onDirection={(d) => setParams(withParam("richtung", d === 2 ? "2" : ""))}
+        onDay={(d) => setParams(withParam("tag", d === data.fahrplan_bis ? "" : d))}
       />
     );
 
@@ -198,15 +215,20 @@ function LineView({
   sections,
   f,
   direction,
+  tag,
   onMetric,
   onDirection,
+  onDay,
 }: {
   line: Linie;
   sections: UseQueryResult<Abschnitt[]>;
   f: FilterKeys;
   direction: 1 | 2;
+  /** The Bildfahrplan's day; undefined is its newest day. */
+  tag?: string;
   onMetric: (m: Metric) => void;
   onDirection: (d: 1 | 2) => void;
+  onDay: (day: string) => void;
 }) {
   // A line that runs one way has no values in the other direction: no toggle, that direction.
   const cuts = sections.data && {
@@ -263,6 +285,7 @@ function LineView({
         cut={cuts && (shown === 1 ? cuts.one : cuts.two)}
         shown={shown}
       />
+      <Bildfahrplan line={line} tag={tag} onDay={onDay} />
     </div>
   );
 }

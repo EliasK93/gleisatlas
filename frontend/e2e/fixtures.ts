@@ -18,6 +18,8 @@ type Normal = components["schemas"]["Normal"];
 type Klasse = components["schemas"]["Klasse"];
 type Linie = components["schemas"]["Linie"];
 type Abschnitt = components["schemas"]["Abschnitt"];
+type Fahrplan = components["schemas"]["Fahrplan"];
+type Halt = components["schemas"]["Halt"];
 
 /** The dummies of frontend/.env.development, which only the dev server reads; the e2e build has none. */
 export const IMPRESSUM = {
@@ -704,6 +706,68 @@ export function lineFixture(): Linie {
     gesamt: { n: 27210, ausfallquote: 0.02, median: 3, p90: 12, puenktlich: 0.78 },
     achse: bahnhoefe.filter((s) => s.pos !== null).map((s) => s.eva),
     bahnhoefe,
+    // The days of the trip table: 2026-09-15 (a day of the other specs) lies before them.
+    fahrplan_von: FAHRPLAN_VON,
+    fahrplan_bis: FAHRPLAN_BIS,
+  };
+}
+
+export const FAHRPLAN_VON = "2026-09-17";
+export const FAHRPLAN_BIS = "2026-09-30";
+
+/** A stop at minutes since midnight: planned arrival and departure, and the delay of each. */
+const halt = (
+  eva: string,
+  an: number | null,
+  ab: number | null,
+  delay: [number, number] = [0, 0],
+  cancelled = false,
+): Halt => ({
+  eva,
+  an_plan: an,
+  an_ist: an === null || cancelled ? null : an + delay[0],
+  ab_plan: ab,
+  ab_ist: ab === null || cancelled ? null : ab + delay[1],
+  ausfall_an: cancelled && an !== null,
+  ausfall_ab: cancelled && ab !== null,
+});
+
+/**
+ * The line's trips of one day, in the order of their first departure. RE 10101 runs Dortmund to
+ * Warburg from 06:00, losing time (+1, +1, +3, +3, +8 min at its event ends). RE 10102 runs back from
+ * 07:00 on time, but its stop at Hamm is cancelled. RE 10150 runs on the branch: Hamm and Werl, one
+ * stop on the axis. RE 10199 leaves Dortmund at 23:40 and reaches Soest at 00:30 the next night,
+ * +2 and +5 min late.
+ */
+export function fahrplanFixture(_id: string, tag: string): Fahrplan {
+  const [D, H, S, W, WERL] = ["08000080", "08000149", "08000367", "08000718", "08000774"];
+  return {
+    tag,
+    fahrten: [
+      {
+        zug: "RE 10101",
+        halte: [
+          halt(D, null, 360),
+          halt(H, 380, 381, [1, 1]),
+          halt(S, 400, 401, [3, 3]),
+          halt(W, 450, null, [8, 0]),
+        ],
+      },
+      {
+        zug: "RE 10102",
+        halte: [
+          halt(W, null, 420),
+          halt(S, 460, 461),
+          halt(H, 480, 481, [0, 0], true),
+          halt(D, 500, null),
+        ],
+      },
+      { zug: "RE 10150", halte: [halt(H, null, 600), halt(WERL, 615, null)] },
+      {
+        zug: "RE 10199",
+        halte: [halt(D, null, 1420), halt(H, 1445, 1446, [2, 2]), halt(S, 1470, null, [5, 0])],
+      },
+    ],
   };
 }
 
@@ -738,9 +802,9 @@ export function abschnitteFixture(): Abschnitt[] {
 export const NOT_FOUND = "not-found";
 
 /** Serves the API and the base map style from fixtures. `heatmap`, `karte`, `statistik`,
- * `rankings`, `linien`, `zeitverlauf`, `tagesverlauf`, `tageskarte`, `linie` and `abschnitte`
- * return the body, or null for a server error; an unknown EVA is a 404, and so is `NOT_FOUND` from
- * `zeitverlauf`, `tagesverlauf`, `tageskarte`, `linie` or `abschnitte`.
+ * `rankings`, `linien`, `zeitverlauf`, `tagesverlauf`, `tageskarte`, `linie`, `abschnitte` and
+ * `fahrplan` return the body, or null for a server error; an unknown EVA is a 404, and so is
+ * `NOT_FOUND` from `zeitverlauf`, `tagesverlauf`, `tageskarte`, `linie`, `abschnitte` or `fahrplan`.
  * Returns the list of requested API URLs.
  */
 export async function mockApi(
@@ -763,6 +827,7 @@ export async function mockApi(
   datenstand: () => Datenstand = () => DATENSTAND,
   linie: (id: string) => Linie | typeof NOT_FOUND | null = lineFixture,
   abschnitte: (id: string) => Abschnitt[] | typeof NOT_FOUND | null = abschnitteFixture,
+  fahrplan: (id: string, tag: string) => Fahrplan | typeof NOT_FOUND | null = fahrplanFixture,
 ): Promise<URL[]> {
   const requests: URL[] = [];
   await page.route("https://tiles.openfreemap.org/**", (route) =>
@@ -787,9 +852,15 @@ export async function mockApi(
         body = tageskarte(q.get("tag") ?? "");
       } else if (name === "datenstand") body = datenstand();
       else if (name === "linie") {
-        // The page /linie/<id> shares its prefix with the API; /linie/abschnitte is the sections.
+        // The page /linie/<id> shares its prefix with the API; /linie/abschnitte is the sections,
+        // /linie/fahrplan the trips of a day.
         const id = url.searchParams.get("linie") ?? "";
-        body = eva === "abschnitte" ? abschnitte(id) : linie(id);
+        body =
+          eva === "abschnitte"
+            ? abschnitte(id)
+            : eva === "fahrplan"
+              ? fahrplan(id, url.searchParams.get("tag") ?? "")
+              : linie(id);
       } else if (name === "rankings") {
         const q = url.searchParams;
         body = rankings(q.get("typ") ?? "", q.get("metrik") ?? "", Number(q.get("min_n")));

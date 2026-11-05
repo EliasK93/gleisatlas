@@ -274,7 +274,10 @@ export type Filters = {
   /** A month or a day; only the period map reads days, the other pages round them to months. */
   von?: string;
   bis?: string;
-  /** One day; only the Live-Lage page uses it, and it is left out for the newest day. */
+  /**
+   * One day; the Live-Lage page and the line page's Bildfahrplan use it, each leaving it out for
+   * its newest day, and the line page also for a day outside its trip window.
+   */
   tag?: string;
   /** A federal state's code ("nw"); only the Live-Lage page uses it, and every other page drops it. */
   land?: string;

@@ -324,7 +324,7 @@ export function MusterSwitch() {
 }
 
 export type Tip = { text: string; x: number; y: number } | null;
-type Point = { target: EventTarget | null; clientX: number; clientY: number };
+export type Point = { target: EventTarget | null; clientX: number; clientY: number };
 
 /** The tooltip for the `data-tip` element under a pointer, or none outside such elements. */
 export function tipAt(e: Point): Tip {
@@ -334,21 +334,23 @@ export function tipAt(e: Point): Tip {
 }
 
 /**
- * Tooltip state: a tap shows the element under it and a tap anywhere else clears it; any scroll
- * clears it too. The caller sets it from its own pointer moves.
+ * Tooltip state: a tap shows what `at` finds under it and a tap anywhere else clears it; any scroll
+ * clears it too. The caller sets it from its own pointer moves. A chart with its own `at` (and its
+ * own attribute) keeps its taps apart from the `data-tip` charts on the same page; `at` must be
+ * stable (defined outside the component).
  */
-export function useTip() {
-  const [tip, setTip] = useState<Tip>(null);
+export function useTip<T = NonNullable<Tip>>(at = tipAt as (e: Point) => T | null) {
+  const [tip, setTip] = useState<T | null>(null);
   useEffect(() => {
     const off = () => setTip(null);
-    const tap = (e: PointerEvent) => setTip(tipAt(e));
+    const tap = (e: PointerEvent) => setTip(at(e));
     addEventListener("scroll", off, true);
     addEventListener("pointerdown", tap);
     return () => {
       removeEventListener("scroll", off, true);
       removeEventListener("pointerdown", tap);
     };
-  }, []);
+  }, [at]);
   return [tip, setTip] as const;
 }
 

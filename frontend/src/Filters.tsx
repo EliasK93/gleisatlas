@@ -229,7 +229,7 @@ export function Filters({
  * focus, since typing passes through such days (a 2 on the way to 25); it is passed on when the
  * field is left.
  */
-function DayField({
+export function DayField({
   label,
   value,
   min,
