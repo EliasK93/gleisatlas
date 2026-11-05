@@ -9,8 +9,9 @@ import polars as pl
 def line_name_expr() -> pl.Expr:
     """The line name: the train type goes in front of a bare number ("57" with RE -> "RE57", as the
     source writes it from December 2025), letters and digits lose their space ("RE 3" -> "RE3"),
-    and a missing `line_number` becomes "{train_type} {train_number}" (e.g. "ICE 679")."""
-    number, kind = pl.col("line_number"), pl.col("train_type")
+    and a missing or blank `line_number` becomes "{train_type} {train_number}" (e.g. "ICE 679")."""
+    raw, kind = pl.col("line_number"), pl.col("train_type")
+    number = pl.when(raw.str.strip_chars() != "").then(raw)
     return (
         pl.when(number.str.contains(r"^\d+$") & kind.is_not_null())
         .then(pl.concat_str(kind, number))

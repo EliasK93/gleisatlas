@@ -16,6 +16,13 @@ def trip_key_expr() -> pl.Expr:
     return pl.col("id").str.replace(r"-\d+$", "")
 
 
+def trip_day_expr() -> pl.Expr:
+    """The day a trip started (local time): the date in the middle of `id`
+    ("{ride id}-{YYMMDDHHmm}-{stop number}"; the ride id may start with a minus sign). NULL when
+    `id` has no such part."""
+    return pl.col("id").str.extract(r"-(\d{6})\d{4}-\d+$", 1).str.to_date("%y%m%d", strict=False)
+
+
 def stop_number_expr() -> pl.Expr:
     """The stop number: the column, else the last part of `id` (raw days have no column)."""
     return pl.coalesce(

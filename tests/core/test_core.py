@@ -5,7 +5,7 @@ from datetime import timedelta
 import polars as pl
 import pytest
 
-from core.categories import category_expr, is_excluded_expr
+from core.categories import bus_line_expr, category_expr, is_excluded_expr
 from core.delay import arrival_delay_expr, plausible_expr
 from core.stations import LAND_CODES, ibnr_expr
 from core.stats import cell_stats, cell_stats_frame, delay_bins, quantile
@@ -14,6 +14,32 @@ from core.stats import cell_stats, cell_stats_frame, delay_bins, quantile
 def test_only_bus_types_are_excluded_and_a_stop_without_a_type_stays():
     df = pl.DataFrame({"t": ["Bus", "SEV", "ICE", None]}, schema={"t": pl.String})
     assert df.select(is_excluded_expr(pl.col("t")))["t"].to_list() == [True, True, False, False]
+
+
+@pytest.mark.parametrize(
+    ("name", "is_bus"),
+    [
+        ("SEV", True),
+        ("SEV BUS", True),
+        ("sev S4", True),
+        ("SEV7", True),
+        ("RE6 BUS", True),
+        ("Bus RB91", True),
+        ("BUS 10217", True),
+        ("Bus1 RE6", True),
+        ("RE57", False),
+        ("S1", False),
+        ("ICE 679", False),
+        ("Busenbach", False),  # a word that only starts with the letters
+        ("SEVERN", False),
+        ("RBBUS110", False),  # glued to other letters: no whole word
+        ("", False),
+        (None, False),
+    ],
+)
+def test_a_line_name_with_sev_or_bus_as_a_word_is_a_replacement_bus(name, is_bus):
+    df = pl.DataFrame({"n": [name]}, schema={"n": pl.String})
+    assert df.select(bus_line_expr(pl.col("n")))["n"].to_list() == [is_bus]
 
 
 def test_ibnr_strips_leading_zeros():

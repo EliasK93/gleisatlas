@@ -39,6 +39,13 @@ def test_line_name_puts_the_train_type_before_a_bare_number():
     ]
 
 
+def test_a_blank_line_number_counts_as_missing():
+    df = pl.DataFrame(
+        {"line_number": ["", " "], "train_type": ["ICE", "RB"], "train_number": ["679", "12"]}
+    )
+    assert df.select(n=line_name_expr())["n"].to_list() == ["ICE 679", "RB 12"]
+
+
 def test_a_train_number_name_is_letters_a_space_and_digits():
     df = pl.DataFrame(
         {

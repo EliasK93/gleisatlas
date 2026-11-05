@@ -1,5 +1,5 @@
+from datetime import date, timedelta
 from datetime import datetime as dt
-from datetime import timedelta
 
 import polars as pl
 
@@ -9,6 +9,7 @@ from core.sections import (
     section_changes,
     stop_delay_expr,
     stop_number_expr,
+    trip_day_expr,
     trip_key_expr,
 )
 
@@ -133,6 +134,25 @@ def test_the_stop_number_falls_back_to_the_last_part_of_the_id():
         }
     ).select(trip=trip_key_expr(), num=stop_number_expr())
     assert df.rows() == [("-123-2609302323", 5), ("456-2609302323", 12), ("789-2609302323", 3)]
+
+
+def test_the_trip_day_is_the_date_in_the_middle_of_the_id():
+    ids = [
+        "123-2609302323-5",  # the local start of the trip, also when later stops are after midnight
+        "-8123456789012345678-2610010005-12",  # a ride id may start with a minus sign
+        "-2610010005-3",  # a short ride id
+        "no-id-here",
+        None,
+    ]
+    out = pl.DataFrame({"id": ids}, schema={"id": pl.String}).select(day=trip_day_expr())
+    assert out.schema == pl.Schema({"day": pl.Date})
+    assert out["day"].to_list() == [
+        date(2026, 9, 30),
+        date(2026, 10, 1),
+        date(2026, 10, 1),
+        None,
+        None,
+    ]
 
 
 def test_the_axis_is_the_pattern_with_the_most_station_visits():
