@@ -25,6 +25,10 @@ Web app that shows the punctuality, typical delay, the worst 10% of arrivals and
 <td align="center" valign="top" width="50%"><p><b>Over time</b></p><img src="docs/images/zeitverlauf.png" width="100%" alt="Monthly punctuality and cancellation rate of the RE1"><br>Month by month for a line, here the RE1, with timetable changes marked. Network and stations also by day.</td>
 <td align="center" valign="top" width="50%"><p><b>Rankings</b></p><img src="docs/images/rankings.png" width="100%" alt="Rankings of the least and most reliable stations"><br>The least and most reliable stations or lines, with a minimum sample so that chance does not win.</td>
 </tr>
+<tr>
+<td align="center" valign="top" width="50%"><p><b>Line</b></p><img src="docs/images/line.png" width="100%" alt="Line page of the RE57 with its key figures, the route and a map of its sections"><br>One line along its route, here the RE57: each section between two stops coloured by where trains lose or make up time.</td>
+<td align="center" valign="top" width="50%"><p><b>Graphic timetable</b></p><img src="docs/images/bildfahrplan.png" width="100%" alt="Graphic timetable of the RE57 on 4 November 2026 with every trip as a line through time and stops"><br>Every trip of one day as a line through time and stops, the timetable dashed and the actual run coloured by its delay.</td>
+</tr>
 </table>
 
 ## Features
@@ -35,6 +39,7 @@ Web app that shows the punctuality, typical delay, the worst 10% of arrivals and
 - **Station page**: key figures, the delay distribution, the weekday × hour pattern, long-distance and regional trains side by side, the lines at the station and a sparkline by month.
 - **Weekday × hour heatmap**: when trains are least and most punctual, with a short summary.
 - **Rankings**: stations or lines, worst and best, with a minimum sample so that chance doesn't win.
+- **Line page**: one line along its route with the four metrics per stop, the sections where trains lose or make up time (on a map and along the route), and a graphic timetable of planned against actual trips for any of the last 28 days.
 - **Time series**: day by day with a trend, or monthly as a switch (lines are monthly). Timetable changes and gaps in the data are marked.
 - **Filters in the URL**: period, category (regional or long-distance), station and metric live in the link, so a shared link opens the same view.
 - **Search**: stations and lines, Ctrl+K jumps to the search field.
