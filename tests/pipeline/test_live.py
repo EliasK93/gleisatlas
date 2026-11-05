@@ -272,6 +272,21 @@ def test_a_change_without_change_data_does_not_replace_the_one_before(data_dir, 
     assert counts(collect(data_dir, server, clock)) == [(A, 8, 5, 1)]
 
 
+def test_a_state_file_from_before_the_line_columns_still_loads(data_dir, server, clock):
+    server.plans[(A, 8)] = [plan_stop("a-1-1", "2611040800", typ="RE", line="57")]
+    server.changes[A] = [fchg_stop("a-1-1", '<ar ct="2611040805" l="57"/>')]
+    collect(data_dir, server, clock)
+    state = data_dir / "live" / DAY.isoformat()
+    for name, column in (("plan.parquet", "p_l"), ("fchg.parquet", "f_l")):
+        df = pl.read_parquet(state / name)
+        assert column in df.columns
+        df.drop(column).write_parquet(state / name)  # the files an earlier run left
+    server.plans.clear()
+    clock.t += timedelta(minutes=15)
+    assert counts(collect(data_dir, server, clock)) == [(A, 8, 5, 1)]
+    assert "p_l" in pl.read_parquet(state / "plan.parquet").columns  # written back in full
+
+
 def test_folders_older_than_yesterday_are_deleted(data_dir, server, clock):
     for day in ("2026-11-02", "2026-11-03"):
         (data_dir / "live" / day).mkdir(parents=True)

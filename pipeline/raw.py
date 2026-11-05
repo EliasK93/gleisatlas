@@ -15,13 +15,15 @@ from typing import NamedTuple
 
 import polars as pl
 
-from pipeline.aggregate import COLUMNS, clean, day_hours, days, hour_table, missing_per_day
+from core.sections import trip_day_expr
+from pipeline.aggregate import COLUMNS, clean, day_hours, days, hour_table, missing_per_day, runs
 
 PLAN, FCHG = "timetables/v1/plan", "timetables/v1/fchg"
-PLAN_COLUMNS = ("id", "eva", "p_type", "p_number", "p_ar", "p_dp")
+# `p_l` and `f_l` are the line; the live collector selects its state columns by name
+PLAN_COLUMNS = ("id", "eva", "p_type", "p_number", "p_ar", "p_dp", "p_l")
 FCHG_COLUMNS = (
     *("id", "f_eva", "f_type", "f_number"),
-    *("f_ar", "f_ar_ct", "f_ar_clt", "f_ar_cs", "f_dp", "f_dp_ct", "f_dp_clt", "f_dp_cs"),
+    *("f_ar", "f_ar_ct", "f_ar_clt", "f_ar_cs", "f_dp", "f_dp_ct", "f_dp_clt", "f_dp_cs", "f_l"),
 )
 Stops = dict[str, tuple[str | None, ...]]  # stop id -> the other columns of PLAN/FCHG_COLUMNS
 
@@ -78,6 +80,11 @@ def _event(e: ET.Element | None) -> tuple[str | None, str | None, str | None, st
     return e.get("pt"), e.get("ct"), e.get("clt"), e.get("cs")
 
 
+def _line(ar: ET.Element | None, dp: ET.Element | None) -> str | None:
+    """The line (`l`) of the arrival, else of the departure; a blank one is none."""
+    return next((v for e in (ar, dp) if e is not None and (v := e.get("l"))), None)
+
+
 def frame(rows: Stops, columns: tuple[str, ...]) -> pl.DataFrame:
     """A `plan` or `fchg` dict as a table of strings, the stop id first."""
     return pl.DataFrame(
@@ -96,9 +103,9 @@ def parse(api: str, eva: str, text: str, plan: Stops, fchg: Stops) -> None:
             continue
         kind = (tl.get("c"), tl.get("n")) if tl is not None else (None, None)
         if api == PLAN:
-            plan[sid] = (eva, *kind, _event(ar)[0], _event(dp)[0])
+            plan[sid] = (eva, *kind, _event(ar)[0], _event(dp)[0], _line(ar, dp))
         elif _has_change(s):
-            fchg[sid] = (eva, *kind, *_event(ar), *_event(dp))
+            fchg[sid] = (eva, *kind, *_event(ar), *_event(dp), _line(ar, dp))
 
 
 def stop_rows(files: list[Path]) -> pl.DataFrame:
@@ -144,6 +151,7 @@ def merge(plan: Stops, fchg: Stops) -> pl.DataFrame:
         eva=pl.coalesce("eva", "f_eva"),
         train_type=pl.coalesce("p_type", "f_type"),
         train_number=pl.coalesce("p_number", "f_number"),
+        line_number=pl.coalesce("p_l", "f_l"),
         arrival_planned_time=moment("p_ar", "f_ar"),
         departure_planned_time=moment("p_dp", "f_dp"),
         arrival_change_time=moment("f_ar_ct", "p_ar", "f_ar"),
@@ -182,6 +190,19 @@ def day_tables(
         .collect()
     )
     return days(mine), hours, day_hours(mine)
+
+
+def day_runs(rows: pl.DataFrame, day: date, boundary: datetime) -> pl.DataFrame:
+    """The per-stop trip table (`runs`) of one raw day: the stops of the trips that started on `day`
+    and were recorded from `boundary` on; the first raw day also takes the trips of earlier days
+    (their late stops), by the same rule as `day_tables`.
+    ponytail: a trip running past midnight keeps the forecast of the run that completed the day,
+    and the next raw day leaves trips of this day out, so its late stops may read as on time until
+    the monthly file replaces the raw days; let the next day take this day's trips and keep the
+    newest copy if that matters."""
+    started = trip_day_expr()
+    ours = (started <= day) if day == boundary.date() else (started == day)
+    return runs(rows.sort("time", "id").lazy().filter(ours, pl.col("time") >= boundary))
 
 
 def raw_gaps(hours: pl.DataFrame, day_list: list[date]) -> pl.DataFrame:

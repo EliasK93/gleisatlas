@@ -77,7 +77,14 @@ def _write(df: pl.DataFrame, path: Path) -> None:
 
 
 def _stops(path: Path) -> Stops:
-    return {r[0]: r[1:] for r in pl.read_parquet(path).iter_rows()} if path.exists() else {}
+    """The stops of a plan.parquet or fchg.parquet; a column an older file lacks (the line) reads
+    as NULL."""
+    if not path.exists():
+        return {}
+    columns = PLAN_COLUMNS if path.name == "plan.parquet" else FCHG_COLUMNS
+    df = pl.read_parquet(path)
+    df = df.with_columns(pl.lit(None, pl.String).alias(c) for c in columns if c not in df.columns)
+    return {r[0]: r[1:] for r in df.select(columns).iter_rows()}
 
 
 def _slices(path: Path) -> set[tuple[str, int]]:

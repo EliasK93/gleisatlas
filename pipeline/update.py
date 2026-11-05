@@ -34,6 +34,7 @@ from pipeline.aggregate import (
     meta,
     month_networks,
     routes,
+    runs,
     sections,
     stations,
     with_coords,
@@ -42,7 +43,15 @@ from pipeline.coords import OUT as COORDS
 from pipeline.coords import main as fetch_coords
 from pipeline.download import REPO, download
 from pipeline.live import _write, large_evas
-from pipeline.raw import RawSource, day_tables, fchg_pass, raw_gaps, remote_source, stop_rows
+from pipeline.raw import (
+    RawSource,
+    day_runs,
+    day_tables,
+    fchg_pass,
+    raw_gaps,
+    remote_source,
+    stop_rows,
+)
 
 MONTH_FILES = (
     "aggregate",
@@ -56,6 +65,7 @@ MONTH_FILES = (
     "day_hours",
     "sections",
     "routes",
+    "runs",
 )
 AGGREGATE_ORDER = ("month", "eva", "weekday", "hour", "gruppe", "bucket")
 DAYS_ORDER = ("day", "eva", "gruppe", "bucket")
@@ -67,7 +77,13 @@ DAYS_ROW_GROUP = 50_000
 
 
 # `day_gaps` is rewritten for every raw day on each update
-DAY_FILES = ("days", "hours", "day_hours")
+DAY_FILES = ("days", "hours", "day_hours", "runs")
+# `fahrten.parquet` (the trips of the Bildfahrplan) holds this many days, ending on the last day of
+# `tage.parquet`.
+WINDOW_DAYS = 28
+# Rows per row group of `fahrten.parquet`: about the stops of one busy line on one day, so reading
+# a line and a day (the file is sorted by both) touches one or two groups of the thousand or so.
+FAHRTEN_ROW_GROUP = 10_000
 # Files whose first `fchg` request lies this close after the previous file's last one are one run
 # (separate runs are at least about 5 minutes apart).
 SAME_RUN = timedelta(seconds=60)
@@ -107,6 +123,7 @@ def process(src: Path, month: str, out: Path) -> str:
         "day_hours": day_hours(lf),
         "sections": sections(lf),
         "routes": routes(lf),
+        "runs": runs(lf),
     }
     for name, df in tables.items():
         df.write_parquet(tmp / f"{name}.parquet")
@@ -125,6 +142,7 @@ def process_day(day: date, files: list[Path], boundary: datetime, out: Path) -> 
     day_days.write_parquet(tmp / "days.parquet")
     hours.write_parquet(tmp / "hours.parquet")
     hour_days.write_parquet(tmp / "day_hours.parquet")
+    day_runs(rows, day, boundary).write_parquet(tmp / "runs.parquet")
     shutil.rmtree(out, ignore_errors=True)
     tmp.rename(out)
     return f"{rows.height} stops, {day_days['n'].sum()} counted"
@@ -379,6 +397,59 @@ def combine(data_dir: Path) -> None:
         .write_parquet(data_dir / "linien.parquet")
     )
     write_line_sections(data_dir, dirs, line_of, top_ends(all_ends, line_of))
+    write_trips(data_dir, [*dirs, *raw_dirs], line_of)
+
+
+def write_trips(data_dir: Path, folders: list[Path], line_of: pl.DataFrame) -> None:
+    """Write `fahrten.parquet`: the stops of the trips of the last WINDOW_DAYS days (ending on the
+    last day of `tage.parquet`), for the lines of `linien.parquet`, sorted by line, day, trip and
+    stop number. `folders` are the month folders, then the raw day folders; only those that reach
+    into the window are read, and of a stop in two places the first copy stays. A trip finds its
+    line by line name and the station of its first stop, like the sections. `line_of` is
+    (name, eva, linie)."""
+    last = pl.read_parquet(data_dir / "tage.parquet").select(pl.col("day").max()).item()
+    first = last - timedelta(days=WINDOW_DAYS - 1)
+    reached = [f / "runs.parquet" for f in folders if f.name[:7] >= f"{first:%Y-%m}"]
+    known = pl.read_parquet(data_dir / "linien.parquet").select("linie")
+    # The window is read first (the day filter is pushed into the scan), the rest runs on it: a
+    # lazy plan over an empty window panics in Polars 2.0.0.
+    window = pl.scan_parquet(reached).filter(pl.col("day").is_between(first, last)).collect()
+    window = window.unique(["trip", "num"], keep="first", maintain_order=True).with_columns(
+        zug=pl.coalesce("zug", "name")  # a stop without a train type or number has no "{type} {nr}"
+    )
+    lines = (  # one row per trip: the line of its first stop
+        window.group_by("trip")
+        .agg(pl.col("name", "eva").sort_by("num").first())
+        .join(line_of, on=["name", "eva"])
+        .join(known, on="linie", how="semi")
+        .select("trip", "linie")
+    )
+    out = window.drop("name").join(lines, on="trip")
+    del window  # one full-size frame less during the sort
+
+    def minutes(time: str, since: pl.Expr) -> pl.Expr:
+        return (pl.col(time) - since).dt.total_minutes().cast(pl.Int16)
+
+    # Minutes instead of datetimes: a quarter of the size. Times count from the trip day's midnight
+    # (past 1440 for a night trip); a delay is null without a change time (on time).
+    midnight = pl.col("day").cast(pl.Datetime("us"))
+    out = out.select(
+        "linie",
+        "day",
+        "trip",
+        "zug",
+        "num",
+        "eva",
+        minutes("arrival_planned_time", midnight).alias("an_plan"),
+        minutes("arrival_change_time", pl.col("arrival_planned_time")).alias("an_delay"),
+        minutes("departure_planned_time", midnight).alias("ab_plan"),
+        minutes("departure_change_time", pl.col("departure_planned_time")).alias("ab_delay"),
+        "arrival_is_canceled",
+        "departure_is_canceled",
+    ).sort("linie", "day", "trip", "num")
+    path = data_dir / "fahrten.parquet"
+    out.write_parquet(path, row_group_size=FAHRTEN_ROW_GROUP)
+    print(f"fahrten.parquet: {out.height} rows, {path.stat().st_size / 1e6:.1f} MB")
 
 
 def write_line_sections(

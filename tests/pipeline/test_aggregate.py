@@ -15,6 +15,7 @@ from pipeline.aggregate import (
     lines,
     meta,
     routes,
+    runs,
     sections,
     stations,
     with_coords,
@@ -363,3 +364,67 @@ def test_routes_are_the_stop_patterns_with_their_trips():
 def test_sections_and_routes_of_a_source_without_ids_are_empty(source: pl.DataFrame):
     assert sections(source.lazy()).height == 0
     assert routes(source.lazy()).height == 0
+    assert runs(source.lazy()).height == 0
+
+
+def test_runs_have_one_row_per_stop_with_its_trip_and_times():
+    out = runs(trips().with_columns(train_number=pl.lit("4701")).lazy())
+    assert out.schema == pl.Schema(
+        {
+            "name": pl.String,
+            "zug": pl.String,
+            "trip": pl.String,
+            "num": pl.Int32,
+            "day": pl.Date,
+            "eva": pl.String,
+            "arrival_planned_time": pl.Datetime("us"),
+            "arrival_change_time": pl.Datetime("us"),
+            "departure_planned_time": pl.Datetime("us"),
+            "departure_change_time": pl.Datetime("us"),
+            "arrival_is_canceled": pl.Boolean,
+            "departure_is_canceled": pl.Boolean,
+        }
+    )
+    assert out.select("trip", "num", "eva").rows() == [  # sorted by trip, then stop number
+        ("t1-2609070800", 1, "1"),
+        ("t1-2609070800", 2, "2"),
+        ("t1-2609070800", 3, "3"),
+        ("t2-2609070800", 1, "1"),
+        ("t2-2609070800", 2, "2"),
+    ]
+    assert out["name"].unique().to_list() == ["RE5"]
+    assert out["zug"].unique().to_list() == ["RE 4701"]
+    assert out["day"].unique().to_list() == [date(2026, 9, 7)]
+    second = out.row(1, named=True)  # t1 at station 2: planned 08:10, arrival +5, departure +5
+    assert second["arrival_planned_time"] == dt(2026, 9, 7, 8, 10)
+    assert second["arrival_change_time"] == dt(2026, 9, 7, 8, 15)
+    assert second["departure_change_time"] == dt(2026, 9, 7, 8, 15)
+    first = out.row(0, named=True)  # a first stop has a departure only
+    assert first["arrival_planned_time"] is None
+    assert first["departure_planned_time"] == dt(2026, 9, 7, 8, 0)
+
+
+def test_runs_keep_cancelled_stops_and_leave_out_buses_and_the_stops_cleaning_drops():
+    df = trips().with_columns(
+        arrival_is_canceled=pl.col("train_line_station_num") == 3,  # t1's last stop
+        arrival_change_time=pl.when(pl.col("id").str.starts_with("t2") & (pl.col("eva") == "2"))
+        .then(pl.col("arrival_planned_time") + pl.duration(minutes=2000))  # implausible
+        .otherwise(pl.col("arrival_change_time")),
+    )
+    bus = df.filter(pl.col("id").str.starts_with("t1")).with_columns(
+        id=pl.col("id").str.replace("t1", "b1"), line_number=pl.lit("SEV BUS")
+    )
+    out = runs(pl.concat([df, bus]).lazy())
+    assert out["name"].unique().to_list() == ["RE5"]  # no replacement bus
+    assert out.height == 4  # t2's second stop is implausible and dropped
+    last = out.filter(pl.col("num") == 3).row(0, named=True)
+    assert last["arrival_is_canceled"] is True
+    assert last["arrival_change_time"] is not None  # the change stays, the flag says cancelled
+
+
+def test_buses_by_line_name_never_reach_any_table():
+    bus = trips().with_columns(line_number=pl.lit("SEV BUS"), train_type=pl.lit("SBB"))
+    assert aggregate(bus.lazy()).height == 0
+    assert lines(bus.lazy()).height == 0
+    assert sections(bus.lazy()).height == 0
+    assert runs(bus.lazy()).height == 0

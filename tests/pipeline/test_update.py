@@ -454,6 +454,183 @@ def test_combine_without_ids_writes_empty_section_tables(data_dir, fetch):
     assert pl.read_parquet(data_dir / "linienweg.parquet").height == 0
 
 
+def test_month_without_the_trip_table_is_reprocessed(data_dir, fetch, fetched):
+    run(data_dir, fetch)
+    (data_dir / "months" / "2026-09" / "runs.parquet").unlink()
+    run(data_dir, fetch)
+    assert fetched == ["2026-09", "2026-10", "2026-09"]
+    assert (data_dir / "months" / "2026-09" / "runs.parquet").exists()
+
+
+def daily_trips(days: list[date], line: str = "RE5") -> pl.DataFrame:
+    """One two-stop trip of `line` (stations 1 and 2) per day, with the source's `id`."""
+    rows: list[Row] = []
+    ids: list[str] = []
+    for d in days:
+        for n, eva in enumerate(["1", "2"], start=1):
+            planned = f"{d} 08:{10 * (n - 1):02}"
+            rows.append((eva, f"S{eva}", "RE", line, str(d.day), f"t{d.day}", planned, "S2"))
+            ids.append(f"t{d.day}-{d:%y%m%d}0800-{n}")
+    return src(rows).with_columns(
+        id=pl.Series(ids), train_line_station_num=pl.Series([1, 2] * len(days), dtype=pl.Int32)
+    )
+
+
+FAHRTEN_COLUMNS = [
+    "linie",
+    "day",
+    "trip",
+    "zug",
+    "num",
+    "eva",
+    "an_plan",
+    "an_delay",
+    "ab_plan",
+    "ab_delay",
+    "arrival_is_canceled",
+    "departure_is_canceled",
+]
+
+
+def test_combine_writes_the_last_28_days_of_trips_joined_to_their_line(data_dir, tmp_path, capsys):
+    path = tmp_path / "sep.parquet"
+    daily_trips([date(2026, 9, d) for d in range(1, 31)]).write_parquet(path)
+    update(data_dir, lambda: ["2026-09"], lambda _: path)
+    fahrten = pl.read_parquet(data_dir / "fahrten.parquet")
+    assert fahrten.columns == FAHRTEN_COLUMNS
+    # the last day of tage.parquet is 30 September: exactly the 28 days 3 to 30 September
+    assert fahrten["day"].unique().sort().to_list() == [date(2026, 9, d) for d in range(3, 31)]
+    assert fahrten["linie"].unique().to_list() == ["RE5:1"]
+    assert fahrten.height == 28 * 2
+    assert fahrten.equals(fahrten.sort("linie", "day", "trip", "num"))
+    assert fahrten.select("zug", "num", "eva").row(0) == ("RE 3", 1, "1")
+    assert f"fahrten.parquet: {fahrten.height} rows" in capsys.readouterr().out
+
+
+def test_the_trip_window_reads_only_the_months_it_reaches_into(data_dir, tmp_path):
+    paths = {"2026-08": tmp_path / "aug.parquet", "2026-09": tmp_path / "sep.parquet"}
+    daily_trips([date(2026, 8, 31)]).write_parquet(paths["2026-08"])
+    daily_trips([date(2026, 9, 1), date(2026, 9, 30)]).write_parquet(paths["2026-09"])
+    update(data_dir, lambda: list(paths), lambda month: paths[month])
+    (data_dir / "months" / "2026-08" / "runs.parquet").write_bytes(b"not a parquet file")
+    update(data_dir, lambda: list(paths), lambda month: paths[month])
+    # The window starts on 3 September: August's table is never opened (it is broken now).
+    assert pl.read_parquet(data_dir / "fahrten.parquet")["day"].to_list() == [date(2026, 9, 30)] * 2
+
+
+def test_a_trip_takes_its_line_from_its_first_stop_and_unknown_lines_are_left_out(
+    data_dir, tmp_path
+):
+    # A line of one first stop only never arrives anywhere: it has no entry in linien.parquet.
+    known = daily_trips([date(2026, 9, 29)])
+    lonely = daily_trips([date(2026, 9, 30)], line="RE9").filter(pl.col("eva") == "1")
+    lonely = lonely.with_columns(
+        arrival_planned_time=pl.lit(None, pl.Datetime("us")),
+        departure_planned_time=pl.col("arrival_change_time"),
+    )
+    path = tmp_path / "sep.parquet"
+    pl.concat([known, lonely]).write_parquet(path)
+    update(data_dir, lambda: ["2026-09"], lambda _: path)
+    assert pl.read_parquet(data_dir / "linien.parquet")["linie"].to_list() == ["RE5:1"]
+    fahrten = pl.read_parquet(data_dir / "fahrten.parquet")
+    assert fahrten["linie"].unique().to_list() == ["RE5:1"]
+    assert fahrten["day"].unique().to_list() == [date(2026, 9, 29)]
+
+
+def test_a_stop_in_two_places_is_kept_once_the_first_copy(data_dir, tmp_path):
+    path = tmp_path / "sep.parquet"
+    one = daily_trips([date(2026, 9, 30)])
+    late = one.with_columns(  # the same stops again, 4 minutes later, from a second file's rows
+        train_number=pl.lit("other"),
+        arrival_change_time=pl.col("arrival_change_time") + pl.duration(minutes=4),
+    )
+    pl.concat([one, late]).write_parquet(path)
+    update(data_dir, lambda: ["2026-09"], lambda _: path)
+    fahrten = pl.read_parquet(data_dir / "fahrten.parquet")
+    assert fahrten.height == 2
+    assert fahrten["zug"].unique().to_list() == ["RE 30"]
+
+
+def test_the_trip_table_holds_minutes_since_the_trip_day_and_the_delays(data_dir, tmp_path):
+    first = pl.col("eva") == "1"
+    one = daily_trips([date(2026, 9, 30)]).with_columns(
+        # leaves at 23:50 without a change time, arrives at 00:20 the next night, 5 minutes late
+        departure_planned_time=pl.when(first).then(pl.lit(dt(2026, 9, 30, 23, 50))),
+        arrival_planned_time=pl.when(~first).then(pl.lit(dt(2026, 10, 1, 0, 20))),
+        arrival_change_time=pl.when(~first).then(pl.lit(dt(2026, 10, 1, 0, 25))),
+        time=pl.when(first)
+        .then(pl.lit(dt(2026, 9, 30, 23, 50)))
+        .otherwise(pl.lit(dt(2026, 10, 1, 0, 20))),
+    )
+    path = tmp_path / "sep.parquet"
+    one.write_parquet(path)
+    update(data_dir, lambda: ["2026-09"], lambda _: path)
+    fahrten = pl.read_parquet(data_dir / "fahrten.parquet")
+    assert fahrten.schema["an_plan"] == fahrten.schema["an_delay"] == pl.Int16
+    assert fahrten.select("num", "an_plan", "an_delay", "ab_plan", "ab_delay").rows() == [
+        (1, None, None, 1430, None),
+        (2, 1460, 5, None, None),
+    ]
+
+
+def test_a_stop_without_a_train_type_takes_the_line_name_as_its_train(data_dir, tmp_path):
+    path = tmp_path / "sep.parquet"
+    one = daily_trips([date(2026, 9, 30)]).with_columns(  # the first stop has no train type
+        train_type=pl.when(pl.col("eva") == "1").then(pl.lit(None)).otherwise("train_type")
+    )
+    one.write_parquet(path)
+    update(data_dir, lambda: ["2026-09"], lambda _: path)
+    fahrten = pl.read_parquet(data_dir / "fahrten.parquet")
+    assert fahrten.select("num", "zug").rows() == [(1, "RE5"), (2, "RE 30")]
+
+
+def test_a_raw_day_writes_its_trips_and_combine_adds_them_to_the_window(data_dir, tmp_path):
+    sep = tmp_path / "sep.parquet"
+    daily_trips([date(2026, 9, d) for d in range(1, 31)]).write_parquet(sep)
+    stops = [
+        plan_stop("r1-2610010800-1", None, dep="2610010800", typ="RE", line="RE5"),
+        plan_stop("r1-2610010800-2", "2610010810", typ="RE", line="RE5"),
+    ]
+    first = at("2026-10-01 00:30", "plan", xml(stops[0]), eva="1")
+    second = at("2026-10-01 00:30", "plan", xml(stops[1]), eva="2")
+    late = at(
+        "2026-10-01 22:30", "fchg", xml(fchg_stop("r1-2610010800-2", '<ar ct="2610010812"/>'))
+    )
+    raw = FakeRaw(tmp_path, {date(2026, 10, 1): [first, second]}, {date(2026, 10, 1): [late]})
+    update(data_dir, lambda: ["2026-09"], lambda _: sep, raw.source())
+    trips = pl.read_parquet(data_dir / "days" / "2026-10-01" / "runs.parquet")
+    assert trips.select("name", "zug", "trip", "num", "eva", "day").rows() == [
+        ("RE5", "RE 123", "r1-2610010800", 1, "1", date(2026, 10, 1)),
+        ("RE5", "RE 123", "r1-2610010800", 2, "2", date(2026, 10, 1)),
+    ]
+    assert trips["arrival_change_time"][1] == dt(2026, 10, 1, 8, 12)
+    fahrten = pl.read_parquet(data_dir / "fahrten.parquet")
+    # the window ends on the last raw day: 4 September to 1 October
+    assert fahrten["day"].min() == date(2026, 9, 4)
+    assert fahrten["day"].max() == date(2026, 10, 1)
+    assert fahrten["day"].n_unique() == 28
+    assert fahrten.filter(pl.col("day") == date(2026, 10, 1)).select(
+        "linie", "num", "eva"
+    ).rows() == [
+        ("RE5:1", 1, "1"),
+        ("RE5:1", 2, "2"),
+    ]
+
+
+def test_a_raw_day_without_the_trip_table_is_processed_again(data_dir, fetch, tmp_path):
+    folders = {date(2026, 10, 1): OCT_1}
+    run_with_raw(
+        data_dir, fetch, FakeRaw(tmp_path, folders, {date(2026, 10, 1): [RUN_AFTER_MIDNIGHT]})
+    )
+    done = data_dir / "days" / "2026-10-01"
+    assert (done / "runs.parquet").exists()
+    (done / "runs.parquet").unlink()
+    raw = FakeRaw(tmp_path, folders, {date(2026, 10, 1): [RUN_AFTER_MIDNIGHT]})
+    run_with_raw(data_dir, fetch, raw)
+    assert raw.fetched != []
+    assert (done / "runs.parquet").exists()
+
+
 def test_monate(data_dir, fetch):
     run(data_dir, fetch)
     monate = pl.read_parquet(data_dir / "monate.parquet")

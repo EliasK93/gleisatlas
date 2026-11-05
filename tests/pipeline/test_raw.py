@@ -4,8 +4,9 @@ from pathlib import Path
 
 import polars as pl
 
+from core.lines import line_name_expr
 from pipeline.aggregate import COLUMNS, days
-from pipeline.raw import raw_gaps, stop_rows
+from pipeline.raw import day_runs, raw_gaps, stop_rows
 
 API = "https://apis.deutschebahn.com/db-api-marketplace/apis/timetables/v1"
 EVA = "08000001"
@@ -14,10 +15,12 @@ EVA = "08000001"
 Response = tuple[datetime, str, str, str, str]
 
 
-def plan_stop(sid: str, planned: str | None, dep: str | None = None, typ: str = "ICE") -> str:
+def plan_stop(
+    sid: str, planned: str | None, dep: str | None = None, typ: str = "ICE", line: str = "5"
+) -> str:
     """A plan stop in the IRIS format; times are YYMMDDHHMM."""
-    ar = f'<ar pt="{planned}" pp="1" l="5"/>' if planned else ""
-    dp = f'<dp pt="{dep}" pp="1" l="5"/>' if dep else ""
+    ar = f'<ar pt="{planned}" pp="1" l="{line}"/>' if planned else ""
+    dp = f'<dp pt="{dep}" pp="1" l="{line}"/>' if dep else ""
     return f'<s id="{sid}"><tl f="F" t="p" o="80" c="{typ}" n="123"/>{ar}{dp}</s>'
 
 
@@ -65,6 +68,31 @@ def test_rows_have_every_source_column(tmp_path):
     out = rows(tmp_path, at("2026-10-01 00:30", "plan", xml(plan_stop("a-1-1", "2610010800"))))
     assert set(out.columns) == COLUMNS
     assert out["eva"].to_list() == [EVA]  # the source zero-pads EVAs
+
+
+def test_the_line_attribute_of_the_event_is_the_line_number(tmp_path):
+    plan = at(
+        "2026-10-01 00:30", "plan", xml(plan_stop("a-1-1", "2610010800", typ="RE", line="57"))
+    )
+    out = rows(tmp_path, plan)
+    assert out["line_number"].to_list() == ["57"]
+    assert out.select(line_name_expr()).to_series().to_list() == ["RE57"]
+
+
+def test_the_line_number_comes_from_the_departure_at_a_first_stop_and_from_a_change_alone(tmp_path):
+    first = at(
+        "2026-10-01 00:30", "plan", xml(plan_stop("a-1-1", None, dep="2610010800", line="S1"))
+    )
+    extra = fchg_stop(
+        "x-1-1", '<ar ps="a" ct="2610010811" pt="2610010800" l="RE9"/>', extra='<tl t="e" c="RE"/>'
+    )
+    out = rows(tmp_path, first, at("2026-10-01 09:00", "fchg", xml(extra))).sort("id")
+    assert out["line_number"].to_list() == ["S1", "RE9"]
+
+
+def test_a_blank_line_attribute_is_no_line_number(tmp_path):
+    plan = at("2026-10-01 00:30", "plan", xml(plan_stop("a-1-1", "2610010800", line="")))
+    assert rows(tmp_path, plan)["line_number"].to_list() == [None]
 
 
 def test_a_planned_stop_without_changes_is_on_time(tmp_path):
@@ -159,6 +187,28 @@ def test_failed_responses_are_ignored(tmp_path):
     )
     assert out.height == 0
     assert set(out.columns) == COLUMNS
+
+
+def test_day_runs_take_the_trips_of_the_day_and_on_the_first_day_the_earlier_late_stops(tmp_path):
+    stops = [
+        plan_stop("a-2610010800-1", None, dep="2610010800"),  # a trip of the 1st
+        plan_stop("a-2610010800-2", "2610010810"),
+        plan_stop("b-2609302350-1", None, dep="2609302350"),  # started on the 30th, before midnight
+        plan_stop("b-2609302350-2", "2610010010"),  # recorded after the boundary
+        plan_stop("c-2610020800-1", None, dep="2610020800"),  # a trip of the 2nd
+    ]
+    raw = rows(tmp_path, at("2026-10-01 00:30", "plan", xml(*stops)))
+    boundary = datetime(2026, 10, 1)
+
+    def got(day: date) -> list[tuple]:
+        return day_runs(raw, day, boundary).select("trip", "num", "day").rows()
+
+    assert got(date(2026, 10, 1)) == [  # the first raw day: its own trips and the late stops
+        ("a-2610010800", 1, date(2026, 10, 1)),
+        ("a-2610010800", 2, date(2026, 10, 1)),
+        ("b-2609302350", 2, date(2026, 9, 30)),
+    ]
+    assert got(date(2026, 10, 2)) == [("c-2610020800", 1, date(2026, 10, 2))]
 
 
 def test_raw_gaps_cover_only_the_given_days_and_find_a_thin_hour():

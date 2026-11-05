@@ -5,13 +5,14 @@ from datetime import datetime
 
 import polars as pl
 
-from core.categories import category_expr, is_excluded_expr
+from core.categories import bus_line_expr, category_expr, is_excluded_expr
 from core.delay import arrival_delay_expr, plausible_expr
 from core.lines import destination_expr, line_name_expr, networks
 from core.sections import (
     section_changes,
     stop_delay_expr,
     stop_number_expr,
+    trip_day_expr,
     trip_key_expr,
 )
 from core.stations import ibnr_expr
@@ -63,8 +64,9 @@ def check_schema(lf: pl.LazyFrame) -> None:
 
 
 def _rail(lf: pl.LazyFrame) -> pl.LazyFrame:
+    """Rail only: no bus types, and no replacement buses booked under another type (by name)."""
     check_schema(lf)
-    return lf.filter(~is_excluded_expr(pl.col("train_type")))
+    return lf.filter(~is_excluded_expr(pl.col("train_type")), ~bus_line_expr(line_name_expr()))
 
 
 def clean(lf: pl.LazyFrame) -> pl.LazyFrame:
@@ -188,6 +190,34 @@ def routes(lf: pl.LazyFrame) -> pl.DataFrame:
         .group_by("name", "pattern")
         .agg(trips=pl.len())
         .sort("name", "pattern")
+        .collect()
+    )
+
+
+def runs(lf: pl.LazyFrame) -> pl.DataFrame:
+    """One row per stop of every trip, for the Bildfahrplan: the line name, the train
+    ("{type} {number}"), the trip, the stop number, the day the trip started, the station and the
+    planned and changed times with the cancel flags, sorted by trip and stop number. The same
+    cleaning as the other tables (cancelled stops stay).
+    ponytail: every month keeps all its trips (about 200 MB), although `combine` reads only the last
+    28 days; revisit if the disk matters."""
+    flag = ("arrival_is_canceled", "departure_is_canceled")
+    times = (
+        "arrival_planned_time",
+        "arrival_change_time",
+        "departure_planned_time",
+        "departure_change_time",
+    )
+    return (
+        _trip_stops(
+            lf,
+            zug=pl.concat_str("train_type", pl.lit(" "), "train_number"),
+            day=trip_day_expr(),
+            **{c: pl.col(c).cast(pl.Datetime("us")) for c in times},  # one unit, month or raw day
+            **{c: pl.col(c).fill_null(False) for c in flag},
+        )
+        .select("name", "zug", "trip", "num", "day", "eva", *times, *flag)
+        .sort("trip", "num", maintain_order=True)
         .collect()
     )
 
