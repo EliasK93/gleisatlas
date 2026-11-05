@@ -1,5 +1,5 @@
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
-import { useId, type ReactNode } from "react";
+import { Fragment, useId, type ReactNode } from "react";
 import { Link, Navigate, useParams, useSearchParams } from "react-router";
 import { api, must, useMonthPeriod } from "./api";
 import { Bildfahrplan } from "./Bildfahrplan";
@@ -24,6 +24,7 @@ import {
   cutLine,
   limitText,
   minutesText,
+  sectionText,
   STEPS,
   stepOf,
   THIN_N,
@@ -238,6 +239,8 @@ function LineView({
   const both = !!cuts && cuts.one.has && cuts.two.has;
   const shown = both ? direction : cuts?.two.has ? 2 : cuts ? 1 : direction;
   const ends = cuts && [cuts.one.axis[0]?.name, cuts.one.axis.at(-1)?.name];
+  const cut = cuts && (shown === 1 ? cuts.one : cuts.two);
+  const jump = "chip border-border bg-surface text-text-2 hover:text-text";
   return (
     <div className="flex flex-col gap-4">
       {both && ends && (
@@ -252,77 +255,131 @@ function LineView({
           className="-mx-4 -my-2 px-4 py-2 md:m-0 md:p-0"
         />
       )}
+      <nav aria-label={t("line.jump")} className="flex flex-wrap gap-2">
+        <a href="#strecke" className={jump}>
+          {t("line.route")}
+        </a>
+        <a href="#bildfahrplan" className={jump}>
+          {t("line.bf")}
+        </a>
+      </nav>
       {line.ohne_echtzeit && (
         <p className="rounded-xl border border-border bg-surface-2 px-4 py-3 text-[13px]">
           {t("line.noLive")}
         </p>
       )}
-      <MetricTiles
-        stats={line.gesamt ?? undefined}
-        noCancel={line.gesamt?.ausfallquote === 0}
-        meta={t("station.n", { n: int(line.gesamt?.n ?? 0) })}
-        label={t("line.tiles")}
-      />
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] xl:items-start">
+        <div className="flex min-w-0 flex-col gap-4">
+          <MetricTiles
+            stats={line.gesamt ?? undefined}
+            noCancel={line.gesamt?.ausfallquote === 0}
+            meta={t("station.n", { n: int(line.gesamt?.n ?? 0) })}
+            label={t("line.tiles")}
+            className="xl:grid-cols-2"
+          />
+        </div>
+        <Sparkline
+          linie={line.linie}
+          to={{ pathname: ZEITVERLAUF, search: lineSearch({ k: f.k }, line.linie) }}
+        />
+      </div>
       <MetricSwitch
         metric={f.k}
         onMetric={onMetric}
         className="-mx-4 -my-2 px-4 py-2 md:m-0 md:p-0"
       />
-      <Stops
-        axis={axisStations(line.achse, line.bahnhoefe)}
-        other={line.bahnhoefe.filter((s) => s.pos === null)}
-        reversed={shown === 2}
-        metric={f.k}
-        search={linePageSearch(f)}
-      />
-      <Sparkline
-        linie={line.linie}
-        to={{ pathname: ZEITVERLAUF, search: lineSearch({ k: f.k }, line.linie) }}
-      />
-      <Zeitfresser
-        stations={line.bahnhoefe}
-        sections={sections}
-        cut={cuts && (shown === 1 ? cuts.one : cuts.two)}
-        shown={shown}
-      />
-      <Bildfahrplan line={line} tag={tag} onDay={onDay} />
+      {/* The map comes first, so it stands above the route in one column; from 1280 px it
+          moves to the right and stays in view while the route scrolls. */}
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] xl:items-start">
+        <ZeitfresserMap stations={line.bahnhoefe} sections={sections} cut={cut} />
+        <Route
+          axis={axisStations(line.achse, line.bahnhoefe)}
+          other={line.bahnhoefe.filter((s) => s.pos === null)}
+          reversed={shown === 2}
+          metric={f.k}
+          search={linePageSearch(f)}
+          sections={sections}
+          cut={cut}
+        />
+      </div>
+      <div id="bildfahrplan" className="scroll-mt-4">
+        <Bildfahrplan line={line} tag={tag} onDay={onDay} />
+      </div>
     </div>
   );
 }
 
 const stats = (s: Bahnhof): Stats => ({ ...s, ausfallquote: s.ausfallquote ?? 0 });
-/** A dot of the route with a piece of the line towards each neighbour; the ends have a larger dot. */
-function RouteMark({ end, up, down }: { end: boolean; up: boolean; down: boolean }) {
-  const piece = "absolute left-1/2 w-0.5 -translate-x-1/2 bg-text-3";
+
+type Cut = ReturnType<typeof cutLine>;
+
+/** The colour of a section's piece of line: its step, pale when thin, very pale grey without values. */
+const tone = (s?: Abschnitt) =>
+  s
+    ? `${FILL.r[stepOf(s.minuten) - 1]} ${s.n < THIN_N ? "opacity-50" : ""}`
+    : "bg-text-3 opacity-30";
+const PIECE = "absolute left-1/2 w-0.5 -translate-x-1/2";
+
+/** The column left of a route item that holds its piece of the line. */
+const Track = ({ children }: { children: ReactNode }) => (
+  <span
+    aria-hidden="true"
+    // On a phone the items are 10 px apart: the pieces reach into the gap and meet.
+    className="pointer-events-none absolute inset-y-[-5px] left-[-24px] w-6 md:inset-y-0"
+  >
+    {children}
+  </span>
+);
+
+/**
+ * A dot of the route with a piece of the line towards each neighbour, in the colour classes `up`
+ * and `down` (none at an end); the ends have a larger dot.
+ */
+function RouteMark({ end, up, down }: { end: boolean; up?: string; down?: string }) {
   return (
-    <span
-      aria-hidden="true"
-      // On a phone the rows are cards 10 px apart: the pieces reach into the gap and meet.
-      className="pointer-events-none absolute inset-y-[-5px] left-[-24px] w-6 md:inset-y-0"
-    >
-      {up && <i data-testid="route-line" className={`${piece} top-0 bottom-1/2`} />}
-      {down && <i data-testid="route-line" className={`${piece} top-1/2 bottom-0`} />}
+    <Track>
+      {up && <i data-testid="route-line" className={`${PIECE} top-0 bottom-1/2 ${up}`} />}
+      {down && <i data-testid="route-line" className={`${PIECE} top-1/2 bottom-0 ${down}`} />}
       <i
         data-testid="stop-dot"
         className={`absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-surface ${
           end ? "size-4 border-[3px] border-text-2" : "size-2.5 border-2 border-text-3"
         }`}
       />
-    </span>
+    </Track>
   );
 }
 
 /**
- * The stations of the line as a route plan: the axis from the start of the shown direction at the
- * top to its end at the bottom, a dot each, a station the axis visits twice at each place; the
- * stations off the axis below, outside the route, with the selected metric.
+ * One section between two stations of the route: its piece of the line in the step colour and
+ * the minutes and trips as text, after the pair of stations for a screen reader.
  */
-function Stops({
+function Connector({ row }: { row: Row }) {
+  return (
+    <li data-testid="section" className="relative px-1 py-1.5 text-xs text-text-2 tabular-nums">
+      <Track>
+        <i data-testid="route-line" className={`${PIECE} inset-y-0 ${tone(row.section)}`} />
+      </Track>
+      <span className="sr-only">{row.name}: </span>
+      {sectionText(row.section)}
+    </li>
+  );
+}
+
+/**
+ * The route card: the axis from the start of the shown direction at the top to its end at the
+ * bottom, a dot and the selected metric per station, a station the axis visits twice at each
+ * place, and between two stations their section (`cut`); then the sum, the stations off the axis
+ * and the other sections. Until the sections arrive, or when they fail, the route is a plain line.
+ */
+function Route({
   axis,
   other,
   reversed,
   metric,
   search,
+  sections,
+  cut,
 }: {
   /** The stations along the axis in direction 1 (`axisStations`). */
   axis: Bahnhof[];
@@ -331,9 +388,16 @@ function Stops({
   metric: Metric;
   /** The metric and the period, which a station's page keeps. */
   search: string;
+  sections: UseQueryResult<Abschnitt[]>;
+  /** The line cut for the shown direction; undefined while the sections load or failed. */
+  cut: Cut | undefined;
 }) {
   const id = useId();
   const route = reversed ? [...axis].reverse() : axis;
+  // Row i is the section from route station i to i + 1 (`cutLine`).
+  const none = !!cut && (cut.axis.length < 2 || sections.data?.length === 0);
+  const rows = cut && !none ? cut.rows : undefined;
+  const piece = (i: number) => (rows ? tone(rows[i]?.section) : "bg-text-3");
   // Only punctuality has a natural scale; the other bars are relative to the largest value.
   const most = Math.max(
     ...[...axis, ...other].map((s) => show(metric, stats(s), "").value ?? 0),
@@ -351,38 +415,82 @@ function Stops({
     />
   );
   return (
-    <section aria-labelledby={id} className="card">
-      <h2 id={id} className="mb-3 text-base font-[620]">
-        {t("line.stations")}
-      </h2>
-      <div className="pl-6">
-        <RowHead first={t("line.stations.col")} metric={t(`metric.${metric}`)} />
+    <section
+      id="strecke"
+      aria-labelledby={id}
+      className="card flex min-w-0 scroll-mt-4 flex-col gap-3"
+    >
+      <div>
+        <h2 id={id} className="text-base font-[620]">
+          {t("line.route")}
+        </h2>
+        <p className="mt-1 max-w-[80ch] text-xs text-text-3">{t("line.route.help")}</p>
       </div>
-      {route.length > 0 && (
-        <ul aria-label={t("line.stations.axis")} className="flex flex-col gap-2.5 pl-6 md:gap-0">
-          {route.map((s, i) =>
-            // A ring visits a station more than once, so the EVA is no key.
-            row(
-              s,
-              i,
-              <RouteMark
-                end={i === 0 || i === route.length - 1}
-                up={i > 0}
-                down={i < route.length - 1}
-              />,
-            ),
-          )}
-        </ul>
+      {rows && <Legend />}
+      {sections.isError && <ErrorBanner onRetry={() => sections.refetch()} />}
+      {none && <p className="text-text-2">{t("line.noSections")}</p>}
+      <div>
+        <div className="pl-6">
+          <RowHead first={t("line.stations.col")} metric={t(`metric.${metric}`)} />
+        </div>
+        {route.length > 0 && (
+          <ul aria-label={t("line.stations.axis")} className="flex flex-col gap-2.5 pl-6 md:gap-0">
+            {route.map((s, i) => (
+              // A ring visits a station more than once, so the EVA is no key.
+              <Fragment key={i}>
+                {row(
+                  s,
+                  i,
+                  <RouteMark
+                    end={i === 0 || i === route.length - 1}
+                    up={i > 0 ? piece(i - 1) : undefined}
+                    down={i < route.length - 1 ? piece(i) : undefined}
+                  />,
+                )}
+                {rows?.[i] && <Connector row={rows[i]} />}
+              </Fragment>
+            ))}
+          </ul>
+        )}
+      </div>
+      {rows && cut && (
+        <p className="text-[13px] font-[550]">{t("line.sum", { v: minutesText(cut.sum) })}</p>
       )}
       {other.length > 0 && (
-        <>
-          <h3 className="mt-5 mb-2 border-t border-border pt-4 pl-6 text-[13px] font-semibold text-text-2">
-            {t("line.stations.other")}
-          </h3>
-          <ul aria-label={t("line.stations.other")} className="flex flex-col gap-2.5 pl-6 md:gap-0">
+        // The bottom margin keeps its 44 px tap area off the next summary's on a phone.
+        <details className="mt-2 mb-4 border-t border-border pt-3">
+          <summary className="hit cursor-pointer text-[13px] text-text-2 hover:text-text">
+            {t("line.stations.other")} ({other.length})
+          </summary>
+          <ul
+            aria-label={t("line.stations.other")}
+            className="mt-2 flex flex-col gap-2.5 pl-6 md:gap-0"
+          >
             {other.map((s) => row(s, s.eva))}
           </ul>
-        </>
+        </details>
+      )}
+      {cut && cut.others.length > 0 && (
+        <details>
+          <summary className="hit cursor-pointer text-[13px] text-text-2 hover:text-text">
+            {t("line.other")} ({cut.others.length})
+          </summary>
+          <ul aria-label={t("line.other")} className="mt-1 flex flex-col">
+            {cut.others.map(({ section, name }, i) => (
+              // A ring visits a pair of stations more than once, so a name is no key.
+              <li
+                key={i}
+                className="flex flex-wrap items-center gap-x-2 gap-y-0.5 border-b border-border py-2 last:border-b-0"
+              >
+                <i aria-hidden="true" className={`block size-3 rounded-sm ${tone(section)}`} />
+                <span className="font-[550]">{name}</span>
+                <span className="ml-auto text-xs text-text-2 tabular-nums">
+                  {sectionText(section)}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </details>
       )}
     </section>
   );
@@ -414,112 +522,36 @@ function Legend() {
   );
 }
 
-type Cut = ReturnType<typeof cutLine>;
-
-/** The Zeitfresser card: the legend, the map and the strip of sections of the shown direction. */
-function Zeitfresser({
+/** The Zeitfresser map card: the sections of the shown direction solid, the others dashed. */
+function ZeitfresserMap({
   stations,
   sections,
   cut,
-  shown,
 }: {
   stations: Bahnhof[];
   sections: UseQueryResult<Abschnitt[]>;
-  /** The line cut for the shown direction; undefined while the sections load. */
+  /** The line cut for the shown direction; undefined while the sections load or failed. */
   cut: Cut | undefined;
-  shown: 1 | 2;
 }) {
   const id = useId();
+  const points = stations
+    .filter((s) => s.lon !== null && s.lat !== null)
+    .map((s) => ({ eva: s.eva, name: s.name, lon: s.lon!, lat: s.lat! }));
   let body;
-  if (sections.isError) body = <ErrorBanner onRetry={() => sections.refetch()} />;
-  else if (!sections.data || !cut)
-    body = <Pulse className="h-[300px] animate-pulse rounded-lg bg-surface-2" />;
-  else if (cut.axis.length < 2 || sections.data.length === 0)
-    body = <p className="text-text-2">{t("line.noSections")}</p>;
-  else {
-    const to = (shown === 1 ? cut.axis.at(-1) : cut.axis[0])!.name;
-    const points = stations
-      .filter((s) => s.lon !== null && s.lat !== null)
-      .map((s) => ({ eva: s.eva, name: s.name, lon: s.lon!, lat: s.lat! }));
-    body = (
-      <>
-        <Legend />
-        {points.length > 0 ? (
-          <LineMap points={points} segments={cut.segments} />
-        ) : (
-          <p className="text-text-2">{t("line.map.none")}</p>
-        )}
-        <Strip rows={cut.rows} label={t("line.strip", { to })} />
-        <p className="text-[13px] font-[550]">{t("line.sum", { v: minutesText(cut.sum) })}</p>
-        {cut.others.length > 0 && (
-          <details>
-            <summary className="hit cursor-pointer text-[13px] text-text-2 hover:text-text">
-              {t("line.other")} ({cut.others.length})
-            </summary>
-            <Strip
-              rows={cut.others.map(({ section, name }) => ({ name, section }))}
-              label={t("line.other")}
-            />
-          </details>
-        )}
-      </>
-    );
-  }
+  if (points.length === 0) body = <p className="text-text-2">{t("line.map.none")}</p>;
+  else if (sections.isPending)
+    body = <Pulse className="h-[340px] animate-pulse rounded-lg bg-surface-2 md:h-[420px]" />;
+  // Failed sections leave the stations on the map; the route card says what failed.
+  else body = <LineMap points={points} segments={cut?.segments ?? []} />;
   return (
-    <section aria-labelledby={id} className="card flex min-w-0 flex-col gap-3">
-      <div>
-        <h2 id={id} className="text-base font-[620]">
-          {t("line.zf")}
-        </h2>
-        <p className="mt-1 max-w-[80ch] text-xs text-text-3">{t("line.zf.help")}</p>
-      </div>
+    <section
+      aria-labelledby={id}
+      className="card flex min-w-0 flex-col gap-3 xl:sticky xl:top-6 xl:col-start-2 xl:row-start-1"
+    >
+      <h2 id={id} className="text-base font-[620]">
+        {t("line.zf")}
+      </h2>
       {body}
     </section>
-  );
-}
-
-type StripRow = Pick<Row, "name" | "section">;
-
-/** One row per section: the name and trips, a bar centred at 0 minutes, the signed minutes. */
-function Strip({ rows, label }: { rows: StripRow[]; label: string }) {
-  // The longest bar is the largest section here; a floor keeps small values from filling it.
-  const most = Math.max(...rows.map((r) => Math.abs(r.section?.minuten ?? 0)), 0.5);
-  return (
-    <ol aria-label={label} className="flex flex-col">
-      {rows.map(({ name, section }, i) => (
-        <li
-          // A ring visits a pair of stations more than once, so a name is no key.
-          key={i}
-          className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1.5 border-b border-border py-2 last:border-b-0 md:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_84px]"
-        >
-          <span className="min-w-0 md:order-1">
-            <span className="font-[550]">{name}</span>
-            <span className="block text-xs text-text-3 tabular-nums">
-              {section ? t("line.trips", { n: int(section.n) }) : t("line.strip.none")}
-            </span>
-          </span>
-          <b className="text-right font-[650] tabular-nums md:order-3">
-            {section ? minutesText(section.minuten) : "–"}
-          </b>
-          <div className="relative col-span-2 h-2 rounded-sm bg-surface-2 md:order-2 md:col-span-1">
-            <i aria-hidden="true" className="absolute inset-y-0 left-1/2 w-px bg-border" />
-            {section && <Bar section={section} most={most} />}
-          </div>
-        </li>
-      ))}
-    </ol>
-  );
-}
-
-function Bar({ section, most }: { section: Abschnitt; most: number }) {
-  const step = stepOf(section.minuten);
-  const width = Math.max((Math.abs(section.minuten) / most) * 50, 2);
-  return (
-    <i
-      aria-hidden="true"
-      data-testid="section-bar"
-      className={`absolute inset-y-0 rounded-sm ${FILL.r[step - 1]} ${section.n < THIN_N ? "opacity-50" : ""}`}
-      style={{ [section.minuten < 0 ? "right" : "left"]: "50%", width: `${width}%` }}
-    />
   );
 }

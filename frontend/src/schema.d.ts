@@ -75,6 +75,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/suche": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Suche */
+        get: operations["getSuche"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/stationen/{eva}": {
         parameters: {
             query?: never;
@@ -655,6 +672,33 @@ export interface components {
             /** Puenktlich */
             puenktlich: number | null;
         };
+        /** SuchLinie */
+        SuchLinie: {
+            /** Linie */
+            linie: string;
+            /** Label */
+            label: string;
+            /** Typ */
+            typ: string;
+            /** Zug */
+            zug: boolean;
+            /** Richtung */
+            richtung: (1 | 2) | null;
+            /** Ziel */
+            ziel: string | null;
+        };
+        /** Suche */
+        Suche: {
+            /** Bahnhoefe */
+            bahnhoefe: components["schemas"]["Station"][];
+            /** Linien */
+            linien: components["schemas"]["SuchLinie"][];
+            /**
+             * Zuerst
+             * @enum {string}
+             */
+            zuerst: "bahnhoefe" | "linien";
+        };
         /** Tag */
         Tag: {
             /** Tag */
@@ -907,6 +951,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Station"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    getSuche: {
+        parameters: {
+            query: {
+                q: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Suche"];
                 };
             };
             /** @description Validation Error */

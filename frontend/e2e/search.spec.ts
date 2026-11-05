@@ -1,10 +1,12 @@
 import { expect, test, type Page } from "@playwright/test";
-import { fontsReady, mockApi } from "./fixtures";
+import { fontsReady, mockApi, STATIONS } from "./fixtures";
 
-// The global field is named "Bahnhofssuche"; the filter chip's field keeps "Bahnhof suchen".
-const search = (page: Page) => page.getByRole("combobox", { name: "Bahnhofssuche" });
-// Only the station results; the Gattung select has options of its own.
-const options = (page: Page) => page.getByRole("listbox", { name: "Bahnhof" }).getByRole("option");
+// The global field is named "Suche"; the filter chip's field keeps "Bahnhof suchen".
+const search = (page: Page) => page.getByRole("combobox", { name: "Suche", exact: true });
+const results = (page: Page) => page.getByRole("listbox", { name: "Suche", exact: true });
+// Only the search results; the Gattung select has options of its own.
+const options = (page: Page) => results(page).getByRole("option");
+const group = (page: Page, name: string) => results(page).getByRole("group", { name });
 
 test.beforeEach(async ({ page }) => {
   await mockApi(page);
@@ -29,9 +31,129 @@ test("typing, arrow keys and Enter open the station and keep the filters", async
   await expect(page).toHaveURL(/\/bahnhof\/8000105\?g=fern&von=2026-09&bis=2026-09&k=p90$/);
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Frankfurt (Main) Hbf");
   await expect(field).toHaveValue("");
-  expect(urls.some((u) => u.pathname === "/stationen" && u.searchParams.get("limit") === "8")).toBe(
-    true,
+  const asked = urls.filter((u) => u.pathname === "/suche");
+  expect(asked.some((u) => u.searchParams.get("q") === "hbf")).toBe(true);
+  expect(asked.every((u) => u.searchParams.get("limit") === "8")).toBe(true);
+  expect(urls.some((u) => u.pathname === "/stationen")).toBe(false);
+});
+
+test("a place query shows the stations and no line group when the API sends no lines", async ({
+  page,
+}) => {
+  await page.goto("/muster/heatmap");
+  await search(page).fill("köln");
+  await expect(group(page, "Bahnhöfe").getByRole("option")).toHaveCount(1);
+  await expect(group(page, "Linien")).toHaveCount(0);
+  await expect(results(page).getByText("Linien")).toHaveCount(0);
+});
+
+test("the API's order decides which group comes first", async ({ page }) => {
+  // Both groups in one answer, the lines leading.
+  await page.route(
+    (url) => url.pathname === "/suche",
+    (route) =>
+      route.fulfill({
+        headers: { "access-control-allow-origin": "*" },
+        json: {
+          bahnhoefe: [STATIONS[0]],
+          linien: [
+            {
+              linie: "S6:08000082",
+              label: "S6 Essen Hbf – Köln-Worringen",
+              typ: "S",
+              zug: false,
+              richtung: null,
+              ziel: null,
+            },
+          ],
+          zuerst: "linien",
+        },
+      }),
   );
+  await page.goto("/muster/heatmap");
+  await search(page).fill("s6 köln");
+  const groups = results(page).getByRole("group");
+  await expect(groups).toHaveCount(2);
+  await expect(groups.first()).toHaveAccessibleName("Linien");
+  await expect(groups.nth(1)).toHaveAccessibleName("Bahnhöfe");
+  await expect(options(page).first()).toContainText("S6 Essen Hbf – Köln-Worringen");
+  await expect(options(page).first()).toHaveAttribute("aria-selected", "true");
+});
+
+test("a line name lists the exact line first, then the prefix hits, with no station group", async ({
+  page,
+}) => {
+  await page.goto("/muster/heatmap");
+  // Spaces and case do not matter.
+  await search(page).fill("S 6");
+  await expect(group(page, "Bahnhöfe")).toHaveCount(0);
+  const lines = group(page, "Linien").getByRole("option");
+  await expect(lines).toHaveCount(2);
+  await expect(lines.first()).toContainText("S6 Essen Hbf – Köln-Worringen");
+  await expect(lines.nth(1)).toContainText("S60 Leonberg – Stuttgart Schwabstr.");
+});
+
+test("a line option shows its type badge, its label and the matched direction", async ({
+  page,
+}) => {
+  await page.goto("/muster/heatmap");
+  await search(page).fill("re57 dortmund");
+  const option = group(page, "Linien").getByRole("option");
+  await expect(option).toHaveCount(1);
+  await expect(option.getByText("RE", { exact: true })).toBeVisible();
+  await expect(option).toContainText("RE57 Dortmund Hbf – Warburg (Westf)");
+  await expect(option).toContainText("Richtung Dortmund Hbf");
+  // Without a station part there is no direction.
+  await search(page).fill("re57");
+  await expect(option).toContainText("RE57 Dortmund Hbf – Warburg (Westf)");
+  await expect(option).not.toContainText("Richtung");
+});
+
+test("the arrow keys run across both groups in their shown order", async ({ page }) => {
+  await page.goto("/muster/heatmap");
+  const field = search(page);
+  // Three stations contain an s, and S6 and S60 start with it; no exact name, so stations lead.
+  await field.fill("s");
+  await expect(options(page)).toHaveCount(5);
+  await expect(results(page).getByRole("group").first()).toHaveAccessibleName("Bahnhöfe");
+  await field.press("ArrowDown");
+  await field.press("ArrowDown");
+  await field.press("ArrowDown");
+  await expect(options(page).nth(3)).toHaveAttribute("aria-selected", "true");
+  await expect(options(page).nth(3)).toContainText("S6 Essen Hbf");
+  await expect(field).toHaveAttribute(
+    "aria-activedescendant",
+    (await options(page).nth(3).getAttribute("id"))!,
+  );
+  await field.press("ArrowDown");
+  await field.press("ArrowDown");
+  await expect(options(page).nth(4)).toHaveAttribute("aria-selected", "true");
+  await field.press("ArrowUp");
+  await field.press("Enter");
+  await expect(page).toHaveURL(/\/linie\/S6%3A08000082$/);
+});
+
+test("a line pick opens the line page with metric and period kept and the direction", async ({
+  page,
+}) => {
+  await page.goto("/karte?g=fern&bhf=8000207&von=2026-09&bis=2026-09&k=p90");
+  await search(page).fill("re57 dortmund");
+  await search(page).press("Enter");
+  await expect(page).toHaveURL(
+    /\/linie\/RE57%3A08000080\?von=2026-09&bis=2026-09&richtung=2&k=p90$/,
+  );
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText(
+    "RE57 Dortmund Hbf – Warburg (Westf)",
+  );
+  await expect(search(page)).toHaveValue("");
+});
+
+test("a line toward its last station opens without a direction key", async ({ page }) => {
+  await page.goto("/muster/heatmap");
+  await search(page).fill("re57 warburg");
+  await expect(options(page)).toContainText("Richtung Warburg (Westf)");
+  await options(page).click();
+  await expect(page).toHaveURL(/\/linie\/RE57%3A08000080$/);
 });
 
 test("an option shows name, state, EVA and number of stops", async ({ page }) => {
@@ -67,7 +189,7 @@ test("Escape clears the field; no match says so", async ({ page }) => {
   await page.goto("/muster/heatmap");
   const field = search(page);
   await field.fill("xyz");
-  await expect(page.getByText("Kein Bahnhof gefunden")).toBeVisible();
+  await expect(page.getByText("Kein Bahnhof und keine Linie gefunden")).toBeVisible();
   await field.fill("köln");
   await expect(options(page)).toHaveCount(1);
   await field.press("Escape");
@@ -82,7 +204,7 @@ test("Enter while a new term loads does not open a hit of the old term", async (
   await expect(options(page)).toHaveCount(1);
   // The answer for the next term is held back, so the old hits are still on screen.
   await page.route(
-    (url) => url.pathname === "/stationen" && url.searchParams.get("q") === "hamburg",
+    (url) => url.pathname === "/suche" && url.searchParams.get("q") === "hamburg",
     async (route) => {
       await new Promise((resolve) => setTimeout(resolve, 600));
       await route.fallback();
@@ -117,7 +239,7 @@ test.describe("desktop", () => {
     await expect(search(page)).toBeVisible();
     await expect(page.getByRole("navigation", { name: "Hauptnavigation" })).toBeVisible();
     await expect(page.locator("kbd:visible")).toHaveText("Strg K");
-    await expect(search(page)).toHaveAttribute("placeholder", "Bahnhof suchen …");
+    await expect(search(page)).toHaveAttribute("placeholder", "Bahnhof, Linie …");
     await expect(search(page)).not.toBeFocused();
     await page.keyboard.press("Control+k");
     await expect(search(page)).toBeFocused();
@@ -162,6 +284,15 @@ test.describe("mobile", () => {
     expect(fits).toBe(true);
   });
 
+  test("a tap on a line opens its page; the options are 44 px high", async ({ page }) => {
+    await page.goto("/muster/heatmap?k=median");
+    await search(page).fill("s");
+    for (const option of await options(page).all())
+      expect((await option.boundingBox())!.height).toBeGreaterThanOrEqual(44);
+    await page.getByRole("option", { name: /S60 Leonberg/ }).tap();
+    await expect(page).toHaveURL(/\/linie\/S60%3A08000096\?k=median$/);
+  });
+
   test("the result list opens over the map", async ({ page }) => {
     await page.goto("/karte");
     await search(page).fill("köln");
@@ -176,9 +307,21 @@ test.describe("mobile", () => {
   });
 });
 
+test.describe("English", () => {
+  test.use({ locale: "en-US" });
+
+  test("a line option names its direction like the line page's toggle", async ({ page }) => {
+    await page.goto("/muster/heatmap");
+    await page.getByRole("combobox", { name: "Search", exact: true }).fill("re57 dortmund");
+    await expect(
+      page.getByRole("listbox", { name: "Search", exact: true }).getByRole("option"),
+    ).toContainText("Direction Dortmund Hbf");
+  });
+});
+
 for (const [locale, placeholder] of [
-  ["de-DE", "Bahnhof suchen …"],
-  ["en-US", "Search stations …"],
+  ["de-DE", "Bahnhof, Linie …"],
+  ["en-US", "Station or line …"],
 ] as const)
   test.describe(`the global field in ${locale}`, () => {
     test.use({ locale });
@@ -194,10 +337,13 @@ for (const [locale, placeholder] of [
         const style = getComputedStyle(input);
         const ctx = document.createElement("canvas").getContext("2d")!;
         ctx.font = style.font;
-        return [
-          ctx.measureText((input as HTMLInputElement).placeholder).width,
-          input.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight),
-        ];
+        const box = input.getBoundingClientRect();
+        const start = box.left + input.clientLeft + parseFloat(style.paddingLeft);
+        let end = box.left + input.clientLeft + input.clientWidth - parseFloat(style.paddingRight);
+        // The shortcut hint sits over the field's right edge: the text must end before it.
+        const kbd = input.closest("label")?.parentElement?.querySelector("kbd");
+        if (kbd?.checkVisibility()) end = Math.min(end, kbd.getBoundingClientRect().left);
+        return [ctx.measureText((input as HTMLInputElement).placeholder).width, end - start];
       });
       expect(text).toBeLessThanOrEqual(room);
       // The icon sits behind the field's own background unless it is stacked above it.

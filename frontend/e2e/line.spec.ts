@@ -20,10 +20,30 @@ const R1 = "rgb(33, 102, 172)";
 const R1_DARK = "rgb(90, 162, 230)";
 
 const section = (page: Page, name: string) => page.getByRole("region", { name, exact: true });
-const stops = (page: Page) => section(page, "Halte der Linie").getByRole("listitem");
-const strip = (page: Page) => page.getByRole("list", { name: /^Abschnitte in Richtung/ });
-const stripRows = (page: Page) => strip(page).getByRole("listitem");
+const route = (page: Page) => section(page, "Strecke");
+const mapCard = (page: Page) => section(page, "Zeitfresser");
+/**
+ * The station rows of the route card: its list items with a link (a section between them has
+ * none), the collapsed other stops included.
+ */
+const stops = (page: Page) =>
+  route(page)
+    .getByRole("listitem", { includeHidden: true })
+    .filter({ has: page.getByRole("link", { includeHidden: true }) });
+const othersToggle = (page: Page) => route(page).getByText("Weitere Halte (2)");
+/** The sections between consecutive stations of the shown direction, in travel order. */
+const connectors = (page: Page) => route(page).getByTestId("section");
+/** Background colour and opacity of each element. */
+const looks = (l: Locator) =>
+  l.evaluateAll((all) =>
+    all.map((e) => {
+      const style = getComputedStyle(e);
+      return [style.backgroundColor, style.opacity];
+    }),
+  );
+const box = async (l: Locator) => (await l.boundingBox())!;
 const direction = (page: Page) => page.getByRole("group", { name: "Fahrtrichtung" });
+const jump = (page: Page) => page.getByRole("navigation", { name: "Auf dieser Seite" });
 const U = undefined;
 /** The API with its fixtures, except for the line and its sections. */
 const withLine = (
@@ -78,10 +98,8 @@ test("four tiles show the whole line's values, pooled over all stations", async 
   ];
   for (const [i, texts] of expected.entries())
     for (const text of texts) await expect(items.nth(i)).toContainText(text);
-  // The tiles come first, above the stations.
-  const tilesBox = (await tiles(page).boundingBox())!;
-  const stopsBox = (await section(page, "Halte der Linie").boundingBox())!;
-  expect(tilesBox.y).toBeLessThan(stopsBox.y);
+  // The tiles come first, above the route.
+  expect((await box(tiles(page))).y).toBeLessThan((await box(route(page))).y);
 });
 
 test("a line without whole-line values shows empty tiles", async ({ page }) => {
@@ -105,7 +123,7 @@ test("the no-live-data note appears only for a line without live data", async ({
   // What the data says is still shown.
   await expect(tiles(page).getByRole("listitem")).toHaveCount(4);
   await expect(stops(page)).toHaveCount(6);
-  await expect(strip(page)).toBeVisible();
+  await expect(connectors(page)).toHaveCount(3);
 });
 
 test("a single train says so in its header, and its way back leads to the single trains", async ({
@@ -140,7 +158,7 @@ test("the request names the line and the months, and foreign keys are dropped", 
   expect(sections).toEqual({ linie: LINE_ID, von: "2026-01" });
 });
 
-test("the stations come in axis order, then the others under their own heading", async ({
+test("the stations come in axis order, then the others collapsed under their own summary", async ({
   page,
 }) => {
   await mockApi(page);
@@ -150,9 +168,9 @@ test("the stations come in axis order, then the others under their own heading",
   const names = ["Dortmund Hbf", "Hamm (Westf) Hbf", "Soest", "Warburg (Westf)", "Werl"];
   for (const [i, name] of names.entries()) await expect(rows.nth(i)).toContainText(name);
   await expect(rows.nth(5)).toContainText("Haltepunkt ohne Karte");
-  await expect(
-    section(page, "Halte der Linie").getByRole("heading", { level: 3, name: "Weitere Halte" }),
-  ).toBeVisible();
+  await expect(rows.nth(4)).toBeHidden();
+  await othersToggle(page).click();
+  await expect(rows.nth(4)).toBeVisible();
   const first = rows.first();
   for (const text of ["90 %", "n = 9.000", "✕ 2,0 %"]) await expect(first).toContainText(text);
   await expect(first.locator("i").first()).toHaveCSS("background-color", R1);
@@ -162,13 +180,11 @@ test("the stations come in axis order, then the others under their own heading",
 });
 
 const AXIS = ["Dortmund Hbf", "Hamm (Westf) Hbf", "Soest", "Warburg (Westf)"];
-const axisList = (page: Page) =>
-  section(page, "Halte der Linie").getByRole("list", { name: "Entlang der Linie" });
-const otherList = (page: Page) =>
-  section(page, "Halte der Linie").getByRole("list", { name: "Weitere Halte" });
-const widthOf = async (l: Locator) => (await l.boundingBox())!.width;
+const axisList = (page: Page) => route(page).getByRole("list", { name: "Entlang der Linie" });
+const otherList = (page: Page) => route(page).getByRole("list", { name: "Weitere Halte" });
+const widthOf = async (l: Locator) => (await box(l)).width;
 
-test("the stations are a route: a dot each, larger ends, a line between, the others apart", async ({
+test("the stations are a route: a dot each, larger ends, a section between, the others apart", async ({
   page,
 }) => {
   await mockApi(page);
@@ -183,40 +199,41 @@ test("the stations are a route: a dot each, larger ends, a line between, the oth
   expect(first).toBeGreaterThan(second);
   expect(last).toBeGreaterThan(third);
   expect(second).toBe(third);
-  // a line piece on each side of a dot that has a neighbour: 3 gaps, 6 pieces
-  await expect(axisList(page).getByTestId("route-line")).toHaveCount(6);
-  // every dot sits beside its own row, left of it
+  // a line piece on each side of a dot that has a neighbour (6) and one per section between (3)
+  await expect(axisList(page).getByTestId("route-line")).toHaveCount(9);
+  await expect(connectors(page)).toHaveCount(3);
+  // every dot sits beside its own row, left of it, and each section between its two rows
   for (const i of [0, 1, 2, 3]) {
-    const dot = (await dots.nth(i).boundingBox())!;
-    const row = (await rows.nth(i).boundingBox())!;
+    const dot = await box(dots.nth(i));
+    const row = await box(rows.nth(i));
     expect(dot.y + dot.height / 2).toBeGreaterThan(row.y);
     expect(dot.y + dot.height / 2).toBeLessThan(row.y + row.height);
     expect(dot.x + dot.width).toBeLessThanOrEqual(row.x + 1);
+    if (i === 3) continue;
+    const between = await box(connectors(page).nth(i));
+    expect(between.y).toBeGreaterThanOrEqual(row.y + row.height - 1);
+    expect(between.y + between.height).toBeLessThanOrEqual((await box(rows.nth(i + 1))).y + 1);
   }
-  // the other stops: no line, no dots, below the route under their own heading
+  // the other stops: no line, no dots, below the route under their own summary
+  await othersToggle(page).click();
+  await expect(otherList(page)).toBeVisible();
   await expect(otherList(page).getByTestId("stop-dot")).toHaveCount(0);
   await expect(otherList(page).getByTestId("route-line")).toHaveCount(0);
-  const heading = section(page, "Halte der Linie").getByRole("heading", {
-    level: 3,
-    name: "Weitere Halte",
-  });
-  const lastRow = (await rows.nth(3).boundingBox())!;
-  expect((await heading.boundingBox())!.y).toBeGreaterThan(lastRow.y + lastRow.height - 1);
+  const heading = othersToggle(page);
+  const lastRow = await box(rows.nth(3));
+  expect((await box(heading)).y).toBeGreaterThan(lastRow.y + lastRow.height - 1);
 });
 
-test("one toggle in the page header turns the station plan and the strip together", async ({
+test("one toggle in the page header turns the stations and their sections together", async ({
   page,
 }) => {
   await mockApi(page);
   await page.goto(LINE_PATH);
-  await expect(stripRows(page)).toHaveCount(3);
-  // above the tiles and not in the Zeitfresser card any more
-  await expect(
-    section(page, "Zeitfresser").getByRole("group", { name: "Fahrtrichtung" }),
-  ).toHaveCount(0);
-  expect((await direction(page).boundingBox())!.y).toBeLessThan(
-    (await tiles(page).boundingBox())!.y,
-  );
+  await expect(connectors(page)).toHaveCount(3);
+  // above the tiles, in no card
+  await expect(route(page).getByRole("group", { name: "Fahrtrichtung" })).toHaveCount(0);
+  await expect(mapCard(page).getByRole("group", { name: "Fahrtrichtung" })).toHaveCount(0);
+  expect((await box(direction(page))).y).toBeLessThan((await box(tiles(page))).y);
   const rows = stops(page);
   for (const [i, name] of AXIS.entries()) await expect(rows.nth(i)).toContainText(name);
   // the larger dots are at the start and the end of the shown direction
@@ -228,7 +245,7 @@ test("one toggle in the page header turns the station plan and the strip togethe
   await expect(page).toHaveURL(/[?&]richtung=2/);
   for (const [i, name] of [...AXIS].reverse().entries())
     await expect(rows.nth(i)).toContainText(name);
-  await expect(stripRows(page).first()).toContainText("Warburg (Westf) → Soest");
+  await expect(connectors(page).first()).toContainText("Warburg (Westf) → Soest");
   expect(await big()).toBe(true);
   // the stops off the axis keep their place
   await expect(rows.nth(4)).toContainText("Werl");
@@ -236,7 +253,7 @@ test("one toggle in the page header turns the station plan and the strip togethe
 
   await direction(page).getByRole("button", { name: "Richtung Warburg (Westf)" }).click();
   await expect(rows.first()).toContainText("Dortmund Hbf");
-  await expect(stripRows(page).first()).toContainText("Dortmund Hbf → Hamm (Westf) Hbf");
+  await expect(connectors(page).first()).toContainText("Dortmund Hbf → Hamm (Westf) Hbf");
 });
 
 test("a station row links to its page and keeps the metric and the period", async ({ page }) => {
@@ -252,18 +269,18 @@ test("the metric switch changes the station values without a new request", async
   const requests = await mockApi(page);
   await page.goto(LINE_PATH);
   await expect(stops(page)).toHaveCount(6);
-  await expect(strip(page)).toBeVisible();
+  await expect(connectors(page)).toHaveCount(3);
   const before = lineRequests(requests).length;
   await page.getByRole("button", { name: "Typische Verspätung" }).click();
   await expect(page).toHaveURL(/[?&]k=median$/);
   await expect(stops(page).nth(1)).toContainText("3 min");
   await expect(stops(page).nth(3)).toContainText("9 min");
   // The sections are minutes along the line: the metric does not touch them.
-  await expect(stripRows(page).first()).toContainText("−0,8 min");
+  await expect(connectors(page).first()).toContainText("−0,8 min");
   expect(lineRequests(requests)).toHaveLength(before);
 });
 
-test("the strip lists the sections in travel order with sign, trips and the sum", async ({
+test("between the stations the sections read in travel order with sign, trips and the sum", async ({
   page,
 }) => {
   await mockApi(page);
@@ -271,21 +288,22 @@ test("the strip lists the sections in travel order with sign, trips and the sum"
   await expect(
     direction(page).getByRole("button", { name: "Richtung Warburg (Westf)" }),
   ).toHaveAttribute("aria-pressed", "true");
-  const rows = stripRows(page);
-  await expect(rows).toHaveCount(3);
-  const expected = [
-    ["Dortmund Hbf → Hamm (Westf) Hbf", "−0,8 min", "12.345 Fahrten"],
-    ["Hamm (Westf) Hbf → Soest", "+0,1 min", "8.000 Fahrten"],
-    ["Soest → Warburg (Westf)", "+1,8 min", "6.000 Fahrten"],
-  ];
-  for (const [i, texts] of expected.entries())
-    for (const text of texts) await expect(rows.nth(i)).toContainText(text);
-  await expect(section(page, "Zeitfresser")).toContainText("Summe der Abschnitte: +1,1 min");
-  await expect(section(page, "Zeitfresser")).toContainText("Mittlere Minuten");
-  await expect(section(page, "Zeitfresser")).toContainText("Jeder Abschnitt zählt alle Fahrten");
+  // A screen reader hears the pair of stations first; the minutes always stand in the text.
+  await expect(connectors(page)).toHaveText([
+    "Dortmund Hbf → Hamm (Westf) Hbf: −0,8 min · 12.345 Fahrten",
+    "Hamm (Westf) Hbf → Soest: +0,1 min · 8.000 Fahrten",
+    "Soest → Warburg (Westf): +1,8 min · 6.000 Fahrten",
+  ]);
+  // In the one list of the route: station, section, station …
+  const items = axisList(page).getByRole("listitem");
+  await expect(items).toHaveCount(7);
+  for (const i of [1, 3, 5]) await expect(items.nth(i)).toHaveAttribute("data-testid", "section");
+  await expect(route(page)).toContainText("Summe der Abschnitte: +1,1 min");
+  await expect(route(page)).toContainText("Zwischen zwei Halten stehen die mittleren Minuten");
+  await expect(route(page)).toContainText("Jeder Abschnitt zählt alle Fahrten");
 });
 
-test("the direction toggle writes richtung and reverses the strip and the sum", async ({
+test("the direction toggle writes richtung and reverses the sections and the sum", async ({
   page,
 }) => {
   await mockApi(page);
@@ -293,12 +311,12 @@ test("the direction toggle writes richtung and reverses the strip and the sum", 
   await direction(page).getByRole("button", { name: "Richtung Dortmund Hbf" }).click();
   await expect(page).toHaveURL(/[?&]richtung=2/);
   await expect(page).toHaveURL(/[?&]k=p90/);
-  const rows = stripRows(page);
+  const rows = connectors(page);
   await expect(rows.first()).toContainText("Warburg (Westf) → Soest");
   await expect(rows.first()).toContainText("+0,6 min");
   await expect(rows.nth(2)).toContainText("Hamm (Westf) Hbf → Dortmund Hbf");
   await expect(rows.nth(2)).toContainText("+0,4 min");
-  await expect(section(page, "Zeitfresser")).toContainText("Summe der Abschnitte: +0,7 min");
+  await expect(route(page)).toContainText("Summe der Abschnitte: +0,7 min");
   // A change of the metric or the period keeps the direction.
   await page.getByRole("button", { name: "Ausfälle", exact: true }).click();
   await expect(page).toHaveURL(/[?&]richtung=2/);
@@ -309,17 +327,17 @@ test("the direction toggle writes richtung and reverses the strip and the sum", 
 test("a richtung key that is the default or invalid is dropped", async ({ page }) => {
   await mockApi(page);
   await page.goto(`${LINE_PATH}?richtung=1`);
-  await expect(stripRows(page)).toHaveCount(3);
+  await expect(connectors(page)).toHaveCount(3);
   await expect(page).not.toHaveURL(/richtung/);
   await page.goto(`${LINE_PATH}?richtung=x&k=p90`);
-  await expect(stripRows(page)).toHaveCount(3);
+  await expect(connectors(page)).toHaveCount(3);
   await expect(page).toHaveURL(/\/linie\/RE57%3A08000080\?k=p90$/);
   await page.goto(`${LINE_PATH}?richtung=2`);
-  await expect(stripRows(page).first()).toContainText("Warburg (Westf) → Soest");
+  await expect(connectors(page).first()).toContainText("Warburg (Westf) → Soest");
   await expect(page).toHaveURL(/richtung=2$/);
 });
 
-test("a ring that returns to its first station keeps the closing section in the strip", async ({
+test("a ring that returns to its first station keeps the closing section in the route", async ({
   page,
 }) => {
   const [dortmund, hamm, soest] = lineFixture().bahnhoefe;
@@ -344,10 +362,10 @@ test("a ring that returns to its first station keeps the closing section in the 
   ];
   await withLine(page, ring, sections);
   await page.goto(LINE_PATH);
-  const rows = stripRows(page);
+  const rows = connectors(page);
   await expect(rows).toHaveCount(3);
   await expect(rows.nth(2)).toContainText("Soest → Dortmund Hbf");
-  await expect(section(page, "Zeitfresser")).toContainText("Summe der Abschnitte: +1,5 min");
+  await expect(route(page)).toContainText("Summe der Abschnitte: +1,5 min");
   // The route visits Dortmund at both ends: the station stands at each of its places.
   await expect(stops(page)).toHaveCount(4);
   await expect(stops(page).first()).toContainText("Dortmund Hbf");
@@ -368,12 +386,11 @@ test("a line that runs one way shows no toggle and the direction that has data",
   const against = new Set(["08000718>08000367", "08000367>08000149", "08000149>08000080"]);
   await withLine(page, U, () => all.filter((s) => against.has(`${s.von_eva}>${s.nach_eva}`)));
   await page.goto(LINE_PATH);
-  await expect(strip(page)).toBeVisible();
+  await expect(connectors(page)).toHaveCount(3);
   await expect(direction(page)).toHaveCount(0);
-  await expect(stripRows(page).first()).toContainText("Warburg (Westf) → Soest");
-  await expect(strip(page)).toHaveAccessibleName("Abschnitte in Richtung Dortmund Hbf");
-  await expect(section(page, "Zeitfresser")).toContainText("Summe der Abschnitte: +0,7 min");
-  // The station plan follows the direction that has data.
+  await expect(connectors(page).first()).toContainText("Warburg (Westf) → Soest");
+  await expect(route(page)).toContainText("Summe der Abschnitte: +0,7 min");
+  // The stations follow the direction that has data.
   await expect(stops(page).first()).toContainText("Warburg (Westf)");
   await expect(stops(page).nth(3)).toContainText("Dortmund Hbf");
 
@@ -381,21 +398,24 @@ test("a line that runs one way shows no toggle and the direction that has data",
   await withLine(page, U, () => all.filter((s) => there.has(`${s.von_eva}>${s.nach_eva}`)));
   await page.goto(`${LINE_PATH}?richtung=2`);
   await expect(direction(page)).toHaveCount(0);
-  await expect(stripRows(page).first()).toContainText("Dortmund Hbf → Hamm (Westf) Hbf");
+  await expect(connectors(page).first()).toContainText("Dortmund Hbf → Hamm (Westf) Hbf");
   await expect(stops(page).first()).toContainText("Dortmund Hbf");
 });
 
-test("a section without trips reads as a dash and adds nothing to the sum", async ({ page }) => {
+test("a section without values says so, is very pale and adds nothing to the sum", async ({
+  page,
+}) => {
   await withLine(page, U, () =>
     abschnitteFixture().filter((s) => s.von_eva !== "08000149" || s.nach_eva !== "08000367"),
   );
   await page.goto(LINE_PATH);
-  const rows = stripRows(page);
+  const rows = connectors(page);
   await expect(rows).toHaveCount(3);
-  await expect(rows.nth(1)).toContainText("Hamm (Westf) Hbf → Soest");
-  await expect(rows.nth(1)).toContainText("keine Werte");
-  await expect(section(page, "Zeitfresser")).toContainText("Summe der Abschnitte: +1,0 min");
-  await expect(rows.nth(1).getByTestId("section-bar")).toHaveCount(0);
+  await expect(rows.nth(1)).toHaveText("Hamm (Westf) Hbf → Soest: keine Werte");
+  await expect(route(page)).toContainText("Summe der Abschnitte: +1,0 min");
+  expect(await looks(rows.nth(1).getByTestId("route-line"))).toEqual([
+    ["rgb(101, 109, 126)", "0.3"],
+  ]);
 });
 
 test("branches and skipped stops sit in a closed group with their direction written out", async ({
@@ -403,10 +423,12 @@ test("branches and skipped stops sit in a closed group with their direction writ
 }) => {
   await mockApi(page);
   await page.goto(LINE_PATH);
-  await expect(stripRows(page)).toHaveCount(3);
+  await expect(connectors(page)).toHaveCount(3);
   const summary = page.getByText("Äste und Abschnitte mit ausgelassenen Halten (4)");
   await expect(summary).toBeVisible();
-  const other = page.getByRole("list", { name: "Äste und Abschnitte mit ausgelassenen Halten" });
+  const other = route(page).getByRole("list", {
+    name: "Äste und Abschnitte mit ausgelassenen Halten",
+  });
   await expect(other).toBeHidden();
   await summary.click();
   await expect(other.getByRole("listitem")).toHaveCount(4);
@@ -449,28 +471,31 @@ test("each class draws in its token colour, the thin section pale, branches dash
   expect(segment(two, "Warburg (Westf) → Soest").alpha).toBe(1);
 });
 
-test("the strip bars carry the class colour and the thin one is pale", async ({ page }) => {
+test("the route line between two dots takes the section's step colour, the thin one pale", async ({
+  page,
+}) => {
   await mockApi(page);
   await page.goto(`${LINE_PATH}?richtung=2`);
-  const bars = stripRows(page).getByTestId("section-bar");
-  await expect(bars).toHaveCount(3);
-  const colours = await bars.evaluateAll((all) =>
-    all.map((b) => {
-      const style = getComputedStyle(b);
-      return [style.backgroundColor, style.opacity];
-    }),
-  );
-  expect(colours).toEqual([
-    ["rgb(239, 138, 71)", "1"],
-    ["rgb(103, 169, 207)", "1"],
-    ["rgb(239, 138, 71)", "0.5"],
+  await expect(connectors(page)).toHaveCount(3);
+  const [r4, r2] = ["rgb(239, 138, 71)", "rgb(103, 169, 207)"];
+  // In order: Warburg's piece down, the section, Soest's piece up, its piece down, … Hamm's up.
+  expect(await looks(axisList(page).getByTestId("route-line"))).toEqual([
+    [r4, "1"],
+    [r4, "1"],
+    [r4, "1"],
+    [r2, "1"],
+    [r2, "1"],
+    [r2, "1"],
+    [r4, "0.5"],
+    [r4, "0.5"],
+    [r4, "0.5"],
   ]);
 });
 
 test("the legend names the five steps and the pale marker", async ({ page }) => {
   await mockApi(page);
   await page.goto(LINE_PATH);
-  const legend = page.getByRole("list", { name: "Farbstufen der Abschnitte" });
+  const legend = route(page).getByRole("list", { name: "Farbstufen der Abschnitte" });
   await expect(legend.getByRole("listitem")).toHaveText([
     "unter −0,5 min",
     "−0,5 bis −0,15 min",
@@ -478,18 +503,31 @@ test("the legend names the five steps and the pale marker", async ({ page }) => 
     "+0,15 bis +1 min",
     "über +1 min",
   ]);
-  await expect(section(page, "Zeitfresser")).toContainText("blass: weniger als 50 Fahrten");
+  await expect(route(page)).toContainText("blass: weniger als 50 Fahrten");
 });
 
 test("the map is ready, labelled, tall enough and inside the page width", async ({ page }) => {
   await mockApi(page);
   await page.goto(LINE_PATH);
-  const map = page.getByTestId("line-map");
+  const map = mapCard(page).getByTestId("line-map");
   await expect(map).toHaveAttribute("data-ready", "true");
-  const box = (await map.boundingBox())!;
-  expect(box.height).toBeGreaterThan(250);
-  expect(box.x + box.width).toBeLessThanOrEqual(page.viewportSize()!.width);
+  const at = await box(map);
+  expect(at.height).toBeGreaterThan(250);
+  expect(at.x + at.width).toBeLessThanOrEqual(page.viewportSize()!.width);
   await expect(page.getByRole("region", { name: "Karte der Zeitfresser" })).toBeVisible();
+});
+
+test("the map's attribution starts collapsed and opens from its button", async ({ page }) => {
+  await mockApi(page);
+  await page.goto(LINE_PATH);
+  const map = mapCard(page).getByTestId("line-map");
+  await expect(map).toHaveAttribute("data-ready", "true");
+  const text = map.locator(".maplibregl-ctrl-attrib-inner");
+  await expect(text).toBeHidden();
+  await expect(text).toContainText("CC BY 4.0");
+  await map.locator(".maplibregl-ctrl-attrib-button").click();
+  await expect(text).toBeVisible();
+  await expect(text.getByRole("link", { name: "piebro/deutsche-bahn-data" })).toBeVisible();
 });
 
 test("the sparkline links to the time series of the line", async ({ page }) => {
@@ -524,10 +562,29 @@ test("a line with no sections says so and keeps the stations", async ({ page }) 
   await withLine(page, U, () => []);
   await page.goto(LINE_PATH);
   await expect(stops(page)).toHaveCount(6);
-  await expect(section(page, "Zeitfresser")).toContainText(
+  await expect(route(page)).toContainText(
     "Für diese Linie liegen im Zeitraum keine Abschnittswerte vor.",
   );
-  await expect(strip(page)).toHaveCount(0);
+  await expect(connectors(page)).toHaveCount(0);
+  await expect(route(page).getByText(/Summe der Abschnitte/)).toHaveCount(0);
+});
+
+test("failed sections show the error in the route card, which keeps its stations", async ({
+  page,
+}) => {
+  let calls = 0;
+  await withLine(page, U, () => (calls++ === 0 ? null : abschnitteFixture()));
+  await page.goto(LINE_PATH);
+  await expect(route(page).getByRole("alert")).toContainText("Daten konnten nicht geladen werden.");
+  await expect(stops(page)).toHaveCount(6);
+  await expect(connectors(page)).toHaveCount(0);
+  // The plain route of the stations card: grey pieces between the dots.
+  const pieces = axisList(page).getByTestId("route-line");
+  await expect(pieces).toHaveCount(6);
+  expect(new Set((await looks(pieces)).map(String))).toEqual(new Set(["rgb(101, 109, 126),1"]));
+  await route(page).getByRole("button", { name: "Erneut versuchen" }).click();
+  await expect(connectors(page)).toHaveCount(3);
+  await expect(route(page).getByRole("alert")).toHaveCount(0);
 });
 
 test("an unknown line is a state with the way back to the rankings", async ({ page }) => {
@@ -568,16 +625,22 @@ test("the sidebar has no Verspätungsketten item any more", async ({ page, isMob
 test.describe("dark theme", () => {
   test.use({ colorScheme: "dark" });
 
-  test("bars and map segments use the dark step colours", async ({ page }) => {
+  test("bars, sections and map segments use the dark step colours", async ({ page }) => {
     await mockApi(page);
     await page.goto(LINE_PATH);
     await expect(stops(page).first().locator("i").first()).toHaveCSS("background-color", R1_DARK);
     const all = await segments(page);
     expect(all.filter((s) => !s.dashed).map((s) => s.fill)).toEqual([DARK[0], DARK[2], DARK[4]]);
+    const rgb = (hex: string) =>
+      `rgb(${[1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16)).join(", ")})`;
+    expect(await looks(connectors(page).getByTestId("route-line"))).toEqual(
+      [DARK[0], DARK[2], DARK[4]].map((hex) => [rgb(hex), "1"]),
+    );
   });
 
-  test("the route dots and line take the dark tokens", async ({ page }) => {
-    await mockApi(page);
+  test("the route dots and the plain line take the dark tokens", async ({ page }) => {
+    // Without sections the route is the plain line of the stations.
+    await withLine(page, U, () => []);
     await page.goto(LINE_PATH);
     const dots = axisList(page).getByTestId("stop-dot");
     await expect(dots).toHaveCount(4);
@@ -597,19 +660,19 @@ test.describe("English", () => {
   test("the page reads in English with decimal points", async ({ page }) => {
     await mockApi(page);
     await page.goto(LINE_PATH);
-    await expect(section(page, "Stops of the line")).toBeVisible();
-    await expect(section(page, "Time wasters")).toContainText("Sum of the sections: +1.1 min");
+    const card = section(page, "Route");
+    await expect(card).toContainText("Sum of the sections: +1.1 min");
+    await expect(section(page, "Time wasters").getByTestId("line-map")).toBeVisible();
     const toggle = page.getByRole("group", { name: "Direction of travel" });
     await expect(toggle.getByRole("button", { name: "Direction Warburg (Westf)" })).toHaveAttribute(
       "aria-pressed",
       "true",
     );
-    await expect(
-      page
-        .getByRole("list", { name: /^Sections in direction/ })
-        .getByRole("listitem")
-        .first(),
-    ).toContainText("12,345 trips");
+    await expect(card.getByTestId("section").first()).toHaveText(
+      "Dortmund Hbf → Hamm (Westf) Hbf: −0.8 min · 12,345 trips",
+    );
+    const jump = page.getByRole("navigation", { name: "On this page" });
+    await expect(jump.getByRole("link")).toHaveText(["Route", "Graphic timetable"]);
   });
 
   test("the tiles, the no-live-data note and the single-train hint read in English", async ({
@@ -634,18 +697,30 @@ test.describe("English", () => {
 test.describe("mobile", () => {
   test.skip(({ isMobile }) => !isMobile, "mobile layout");
 
-  test("one column, no sideways scroll, the strip rows are cards", async ({ page }) => {
+  test("one column, no sideways scroll, the station rows are cards with the sections between", async ({
+    page,
+  }) => {
     await mockApi(page);
     await page.goto(LINE_PATH);
     await expect(stops(page)).toHaveCount(6);
-    await expect(stripRows(page)).toHaveCount(3);
+    await expect(connectors(page)).toHaveCount(3);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
       true,
     );
     const row = stops(page).first();
-    const name = (await row.getByText("Dortmund Hbf").boundingBox())!;
-    const bar = (await row.locator("i").first().boundingBox())!;
+    const name = await box(row.getByText("Dortmund Hbf"));
+    const bar = await box(row.locator("i").first());
     expect(bar.y).toBeGreaterThan(name.y + name.height - 1);
+    // the map above the route, the same width
+    const [map, card] = [await box(mapCard(page)), await box(route(page))];
+    expect(map.y + map.height).toBeLessThanOrEqual(card.y);
+    expect(map.width).toBeCloseTo(card.width, 0);
+    // the line runs on through the gaps: the section's piece meets the stations' pieces
+    const down = await box(row.getByTestId("route-line"));
+    const piece = await box(connectors(page).first().getByTestId("route-line"));
+    const up = await box(stops(page).nth(1).getByTestId("route-line").first());
+    expect(piece.y).toBeLessThanOrEqual(down.y + down.height + 0.5);
+    expect(piece.y + piece.height).toBeGreaterThanOrEqual(up.y - 0.5);
   });
 
   test("the route fits the phone in both directions, with the dots left of the rows", async ({
@@ -653,7 +728,7 @@ test.describe("mobile", () => {
   }) => {
     await mockApi(page);
     await page.goto(`${LINE_PATH}?richtung=2`);
-    await expect(stripRows(page)).toHaveCount(3);
+    await expect(connectors(page)).toHaveCount(3);
     await expect(stops(page).first()).toContainText("Warburg (Westf)");
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
       true,
@@ -664,12 +739,12 @@ test.describe("mobile", () => {
     expect(dot.x + dot.width).toBeLessThanOrEqual(row.x + 1);
   });
 
-  test("the direction toggle and the metric switch have a hit area of at least 44 px", async ({
+  test("the direction toggle, the jump chips and the metric switch have a hit area of at least 44 px", async ({
     page,
   }) => {
     await mockApi(page);
     await page.goto(LINE_PATH);
-    await expect(stripRows(page)).toHaveCount(3);
+    await expect(connectors(page)).toHaveCount(3);
     /** True when a tap 21 px above and below the centre still lands on the control. */
     const tall = (l: Locator) =>
       l.evaluate((el) => {
@@ -682,12 +757,104 @@ test.describe("mobile", () => {
     const controls = [
       direction(page).getByRole("button", { name: "Richtung Warburg (Westf)" }),
       direction(page).getByRole("button", { name: "Richtung Dortmund Hbf" }),
+      jump(page).getByRole("link", { name: "Strecke" }),
+      jump(page).getByRole("link", { name: "Bildfahrplan" }),
       page.getByRole("button", { name: "Ausfälle", exact: true }),
       page.getByRole("navigation", { name: "Brotkrumen" }).getByRole("link", { name: "Rankings" }),
       page.getByText("Äste und Abschnitte mit ausgelassenen Halten (4)"),
+      othersToggle(page),
     ];
     for (const c of controls) expect(await tall(c), `${await c.textContent()}`).toBe(true);
   });
+});
+
+test("the jump chips under the header lead to the route and to the Bildfahrplan", async ({
+  page,
+}) => {
+  await mockApi(page);
+  await page.goto(LINE_PATH);
+  await expect(connectors(page)).toHaveCount(3);
+  await expect(jump(page).getByRole("link")).toHaveText(["Strecke", "Bildfahrplan"]);
+  // under the direction toggle, above the tiles
+  const chips = await box(jump(page));
+  expect(chips.y).toBeGreaterThan((await box(direction(page))).y);
+  expect(chips.y).toBeLessThan((await box(tiles(page))).y);
+
+  const heading = (name: string) => section(page, name).getByRole("heading", { level: 2 });
+  await jump(page).getByRole("link", { name: "Bildfahrplan" }).click();
+  await expect(heading("Bildfahrplan")).toBeInViewport();
+  expect((await box(section(page, "Bildfahrplan"))).y).toBeGreaterThanOrEqual(0);
+  await jump(page).getByRole("link", { name: "Strecke" }).click();
+  await expect(heading("Strecke")).toBeInViewport();
+  // The card's top stands a little below the window's edge, not under it.
+  await expect.poll(async () => (await box(route(page))).y).toBeGreaterThanOrEqual(8);
+  expect((await box(route(page))).y).toBeLessThan(40);
+  // The page stays the same: the query is untouched.
+  await expect(page).toHaveURL(new RegExp(`${LINE_PATH}#strecke$`));
+});
+
+test.describe("layout", () => {
+  test.skip(({ isMobile }) => isMobile, "set widths on the desktop browser");
+
+  test("from 1280 px the map stands beside the route and stays in view, the tiles beside the trend", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await mockApi(page);
+    await page.goto(LINE_PATH);
+    await expect(connectors(page)).toHaveCount(3);
+    const [card, map, tileBox, trend, bf] = await Promise.all(
+      [
+        route(page),
+        mapCard(page),
+        tiles(page),
+        section(page, "Letzte 12 Monate"),
+        section(page, "Bildfahrplan"),
+      ].map(box),
+    );
+    expect(map.x).toBeGreaterThanOrEqual(card.x + card.width);
+    expect(Math.abs(map.y - card.y)).toBeLessThan(2);
+    expect(trend.x).toBeGreaterThanOrEqual(tileBox.x + tileBox.width);
+    expect(trend.y).toBeLessThan(tileBox.y + tileBox.height);
+    // the Bildfahrplan below both, the full width
+    expect(bf.y).toBeGreaterThan(Math.max(card.y + card.height, map.y + map.height));
+    expect(Math.abs(bf.x - card.x)).toBeLessThan(2);
+    expect(Math.abs(bf.x + bf.width - (map.x + map.width))).toBeLessThan(2);
+    // Scrolled until the route's top is above the window, the map card holds at the top.
+    await page.evaluate((y) => scrollTo(0, y), card.y + 100);
+    await expect.poll(async () => Math.round((await box(mapCard(page))).y)).toBe(24);
+    expect((await box(route(page))).y).toBeLessThan(0);
+  });
+
+  test("from 1280 px the four tiles stand two by two in their column", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await mockApi(page);
+    await page.goto(LINE_PATH);
+    await expect(tiles(page).getByRole("listitem")).toHaveCount(4);
+    const boxes = await Promise.all((await tiles(page).getByRole("listitem").all()).map(box));
+    expect(new Set(boxes.map((b) => Math.round(b.x))).size).toBe(2);
+    expect(new Set(boxes.map((b) => Math.round(b.y))).size).toBe(2);
+  });
+
+  for (const width of [768, 375])
+    test(`at ${width} px the map stands above the route and the trend under the tiles`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await mockApi(page);
+      await page.goto(LINE_PATH);
+      await expect(connectors(page)).toHaveCount(3);
+      const [card, map, tileBox, trend] = await Promise.all(
+        [route(page), mapCard(page), tiles(page), section(page, "Letzte 12 Monate")].map(box),
+      );
+      expect(map.y + map.height).toBeLessThanOrEqual(card.y);
+      expect(Math.abs(map.x - card.x)).toBeLessThan(2);
+      expect(Math.abs(map.width - card.width)).toBeLessThan(2);
+      expect(trend.y).toBeGreaterThanOrEqual(tileBox.y + tileBox.height);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+        true,
+      );
+    });
 });
 
 test.describe("Bildfahrplan", () => {
@@ -720,7 +887,7 @@ test.describe("Bildfahrplan", () => {
     return { ...day, fahrten: day.fahrten.filter((f) => keep(f.zug)) };
   };
 
-  test("it follows the Zeitfresser, asks for the newest day and holds the day field to the window", async ({
+  test("it follows the route, asks for the newest day and holds the day field to the window", async ({
     page,
   }) => {
     const requests = await mockApi(page);
@@ -736,9 +903,8 @@ test.describe("Bildfahrplan", () => {
     await expect(chart(page)).toHaveAccessibleName(
       "Bildfahrplan RE57 Dortmund Hbf – Warburg (Westf), Mi., 30.09.2026: 3 Fahrten",
     );
-    expect((await bf(page).boundingBox())!.y).toBeGreaterThan(
-      (await section(page, "Zeitfresser").boundingBox())!.y,
-    );
+    const [card, map, below] = await Promise.all([route(page), mapCard(page), bf(page)].map(box));
+    expect(below.y).toBeGreaterThan(Math.max(card.y + card.height, map.y + map.height));
   });
 
   test("picking a day writes tag and asks for that day; the newest day is not written", async ({

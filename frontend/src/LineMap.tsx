@@ -60,6 +60,11 @@ export function LineMap({ points, segments }: { points: MapPoint[]; segments: Ma
       center: [10.4, 51.2],
       zoom: 5,
     });
+    // The compact attribution opens on load and would cover a third of this small map; it starts
+    // collapsed here and opens from its button.
+    box
+      .current!.querySelector(".maplibregl-compact-show")
+      ?.classList.remove("maplibregl-compact-show");
     // Runs for every base style, so a theme switch (which drops our sources and layers) gets them back.
     m.on("style.load", () => {
       const now = current();

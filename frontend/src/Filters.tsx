@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useId, useRef } from "react";
+import { Fragment, useEffect, useId, useRef, type ReactNode } from "react";
 import { useSearchParams } from "react-router";
 import { clearParams, useSetParams } from "./useSetParams";
 import { lageDays, useDatenstand, useStation } from "./api";
@@ -25,7 +25,8 @@ const chip = (on: boolean) =>
  * Global filter bar of the Discover area. All state lives in the URL. `noStation` leaves out the
  * Bahnhof chip, `noCategory` the Gattung chip and `noPeriod` the Zeitraum chip. `stationName` is the selected station's name when
  * the page already has it: a string uses it, `null` waits for the page's data, `undefined` looks
- * the station up. With a `linie` in the URL, a removable chip shows `lineTitle`. `lage` (the
+ * the station up. `lines` (the time series) adds a Linie chip that picks a line; with a `linie` in
+ * the URL the chip shows `lineTitle`, opens the picker to change it and has a remove button. `lage` (the
  * Live-Lage page) shows a day instead of a period and a train type: a day field and chips for
  * Heute, Gestern and Vorgestern. Its newest day is the default and so never written as `tag`.
  * `days` (the period map) shows the period as two day fields instead of month selects; the month
@@ -38,6 +39,7 @@ export function Filters({
   lage,
   days,
   stationName,
+  lines,
   lineTitle,
 }: {
   noStation?: boolean;
@@ -46,6 +48,7 @@ export function Filters({
   lage?: boolean;
   days?: boolean;
   stationName?: string | null;
+  lines?: boolean;
   lineTitle?: string;
 }) {
   const setParams = useSetParams();
@@ -87,6 +90,13 @@ export function Filters({
         })
       : [];
   const reasons = useId();
+  const station = useStation(f.bhf, !noStation && !!f.bhf && stationName === undefined);
+  // A picked line wins over a station.
+  const pickLine = (linie: string) =>
+    setParams((p) => {
+      p.delete("bhf");
+      return withParam("linie", linie)(p);
+    });
   return (
     // The vertical padding keeps the mobile tap areas of the chips inside the scroll box.
     <div className="-mx-4 -mt-1.5 mb-2.5 flex gap-2 overflow-x-auto px-4 pt-1.5 pb-2 [scrollbar-width:none] md:mx-0 md:flex-wrap md:overflow-visible md:px-0">
@@ -183,9 +193,10 @@ export function Filters({
         </label>
       )}
       {!noStation && (
-        <StationFilter
-          eva={f.bhf}
-          name={stationName}
+        <Picker
+          id="bhf"
+          scope="bahnhoefe"
+          className={`${chip(!!f.bhf)} cursor-pointer`}
           // A picked station wins over a line, which only the time series knows.
           onPick={(eva) =>
             setParams((p) => {
@@ -193,12 +204,38 @@ export function Filters({
               return withParam("bhf", eva)(p);
             })
           }
-        />
+        >
+          {t("filter.chip", { label: t("filter.station") })}
+          <b className={`px-1 font-semibold ${f.bhf ? "" : "text-text"}`}>
+            {!f.bhf
+              ? t("filter.all")
+              : (stationName ?? station.data?.name ?? t("filter.eva", { eva: f.bhf }))}
+          </b>
+        </Picker>
       )}
-      {f.linie && (
-        <span className={chip(true)}>
+      {lines && !f.linie && (
+        <Picker
+          id="linie"
+          scope="linien"
+          className={`${chip(false)} cursor-pointer`}
+          onPick={pickLine}
+        >
           {t("filter.chip", { label: t("filter.line") })}
-          <b className="px-1 font-semibold">{lineTitle ?? f.linie}</b>
+          <b className="px-1 font-semibold text-text">{t("filter.all")}</b>
+        </Picker>
+      )}
+      {lines && f.linie && (
+        <div className={chip(true)}>
+          {/* The chip's title opens the same picker, to change the line. */}
+          <Picker
+            id="linie"
+            scope="linien"
+            className="hit inline-flex cursor-pointer items-center"
+            onPick={pickLine}
+          >
+            {t("filter.chip", { label: t("filter.line") })}
+            <b className="px-1 font-semibold">{lineTitle ?? f.linie}</b>
+          </Picker>
           <button
             type="button"
             aria-label={t("filter.lineRemove")}
@@ -207,7 +244,7 @@ export function Filters({
           >
             <Icon name="x" className="size-3.5" />
           </button>
-        </span>
+        </div>
       )}
       <button
         type="button"
@@ -277,42 +314,52 @@ export function DayField({
   );
 }
 
-// Below the chip where anchor positioning exists; elsewhere the default centred popover.
+// Below the chip where anchor positioning exists (the anchor is named per picker in `style`);
+// elsewhere the default centred popover.
 const ANCHORED =
-  "supports-[anchor-name:--a]:inset-auto supports-[anchor-name:--a]:m-0 supports-[anchor-name:--a]:mt-1 supports-[anchor-name:--a]:[position-anchor:--bhf] supports-[anchor-name:--a]:[position-try-fallbacks:flip-inline] supports-[anchor-name:--a]:[top:anchor(bottom)] supports-[anchor-name:--a]:[left:anchor(left)]";
+  "supports-[anchor-name:--a]:inset-auto supports-[anchor-name:--a]:m-0 supports-[anchor-name:--a]:mt-1 supports-[anchor-name:--a]:[position-try-fallbacks:flip-inline] supports-[anchor-name:--a]:[top:anchor(bottom)] supports-[anchor-name:--a]:[left:anchor(left)]";
 
-/** Chip with a native popover holding a small combobox over /stationen. Filters by EVA only. */
-function StationFilter({
-  eva,
-  name,
+/**
+ * A button (`children` and a chevron) with a native popover holding a small combobox: stations
+ * (by EVA) or lines (by id). `id` names the popover and its CSS anchor.
+ */
+function Picker({
+  id,
+  scope,
+  className,
   onPick,
+  children,
 }: {
-  eva?: string;
-  name?: string | null;
-  onPick: (eva: string) => void;
+  id: string;
+  scope: "bahnhoefe" | "linien";
+  className: string;
+  onPick: (value: string) => void;
+  children: ReactNode;
 }) {
   const pop = useRef<HTMLDivElement>(null);
   const invoker = useRef<HTMLButtonElement>(null);
   const input = useRef<HTMLInputElement>(null);
-  const station = useStation(eva, !!eva && name === undefined);
+  const done = (value: string) => {
+    onPick(value);
+    pop.current?.hidePopover();
+  };
   return (
     <>
       <button
         ref={invoker}
         type="button"
-        popoverTarget="bhf-pop"
-        className={`${chip(!!eva)} cursor-pointer [anchor-name:--bhf]`}
+        popoverTarget={`${id}-pop`}
+        style={{ anchorName: `--${id}` }}
+        className={className}
       >
-        {t("filter.chip", { label: t("filter.station") })}
-        <b className={`px-1 font-semibold ${eva ? "" : "text-text"}`}>
-          {!eva ? t("filter.all") : (name ?? station.data?.name ?? t("filter.eva", { eva }))}
-        </b>
+        {children}
         <Icon name="chev" className="size-4" />
       </button>
       <div
-        id="bhf-pop"
+        id={`${id}-pop`}
         popover="auto"
         ref={pop}
+        style={{ positionAnchor: `--${id}` }}
         onToggle={(e) => {
           if (e.newState === "open") input.current?.focus();
         }}
@@ -326,12 +373,11 @@ function StationFilter({
       >
         <StationSearch
           variant="inline"
-          label={t("filter.stationSearch")}
+          scope={scope}
+          label={t(scope === "bahnhoefe" ? "filter.stationSearch" : "filter.lineSearch")}
           inputRef={input}
-          onPick={(picked) => {
-            onPick(picked);
-            pop.current?.hidePopover();
-          }}
+          onPick={done}
+          onLine={(line) => done(line.linie)}
         />
       </div>
     </>

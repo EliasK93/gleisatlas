@@ -20,6 +20,8 @@ type Linie = components["schemas"]["Linie"];
 type Abschnitt = components["schemas"]["Abschnitt"];
 type Fahrplan = components["schemas"]["Fahrplan"];
 type Halt = components["schemas"]["Halt"];
+type Suche = components["schemas"]["Suche"];
+type SuchLinie = components["schemas"]["SuchLinie"];
 
 /** The dummies of frontend/.env.development, which only the dev server reads; the e2e build has none. */
 export const IMPRESSUM = {
@@ -31,7 +33,7 @@ export const IMPRESSUM = {
 
 // Routed by path, so a set VITE_API_URL can never send a test to a real server.
 const API_PATH =
-  /^\/(heatmap|datenstand|stationen|karte|tageskarte|rankings|zeitverlauf|tagesverlauf|linie)(?:\/([^/]+)(\/statistik|\/linien)?)?$/;
+  /^\/(heatmap|datenstand|stationen|suche|karte|tageskarte|rankings|zeitverlauf|tagesverlauf|linie)(?:\/([^/]+)(\/statistik|\/linien)?)?$/;
 const CORS = { "access-control-allow-origin": "*" };
 
 /** Stand in for the OpenFreeMap styles (light and dark), so map tests never touch the network.
@@ -798,6 +800,37 @@ export function abschnitteFixture(): Abschnitt[] {
   ];
 }
 
+const hit = (linie: string, label: string, typ: string): SuchLinie => ({
+  linie,
+  label,
+  typ,
+  zug: false,
+  richtung: null,
+  ziel: null,
+});
+const RE57 = hit(LINE_ID, "RE57 Dortmund Hbf – Warburg (Westf)", "RE");
+const S6 = hit("S6:08000082", "S6 Essen Hbf – Köln-Worringen", "S");
+const S60 = hit("S60:08000096", "S60 Leonberg – Stuttgart Schwabstr.", "S");
+
+/**
+ * What /suche answers to each term the specs type (the search rules are proven by the API tests):
+ * the lines and which group leads. The stations are the /stationen stand-in; any other term finds
+ * no line.
+ */
+const SUCHE: Record<string, Pick<Suche, "linien" | "zuerst">> = {
+  s: { linien: [S6, S60], zuerst: "bahnhoefe" },
+  "S 6": { linien: [S6, S60], zuerst: "linien" },
+  "s 60": { linien: [S60], zuerst: "linien" },
+  re57: { linien: [RE57], zuerst: "linien" },
+  "re57 dortmund": { linien: [{ ...RE57, richtung: 2, ziel: "Dortmund Hbf" }], zuerst: "linien" },
+  "re57 warburg": { linien: [{ ...RE57, richtung: 1, ziel: "Warburg (Westf)" }], zuerst: "linien" },
+};
+
+export const sucheFixture = (q: string): Suche => ({
+  bahnhoefe: STATIONS.filter((s) => s.name.toLowerCase().includes(q.toLowerCase())),
+  ...(SUCHE[q] ?? { linien: [], zuerst: "bahnhoefe" }),
+});
+
 /** What a `zeitverlauf` or `tagesverlauf` callback returns for an unknown selection (a 404). */
 export const NOT_FOUND = "not-found";
 
@@ -870,6 +903,9 @@ export async function mockApi(
       } else if (name === "tagesverlauf") {
         const q = url.searchParams;
         body = tagesverlauf(q.get("eva"), q.get("gattung") ?? "alle");
+      } else if (name === "suche") {
+        const q = url.searchParams;
+        body = sucheFixture(q.get("q") ?? "");
       } else if (eva) {
         body = STATIONS.find((s) => s.eva === eva) ?? null;
         if (body === null) return route.fulfill({ status: 404, headers: CORS, json: {} });

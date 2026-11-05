@@ -82,7 +82,8 @@ test.describe("desktop", () => {
     await expect(chip).toContainText("RE 1 · Köln Hbf");
     await page.getByRole("button", { name: "Linie entfernen" }).click();
     await expect(page).toHaveURL(/\/muster\/zeitverlauf\?g=fern$/);
-    await expect(chip).toHaveCount(0);
+    await expect(chip).toContainText("Alle");
+    await expect(page.getByRole("button", { name: "Linie entfernen" })).toHaveCount(0);
     // Without the line the page is back in the day view.
     await expect.poll(() => lastQuery(all, "/tagesverlauf")).toEqual({ gattung: "fern" });
   });
@@ -95,12 +96,58 @@ test.describe("desktop", () => {
     await page.getByRole("combobox", { name: "Bahnhof suchen" }).fill("köln");
     await page.getByRole("option", { name: /Köln Hbf/ }).click();
     await expect(page).toHaveURL(/\/muster\/zeitverlauf\?bhf=8000207$/);
-    await expect(page.getByText(/^Linie:/)).toHaveCount(0);
+    await expect(page.getByText(/^Linie:/)).toContainText("Alle");
+    await expect(page.getByRole("button", { name: "Linie entfernen" })).toHaveCount(0);
     await expect(page.getByRole("button", { name: /^Bahnhof/ })).toContainText("Köln Hbf");
     // Without the line the page is back in the day view.
     await expect
       .poll(() => lastQuery(all, "/tagesverlauf"))
       .toEqual({ eva: "8000207", gattung: "alle" });
+  });
+
+  test("the Linie chip opens a line picker; a pick sets the line, drops the station and asks for its series", async ({
+    page,
+  }) => {
+    const all = await mockApi(page);
+    await page.goto("/muster/zeitverlauf?bhf=8000207&g=fern");
+    await expect(chart(page, DAY)).toBeVisible();
+    await page.getByRole("button", { name: /^Linie:\s*Alle$/ }).click();
+    const field = page.getByRole("combobox", { name: "Linie suchen" });
+    await expect(field).toBeFocused();
+    await expect(field).toHaveAttribute("placeholder", "Linie suchen …");
+    // Only lines: the stations containing an s stay out, and so do the group labels.
+    await field.fill("s");
+    const options = page.getByRole("listbox", { name: "Linie" }).getByRole("option");
+    await expect(options).toHaveCount(2);
+    await expect(options.first()).toContainText("S6 Essen Hbf – Köln-Worringen");
+    await expect(page.getByRole("listbox", { name: "Linie" }).getByRole("group")).toHaveCount(0);
+    expect(all.some((u) => u.pathname === "/suche" && u.searchParams.get("q") === "s")).toBe(true);
+    await field.fill("re57");
+    await options.getByText("RE57 Dortmund Hbf – Warburg (Westf)").click();
+    await expect(page).toHaveURL("/muster/zeitverlauf?g=fern&linie=RE57%3A08000080");
+    await expect.poll(() => lastQuery(all)).toEqual({ linie: "RE57:08000080", gattung: "fern" });
+    await expect(page.getByText(/^Linie:/)).toContainText("RE57 · Köln Hbf");
+    await expect(field).toBeHidden();
+  });
+
+  test("with a line set, its chip opens the picker to change the line", async ({ page }) => {
+    const all = await mockApi(page);
+    await page.goto(`/muster/zeitverlauf?${LINE}`);
+    await page.getByRole("button", { name: /^Linie:/ }).click();
+    const field = page.getByRole("combobox", { name: "Linie suchen" });
+    await field.fill("s 60");
+    await field.press("Enter");
+    await expect(page).toHaveURL("/muster/zeitverlauf?linie=S60%3A08000096");
+    await expect.poll(() => lastQuery(all)).toEqual({ linie: "S60:08000096", gattung: "alle" });
+    await expect(page.getByText(/^Linie:/)).toContainText("S60 · Köln Hbf");
+  });
+
+  test("the line picker says when no line matches", async ({ page }) => {
+    await mockApi(page);
+    await page.goto("/muster/zeitverlauf");
+    await page.getByRole("button", { name: /^Linie:\s*Alle$/ }).click();
+    await page.getByRole("combobox", { name: "Linie suchen" }).fill("köln");
+    await expect(page.getByText("Keine Linie gefunden")).toBeVisible();
   });
 
   test("a median below zero stays inside the plot", async ({ page }) => {

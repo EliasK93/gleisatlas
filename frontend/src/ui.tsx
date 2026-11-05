@@ -76,12 +76,15 @@ export function MetricTiles({
   noCancel,
   meta,
   label,
+  className = "",
 }: {
   stats: Stats | undefined;
   /** True when not one stop was cancelled, which the sentence of the cancellations says. */
   noCancel: boolean;
   meta: string;
   label: string;
+  /** Extra classes for the tile grid. */
+  className?: string;
 }) {
   const tiles = METRICS.map((m) => ({ m, shown: show(m, stats, "") }));
   return (
@@ -93,7 +96,10 @@ export function MetricTiles({
         </p>
       )}
 
-      <ul aria-label={label} className="grid grid-cols-2 gap-3 lg:grid-cols-4 lg:gap-4">
+      <ul
+        aria-label={label}
+        className={`grid grid-cols-2 gap-3 lg:grid-cols-4 lg:gap-4 ${className}`}
+      >
         {tiles.map(({ m, shown }) => {
           const cancel = m === "ausfall";
           return (

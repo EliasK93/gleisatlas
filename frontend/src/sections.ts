@@ -1,4 +1,4 @@
-/** The sections of a line along its axis: the strip's rows, the map's segments, the colour steps. Pure functions, no React. */
+/** The sections of a line along its axis: the route's sections, the map's segments, the colour steps. Pure functions, no React. */
 import { LOCALE, t } from "./i18n";
 import { int, NBSP } from "./metrics";
 import type { components } from "./schema";
@@ -37,11 +37,13 @@ export const minutesText = (v: number) => `${signed(v, oneDecimal)}${NBSP}${t("u
 /** A step limit with its sign and no unit: "−0,15". */
 export const limitText = (v: number) => signed(v, limitFormat);
 
-/** One section as the strip and the map's tooltip say it: "A → B: +1,8 min · 12.345 Fahrten". */
-const tipText = (names: string, section?: Abschnitt) =>
-  `${names}: ${section ? minutesText(section.minuten) : "–"} · ${
-    section ? t("line.trips", { n: int(section.n) }) : t("line.strip.none")
-  }`;
+/** A section's minutes and trips, "+1,8 min · 12.345 Fahrten", or "keine Werte" without one. */
+export const sectionText = (section?: Abschnitt) =>
+  section
+    ? `${minutesText(section.minuten)} · ${t("line.trips", { n: int(section.n) })}`
+    : t("line.section.none");
+/** One section as the map's tooltip says it: "A → B: +1,8 min · 12.345 Fahrten". */
+const tipText = (names: string, section?: Abschnitt) => `${names}: ${sectionText(section)}`;
 
 export type Row = { from: Bahnhof; to: Bahnhof; name: string; section?: Abschnitt };
 export type MapSegment = {

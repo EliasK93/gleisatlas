@@ -215,7 +215,7 @@ export default function ZeitverlaufPage() {
           <ShareButton />
         </div>
       </div>
-      <Filters noPeriod lineTitle={data?.titel ?? undefined} />
+      <Filters noPeriod lines lineTitle={data?.titel ?? undefined} />
       {!f.linie && (
         <div className="mb-3">
           <Segmented
