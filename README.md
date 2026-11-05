@@ -37,7 +37,7 @@ Web app that shows the punctuality, typical delay, the worst 10% of arrivals and
 - **Rankings**: stations or lines, worst and best, with a minimum sample so that chance doesn't win.
 - **Time series**: day by day with a trend, or monthly as a switch (lines are monthly). Timetable changes and gaps in the data are marked.
 - **Filters in the URL**: period, category (regional or long-distance), station and metric live in the link, so a shared link opens the same view.
-- **Station search**: Ctrl+K jumps to the search field.
+- **Search**: stations and lines, Ctrl+K jumps to the search field.
 - **German or English, light or dark**: the language follows the browser on the first visit. The theme follows the system or a fixed choice.
 
 ## How it was developed with Claude Code

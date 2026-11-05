@@ -82,6 +82,18 @@ Details in [lines.md](lines.md).
 - [ ] Bildfahrplan: the graphic timetable of the line for one day of the last 28 days, planned against actual (re-check: the Bildfahrplan milestone in [lines.md](lines.md) §5). A table `combine` writes (`fahrten.parquet`, 56 MB) is downloaded at start on Azure like the other files; a trip belongs to its start day and the chart runs past 24:00 for night trips; replacement buses are also dropped by line name
 - [ ] Maybe: network-wide Zeitfresser records as a Rankings tab "Abschnitte" (the worst and best sections, per station pair and direction, pooled over all lines, with a minimum of trips; each row links to its lines). Decide after the Bildfahrplan.
 
+## Finding lines
+Lines are hard to reach: only through a station's line table or the best and worst Rankings. Details: the search in [map.md](map.md), the line page in [lines.md](lines.md).
+- [ ] The global search finds stations and lines: a place lists stations, a line name lists the line's ids, "ic34 dortmund" opens IC34 toward Dortmund, spaces and case do not matter (re-check: `uv run pytest -q tests/core/test_search.py tests/api/test_search_api.py`; `frontend/e2e/search.spec.ts` ("a place query shows the stations and no line group when the API sends no lines", "the API's order decides which group comes first", "a line name lists the exact line first, then the prefix hits, with no station group", "a line option shows its type badge, its label and the matched direction", "the arrow keys run across both groups in their shown order", "a line pick opens the line page with metric and period kept and the direction", "a line toward its last station opens without a direction key", mobile "a tap on a line opens its page; the options are 44 px high"); the grouped field and its rules are in [map.md](map.md))
+- [ ] A line picker in the Zeitverlauf: a "Linie" chip opens the search in its lines-only scope and sets `linie`; the chip of a set line opens it too, to change the line (re-check: `frontend/e2e/zeitverlauf.spec.ts`, "the Linie chip opens a line picker; a pick sets the line, drops the station and asks for its series", "with a line set, its chip opens the picker to change the line", "the line picker says when no line matches"; details in [app-shell.md](app-shell.md))
+- [ ] The line page's route and Zeitfresser strip become one route card with the map beside it, and jump chips under the header (re-check: `frontend/e2e/line.spec.ts`, the milestone in [lines.md](lines.md) §5 names the tests)
+
+### To discuss
+- Restructuring the main navigation, for example pages per entity (station, line) instead of per chart.
+- An advanced search page: stations by conditions, and the lines that stop at a station.
+- The lines in the map's station panel.
+- Deep links to parts of the line page (the route, a section, the Bildfahrplan day).
+
 ## M9+ Planner (v1.0)
 - [ ] Connection-source spike (ADR)
 - [ ] Replay engine
@@ -90,5 +102,6 @@ Details in [lines.md](lines.md).
 ## After v1.0
 Optional features and backlog per SPEC 3.1 and 3.4.
 - [ ] Live-Lage with a larger station set than the 131 (decide first how the days before full coverage are handled and the selection rule, for example at least 3 per state)
+- [ ] A line filter for the Wochentag × Uhrzeit heatmap. It needs a per-line weekday × hour table, so a rebuild of the data and a larger file to download
 - [ ] Maybe: an hour curve of the shown day in the Germany or state card of Live-Lage, against the normal's same hours. Only if it adds something the Zeitverlauf and the heatmap do not already show; otherwise drop it
 - [ ] Maybe: how much later a rail replacement bus (SEV) arrives than the train it replaces. Measure first whether the buses stop at the train's station and how much later they are (about 90 % of replacement rows name the replaced train); shown only if the data really shows it

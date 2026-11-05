@@ -37,7 +37,7 @@ All views are addressable through hash/path routes with query parameters → **s
 
 ```
 [Logo "Gleisatlas"]
-[🔍 Bahnhof suchen …   ⌘K]       ← global search, opens the command palette
+[🔍 Bahnhof, Linie …       ⌘K]       ← global search for stations and lines, ⌘K focuses it
 ENTDECKEN
   ◉ Karte                         ← start page
   ☀ Live-Lage                     ← the map for one day, today by default
@@ -223,7 +223,7 @@ One horizontal track per connection on a **time axis shared by all results** (e.
 - **Filters take effect immediately** (no "apply" button on desktop; on mobile in the sheet "Ergebnisse anzeigen (124)").
 - **Hover = preview, click = pin.** Tooltips on desktop; on touch a tap replaces hover, a second tap opens the detail.
 - **Share:** the button copies the current URL, toast "Link kopiert".
-- **Command palette (⌘K / Ctrl+K):** jump to a station, line or page.
+- **Search (⌘K / Ctrl+K):** the shortcut focuses the search field, which finds stations and lines (no palette dialog); the rules are in [map.md](map.md).
 - **Keyboard and accessibility:** focus ring 2 px `--accent`, every chart has an "Als Tabelle anzeigen" alternative, contrast ≥ 4.5:1 for text, touch targets ≥ 44 px on mobile.
 - **Term tooltips:** dotted-underlined technical terms (median, P90, pünktlich) explain themselves on hover: "Die verspätetsten 10 % der Ankünfte sind mindestens so spät (90. Perzentil, P90)."
 
