@@ -8,8 +8,8 @@ type Bahnhof = components["schemas"]["LinienBahnhof"];
 
 /**
  * Upper limits in minutes of steps 1 to 4 of the section colours (the `r1`–`r5` tokens): steps 1
- * and 2 end below their limit, steps 3 and 4 at it. Step 5 is everything above. The product
- * owner confirms these in the test round, so this is the one place that holds them.
+ * and 2 end below their limit, steps 3 and 4 at it. Step 5 is everything above. This is the one
+ * place that holds them.
  */
 export const STEPS = [-0.5, -0.15, 0.15, 1.0] as const;
 /** Sections with fewer trips are drawn pale, like the map's dots with little data. */
