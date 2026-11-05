@@ -26,6 +26,7 @@ from core.categories import FERN, REGIONAL
 from core.normal import FLOORS, deviation_class, normal, reference_days
 from core.periods import full_coverage_start, local_time, timetable_changes
 from core.rankings import Metric, counted, higher_is_better, rank
+from core.search import line_hits, norm
 from core.stations import LAND_CODES
 from core.stats import CellStats, cell_stats_frame, delay_bins
 
@@ -182,6 +183,21 @@ class Station(BaseModel):
     name: str
     land: str | None  # federal state; not known for every station
     n: int  # stops over the whole data set, all categories
+
+
+class SuchLinie(BaseModel):
+    linie: str
+    label: str
+    typ: str
+    zug: bool  # a single train number ("ICE 679"), not a line
+    richtung: Literal[1, 2] | None  # the line page's direction toward the end station searched for
+    ziel: str | None  # that end station's name; set exactly when richtung is
+
+
+class Suche(BaseModel):
+    bahnhoefe: list[Station]
+    linien: list[SuchLinie]
+    zuerst: Literal["bahnhoefe", "linien"]  # the group to list first
 
 
 class KartenStation(Stats):
@@ -852,6 +868,10 @@ def stationen(
     q: Annotated[str, Query(max_length=100)] = "",
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
 ) -> list[Station]:
+    return find_stations(q, limit)
+
+
+def find_stations(q: str, limit: int) -> list[Station]:
     df = named_stations()
     lower = pl.col("name").str.to_lowercase()
     if q:
@@ -860,6 +880,62 @@ def stationen(
         lower.str.starts_with(q.lower()), "n", "name", descending=[True, True, False]
     )  # prefix matches first, then the busiest station
     return [Station(**r) for r in df.head(limit).iter_rows(named=True)]
+
+
+@lru_cache(maxsize=1)
+def _search_lines(files: tuple[tuple[str, int], ...]) -> tuple[pl.DataFrame, frozenset[str]]:
+    """Every line id as (linie, name, label, typ, zug, n, first, last) for the search: its stops
+    over the whole data set and the names of its axis's end stations (null without an axis), and
+    the normalised line names. `files` (path, mtime) of the four sources is the cache key."""
+    # The three tables are collected first and joined in memory: Polars 2.0's streaming join
+    # panics when a side is empty (a data set without axes).
+    names = named_stations().select("eva", "name")
+    axis = collect(
+        pl.scan_parquet(LINIENWEG_PATH)
+        .sort("linie", "pos")
+        .group_by("linie", maintain_order=True)
+        .agg(first=pl.col("eva").first(), last=pl.col("eva").last())
+    )
+    stops = collect(
+        pl.scan_parquet(LINES_PATH).group_by("linie").agg(n=pl.col("n").sum().cast(pl.Int64))
+    )
+    linien = collect(pl.scan_parquet(LINIEN_PATH).select("linie", "name", "label", "typ", "zug"))
+    lines = (
+        linien.join(stops, on="linie", how="left")
+        .join(axis, on="linie", how="left")
+        .join(names.rename({"eva": "first", "name": "first_name"}), on="first", how="left")
+        .join(names.rename({"eva": "last", "name": "last_name"}), on="last", how="left")
+        .select(
+            "linie",
+            "name",
+            "label",
+            pl.col("typ").fill_null(""),
+            "zug",
+            pl.col("n").fill_null(0),
+            first=pl.col("first_name"),
+            last=pl.col("last_name"),
+        )
+    )
+    return lines, frozenset(map(norm, lines["name"].unique()))
+
+
+@app.get("/suche", response_model=Suche, operation_id="getSuche")
+def suche(
+    q: Annotated[str, Query(min_length=1, max_length=100)],
+    limit: Annotated[int, Query(ge=1, le=20)] = 8,
+) -> Suche:
+    paths = (LINIEN_PATH, LINES_PATH, LINIENWEG_PATH, STATIONS_PATH)
+    lines, names = _search_lines(tuple((p, os.stat(p).st_mtime_ns) for p in paths))
+    hits, exact = line_hits(lines, names, q, limit)
+    bahnhoefe = find_stations(q, limit)
+    # Lines lead after an exact line name, unless a station starts with the query: the source
+    # has line names like "Leer", "E" and "RE", which are also the start of station names.
+    station_named = any(s.name.lower().startswith(q.lower()) for s in bahnhoefe)
+    return Suche(
+        bahnhoefe=bahnhoefe,
+        linien=[SuchLinie(**r) for r in hits.iter_rows(named=True)],
+        zuerst="linien" if hits.height and exact and not station_named else "bahnhoefe",
+    )
 
 
 @app.get("/stationen/{eva}", response_model=Station, operation_id="getStation")

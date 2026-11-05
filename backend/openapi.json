@@ -373,6 +373,59 @@
     }
    }
   },
+  "/suche": {
+   "get": {
+    "summary": "Suche",
+    "operationId": "getSuche",
+    "parameters": [
+     {
+      "name": "q",
+      "in": "query",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "minLength": 1,
+       "maxLength": 100,
+       "title": "Q"
+      }
+     },
+     {
+      "name": "limit",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "integer",
+       "maximum": 20,
+       "minimum": 1,
+       "default": 8,
+       "title": "Limit"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Suche"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
   "/stationen/{eva}": {
    "get": {
     "summary": "Station",
@@ -2432,6 +2485,95 @@
      "puenktlich"
     ],
     "title": "Stats"
+   },
+   "SuchLinie": {
+    "properties": {
+     "linie": {
+      "type": "string",
+      "title": "Linie"
+     },
+     "label": {
+      "type": "string",
+      "title": "Label"
+     },
+     "typ": {
+      "type": "string",
+      "title": "Typ"
+     },
+     "zug": {
+      "type": "boolean",
+      "title": "Zug"
+     },
+     "richtung": {
+      "anyOf": [
+       {
+        "type": "integer",
+        "enum": [
+         1,
+         2
+        ]
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Richtung"
+     },
+     "ziel": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Ziel"
+     }
+    },
+    "type": "object",
+    "required": [
+     "linie",
+     "label",
+     "typ",
+     "zug",
+     "richtung",
+     "ziel"
+    ],
+    "title": "SuchLinie"
+   },
+   "Suche": {
+    "properties": {
+     "bahnhoefe": {
+      "items": {
+       "$ref": "#/components/schemas/Station"
+      },
+      "type": "array",
+      "title": "Bahnhoefe"
+     },
+     "linien": {
+      "items": {
+       "$ref": "#/components/schemas/SuchLinie"
+      },
+      "type": "array",
+      "title": "Linien"
+     },
+     "zuerst": {
+      "type": "string",
+      "enum": [
+       "bahnhoefe",
+       "linien"
+      ],
+      "title": "Zuerst"
+     }
+    },
+    "type": "object",
+    "required": [
+     "bahnhoefe",
+     "linien",
+     "zuerst"
+    ],
+    "title": "Suche"
    },
    "Tag": {
     "properties": {
