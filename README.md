@@ -4,6 +4,8 @@
 
 Web app that shows the punctuality, typical delay, the worst 10% of arrivals and cancellations of German rail traffic by station, line, weekday and hour, since July 2024 and up to the last complete day. The data is Deutsche Bahn's, from the [DB Timetables API](https://developers.deutschebahn.com/db-api-marketplace/apis/product/timetables): the history from the archive [piebro/deutsche-bahn-data](https://huggingface.co/datasets/piebro/deutsche-bahn-data), the data of the current day optionally straight from the Timetables API. It is aggregated with [Python](https://www.python.org) and [Polars](https://pola.rs) and served by [FastAPI](https://fastapi.tiangolo.com). The UI is built with [React](https://react.dev), [TypeScript](https://www.typescriptlang.org), [Vite](https://vite.dev), [Tailwind](https://tailwindcss.com) and [MapLibre](https://maplibre.org), and is set up for Azure. It reads in German or English, in a light or a dark theme. Historical statistics, no forecast or guarantee. Not a Deutsche Bahn service. The data is under CC BY 4.0.
 
+Built with Claude Code using test-driven development, planned milestones and reviews, described in [How it was developed with Claude Code](#how-it-was-developed-with-claude-code).
+
 <table>
 <tr>
 <td align="center" valign="top" width="50%"><p><b>Map</b></p><img src="docs/images/map.png" width="100%" alt="Map of Germany with every station as a dot coloured by punctuality"><br>Every station as a dot, coloured by punctuality and sized by the number of stops, on a map of Germany.</td>
