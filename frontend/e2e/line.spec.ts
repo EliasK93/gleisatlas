@@ -704,6 +704,7 @@ test.describe("mobile", () => {
     await page.goto(LINE_PATH);
     await expect(stops(page)).toHaveCount(6);
     await expect(connectors(page)).toHaveCount(3);
+    await fontsReady(page);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
       true,
     );
