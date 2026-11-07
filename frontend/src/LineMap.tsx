@@ -24,7 +24,13 @@ function collections(points: MapPoint[], segments: MapSegment[], theme: Theme) {
       features: segments.map((s) => ({
         type: "Feature" as const,
         geometry: { type: "LineString" as const, coordinates: s.coords },
-        properties: { fill: fill(s.step), alpha: s.alpha, dashed: s.dashed ? 1 : 0, tip: s.tip },
+        properties: {
+          fill: fill(s.step),
+          alpha: s.alpha,
+          dashed: s.dashed ? 1 : 0,
+          tip: s.tip,
+          pair: s.pair ?? "",
+        },
       })),
     },
     dots: {
@@ -38,13 +44,29 @@ function collections(points: MapPoint[], segments: MapSegment[], theme: Theme) {
   };
 }
 
+/** The filter of the highlight layer: the segment of `pair`, none for no selection. */
+const only = (pair?: string): ExpressionSpecification => ["==", ["get", "pair"], pair ?? "-"];
+
 /**
  * A small map of one line: its sections as straight segments between the stations, coloured by
- * the caller's step (`fill` from the theme tokens), the stations on top. The map fits the
- * stations when they change, not when only the segments do. Tests wait for `data-ready` and
- * read the drawn segments from `data-segments`.
+ * the caller's step (`fill` from the theme tokens), the stations on top. A click on a solid
+ * segment picks its section (`onSelect`), and the `selected` one is drawn wider and fitted to its
+ * two stations. The map fits all stations when they change or the selection ends, not when only
+ * the segments do. Tests wait for `data-ready`, read the drawn segments from `data-segments`, the
+ * selection from `data-selected` and where each solid segment's middle is from `data-mids`.
  */
-export function LineMap({ points, segments }: { points: MapPoint[]; segments: MapSegment[] }) {
+export function LineMap({
+  points,
+  segments,
+  selected,
+  onSelect,
+}: {
+  points: MapPoint[];
+  segments: MapSegment[];
+  /** The `abschnitt` pair of the selected section. */
+  selected?: string;
+  onSelect: (pair: string) => void;
+}) {
   const box = useRef<HTMLDivElement>(null);
   const [map, setMap] = useState<MapLibre>();
   const [tip, setTip] = useState<Tip>(null);
@@ -53,7 +75,8 @@ export function LineMap({ points, segments }: { points: MapPoint[]; segments: Ma
   const styled = useRef(resolved);
   const data = useMemo(() => collections(points, segments, resolved), [points, segments, resolved]);
   // What a freshly loaded base style needs to draw the line again.
-  const current = useEffectEvent(() => data);
+  const current = useEffectEvent(() => ({ ...data, selected }));
+  const pick = useEffectEvent(onSelect);
 
   useEffect(() => {
     const m = baseMap(box.current!, t("line.map.label"), styled.current, {
@@ -74,6 +97,15 @@ export function LineMap({ points, segments }: { points: MapPoint[]; segments: Ma
         "line-color": ["get", "fill"],
         "line-opacity": ["get", "alpha"],
       };
+      // Under the solid line, so the section's own colour stays visible inside the wider band.
+      m.addLayer({
+        id: "segments-selected",
+        type: "line",
+        source: "segments",
+        filter: only(now.selected),
+        layout: { "line-cap": "round" },
+        paint: { "line-color": token("accent"), "line-width": 12, "line-opacity": 0.45 },
+      });
       m.addLayer({
         id: "segments-solid",
         type: "line",
@@ -101,6 +133,12 @@ export function LineMap({ points, segments }: { points: MapPoint[]; segments: Ma
       });
     });
     m.on("load", () => setMap(m));
+    m.on("click", "segments-solid", (e) => {
+      const pair = e.features?.[0]?.properties.pair;
+      if (pair) pick(pair);
+    });
+    m.on("mouseenter", "segments-solid", () => (m.getCanvas().style.cursor = "pointer"));
+    m.on("mouseleave", "segments-solid", () => (m.getCanvas().style.cursor = ""));
     const hover = matchMedia("(hover: hover)").matches;
     for (const layer of ["segments-solid", "segments-dashed", "dots"]) {
       m.on("mousemove", layer, (e) => {
@@ -145,15 +183,39 @@ export function LineMap({ points, segments }: { points: MapPoint[]; segments: Ma
     });
   }, [map, data]);
 
+  // The test hooks of the selection and of where a click can land.
+  useEffect(() => {
+    const el = box.current!;
+    el.dataset.selected = selected ?? "";
+    if (map?.getLayer("segments-selected")) map.setFilter("segments-selected", only(selected));
+  }, [map, selected]);
+  useEffect(() => {
+    if (!map) return;
+    const publish = () => {
+      const middles = data.segments.features.flatMap((f) => {
+        if (!f.properties.pair) return [];
+        const [a, b] = f.geometry.coordinates.map((c) => map.project(c as [number, number]));
+        return [[f.properties.pair, [(a.x + b.x) / 2, (a.y + b.y) / 2]]];
+      });
+      box.current!.dataset.mids = JSON.stringify(Object.fromEntries(middles));
+    };
+    publish();
+    map.on("moveend", publish);
+    return () => void map.off("moveend", publish);
+  }, [map, data]);
+
   const fitKey = points.map((p) => p.eva).join();
   useEffect(() => {
     if (!map || !fitKey) return;
+    // The selected section's two stations, else (also when one has no coordinates) all of them.
+    const ends = selected?.split("-").map((eva) => points.find((p) => p.eva === eva));
+    const fit = ends?.every(Boolean) ? (ends as MapPoint[]) : points;
     const bounds = new LngLatBounds();
-    for (const p of points) bounds.extend([p.lon, p.lat]);
+    for (const p of fit) bounds.extend([p.lon, p.lat]);
     map.fitBounds(bounds, { padding: 40, maxZoom: 11, animate: false });
     // `points` is read only when the stations change, which `fitKey` names.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [map, fitKey]);
+  }, [map, fitKey, selected]);
 
   return (
     <div className="relative h-[340px] overflow-hidden rounded-lg border border-border md:h-[420px]">

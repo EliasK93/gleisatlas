@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
-import { localLabel } from "../src/metrics";
-import { EMPTY_KARTE, fontsReady, karteFixture, mockApi } from "./fixtures";
+import { formatPeriod, localLabel } from "../src/metrics";
+import { EMPTY_KARTE, fontsReady, karteFixture, linienFixture, mockApi, queryOf } from "./fixtures";
 
 const map = (page: Page) => page.getByTestId("map");
 const panel = (page: Page) => page.getByRole("complementary");
@@ -519,4 +519,125 @@ test("the open attribution wraps instead of running under the legend", async ({
     const apart = a.x >= l.x + l.width || a.y >= l.y + l.height || a.y + a.height <= l.y;
     expect(apart, `${width}`).toBe(true);
   }
+});
+
+test.describe("the lines in the station panel", () => {
+  const U = undefined;
+  /** The API lists the worst first; the fixture is turned around so only the sort puts the busiest on top. */
+  const open = async (page: Page, query: string) => {
+    const requests = await mockApi(page, U, U, U, U, () => linienFixture().reverse());
+    await page.goto(`/karte?bhf=8000207&${query}`);
+    return requests;
+  };
+  const lines = (page: Page) => panel(page).getByRole("region", { name: "Häufigste Linien" });
+
+  test("list the five busiest lines with type, name and the value in the metric", async ({
+    page,
+  }) => {
+    await open(page, "von=2026-08&bis=2026-09");
+    const rows = lines(page).getByRole("listitem");
+    await expect(rows).toHaveCount(5);
+    const expected = ["50 %", "53 %", "56 %", "59 %", "62 %"];
+    for (const [i, value] of expected.entries()) {
+      await expect(rows.nth(i)).toContainText(`RE ${i + 1} · Köln Hbf`);
+      await expect(rows.nth(i)).toContainText(value);
+      await expect(rows.nth(i).getByText("RE", { exact: true })).toBeVisible();
+    }
+    // The map's metric decides the value.
+    await page.getByRole("button", { name: "Schlechteste 10 %" }).click();
+    for (const i of [0, 1, 2, 3, 4]) await expect(rows.nth(i)).toContainText("8 min");
+  });
+
+  test("a row opens the line page with the metric and the period", async ({ page }) => {
+    await open(page, "von=2026-08&bis=2026-09&k=median");
+    const first = lines(page).getByRole("link").first();
+    await expect(first).toHaveAttribute(
+      "href",
+      "/linie/RE%201%3A8000207?von=2026-08&bis=2026-09&k=median",
+    );
+    await first.click();
+    await expect(page).toHaveURL(/\/linie\/RE%201%3A8000207\?von=2026-08&bis=2026-09&k=median$/);
+  });
+
+  test("ask for the station's lines in the map's category and months", async ({ page }) => {
+    const requests = await open(page, "g=fern&von=2026-08&bis=2026-09");
+    await expect(lines(page).getByRole("listitem")).toHaveCount(5);
+    const asked = requests.filter((u) => u.pathname === "/stationen/8000207/linien");
+    expect(asked.map(queryOf)).toEqual([{ gattung: "fern", von: "2026-08", bis: "2026-09" }]);
+  });
+
+  test("Alle 12 Linien opens the station page at its lines", async ({ page }) => {
+    await open(page, "g=fern");
+    const all = panel(page).getByRole("link", { name: "Alle 12 Linien" });
+    await expect(all).toHaveAttribute("href", "/bahnhof/8000207?g=fern&bhf=8000207#linien");
+    await all.click();
+    await expect(page).toHaveURL(/\/bahnhof\/8000207\?g=fern#linien$/);
+    const card = page.getByRole("region", { name: "Linien an diesem Bahnhof" });
+    await expect(card).toBeInViewport();
+    expect(await page.evaluate(() => scrollY)).toBeGreaterThan(0);
+  });
+
+  test("a station with up to five lines has no link to all", async ({ page }) => {
+    await mockApi(page, U, U, U, U, () => linienFixture().slice(0, 3));
+    await page.goto("/karte?bhf=8000207");
+    await expect(lines(page).getByRole("listitem")).toHaveCount(3);
+    await expect(lines(page).getByRole("link", { name: /^Alle \d+ Linien$/ })).toHaveCount(0);
+  });
+
+  test("a station without lines says so, and a failed request offers a retry", async ({ page }) => {
+    await mockApi(page, U, U, U, U, () => []);
+    await page.goto("/karte?bhf=8000207");
+    await expect(lines(page)).toContainText("Mit diesen Filtern gibt es hier keine Linien.");
+    await mockApi(page, U, U, U, U, () => null);
+    await page.goto("/karte?bhf=8000207");
+    await expect(panel(page).getByRole("alert")).toBeVisible();
+  });
+
+  test("the months the lines cover stand on one line of their own below the heading, days rounded outward", async ({
+    page,
+  }) => {
+    const months = (period: string) => lines(page).getByText(period, { exact: true });
+    await open(page, "von=2026-08-10&bis=2026-09-25");
+    await expect(months(formatPeriod("2026-08", "2026-09"))).toBeVisible();
+    await open(page, "von=2026-09-03&bis=2026-09-25");
+    await expect(months(formatPeriod("2026-09"))).toBeVisible();
+    // Without a period in the URL: the covered range, from full coverage to the newest month.
+    await open(page, "k=median");
+    const longest = months(formatPeriod("2025-11", "2026-09"));
+    await expect(longest).toBeVisible();
+    await expect(lines(page).getByRole("heading")).toHaveText("Häufigste Linien");
+    const [heading, period] = [
+      (await lines(page).getByRole("heading").boundingBox())!,
+      (await longest.boundingBox())!,
+    ];
+    expect(period.y).toBeGreaterThanOrEqual(heading.y + heading.height);
+    expect(period.height).toBeLessThan(24);
+  });
+
+  test("on a phone the actions stay in the sheet without scrolling, above the lines", async ({
+    page,
+    isMobile,
+  }) => {
+    test.skip(!isMobile, "mobile layout");
+    await open(page, "g=fern");
+    await expect(lines(page).getByRole("listitem")).toHaveCount(5);
+    const sheet = (await panel(page).boundingBox())!;
+    const details = (await panel(page).getByRole("link", { name: "Alle Details" }).boundingBox())!;
+    expect(details.y).toBeGreaterThanOrEqual(sheet.y);
+    expect(details.y + details.height).toBeLessThanOrEqual(sheet.y + sheet.height);
+    expect(await panel(page).evaluate((el) => el.scrollTop)).toBe(0);
+    const first = (await lines(page).getByRole("link").first().boundingBox())!;
+    expect(first.y).toBeGreaterThan(details.y + details.height);
+  });
+
+  test("a row on a phone is at least 44 px high", async ({ page, isMobile }) => {
+    test.skip(!isMobile, "mobile layout");
+    await open(page, "g=fern");
+    const rows = lines(page).getByRole("link");
+    await expect(rows).toHaveCount(6);
+    for (const i of [0, 1, 2, 3, 4, 5]) {
+      await rows.nth(i).scrollIntoViewIfNeeded();
+      expect((await rows.nth(i).boundingBox())!.height).toBeGreaterThanOrEqual(44);
+    }
+  });
 });

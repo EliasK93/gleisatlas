@@ -46,8 +46,12 @@ export const sectionText = (section?: Abschnitt) =>
 const tipText = (names: string, section?: Abschnitt) => `${names}: ${sectionText(section)}`;
 
 export type Row = { from: Bahnhof; to: Bahnhof; name: string; section?: Abschnitt };
+/** The `abschnitt` key of a row: the EVAs of its two stations in travel order. */
+export const pairOf = (row: Pick<Row, "from" | "to">) => `${row.from.eva}-${row.to.eva}`;
 export type MapSegment = {
   coords: [[number, number], [number, number]];
+  /** The `abschnitt` key a click selects; none for a dashed segment. */
+  pair: string | null;
   /** The colour step, or none for a section without trips. */
   step: Step | null;
   alpha: number;
@@ -117,6 +121,7 @@ function segmentsOf(
     const s = r.section;
     out.push({
       coords: [a, b],
+      pair: pairOf(r),
       step: s ? stepOf(s.minuten) : null,
       alpha: !s ? 0.3 : s.n < THIN_N ? 0.5 : 1,
       dashed: false,
@@ -140,6 +145,7 @@ function segmentsOf(
     const both = sections.length > 1;
     out.push({
       coords: [a, b],
+      pair: null,
       step: stepOf(minutes),
       alpha: n < THIN_N ? 0.5 : 1,
       dashed: true,

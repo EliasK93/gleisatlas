@@ -1,8 +1,8 @@
-import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { Fragment, useEffect, useId, useRef, useState } from "react";
-import { Link, Navigate, useParams, useSearchParams } from "react-router";
+import { Link, Navigate, useLocation, useParams, useSearchParams } from "react-router";
 import { clearParams, useSetParams } from "./useSetParams";
-import { api, must, useMonthPeriod } from "./api";
+import { api, must, useMonthPeriod, useStationLines } from "./api";
 import { Filters } from "./Filters";
 import { t, type MessageKey } from "./i18n";
 import { Icon, type IconName } from "./Icon";
@@ -38,6 +38,7 @@ import {
   SoonTag,
   ZEITVERLAUF,
   SlowHint,
+  useHashScroll,
   Page,
   PageTitle,
   Pulse,
@@ -61,6 +62,7 @@ export default function StationPage() {
   const { eva = "" } = useParams();
   const valid = /^\d+$/.test(eva);
   const [params] = useSearchParams();
+  const { hash } = useLocation();
   const setParams = useSetParams();
   // The station is the page, so a bhf key has no meaning here, nor has a line.
   const f: FilterKeys = {
@@ -71,6 +73,7 @@ export default function StationPage() {
     linie: undefined,
     z: undefined,
     richtung: undefined,
+    abschnitt: undefined,
   };
   // Days in the URL round outward: this page asks for whole months.
   const m = useMonthPeriod(f);
@@ -90,7 +93,7 @@ export default function StationPage() {
 
   // Drop invalid or unknown keys once, so a shared link only carries what the page shows.
   const clean = writeFilters(f).toString();
-  if (clean !== params.toString()) return <Navigate to={{ search: clean }} replace />;
+  if (clean !== params.toString()) return <Navigate to={{ search: clean, hash }} replace />;
 
   const data = q.data;
   if (!valid || data === null)
@@ -454,18 +457,9 @@ function Lines({ eva, f }: { eva: string; f: FilterKeys }) {
   useEffect(() => {
     if (all) firstNew.current?.focus();
   }, [all]);
-  const m = useMonthPeriod(f);
-  const q = useQuery({
-    queryKey: ["linien", eva, f.g, m.von, m.bis],
-    queryFn: () =>
-      api
-        .GET("/stationen/{eva}/linien", {
-          params: { path: { eva }, query: { gattung: f.g ?? "alle", von: m.von, bis: m.bis } },
-        })
-        .then(must),
-    enabled: m.ready,
-    placeholderData: keepPreviousData,
-  });
+  const q = useStationLines(eva, f);
+  // A link with #linien lands here once the rows have made the card its full height.
+  useHashScroll(!!q.data || q.isError);
   // The API lists the lines with a value worst first, then the all-cancelled ones, then the ones
   // with too little data; best first reverses only the first group.
   const lines = q.data && (order === "worst" ? q.data : bestFirst(q.data));
@@ -506,7 +500,7 @@ function Lines({ eva, f }: { eva: string; f: FilterKeys }) {
       </>
     );
   return (
-    <section aria-labelledby={id} className="card">
+    <section id="linien" aria-labelledby={id} className="card scroll-mt-4">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
         <h2 id={id} className="text-base font-[620]">
           {t("station.lines")}

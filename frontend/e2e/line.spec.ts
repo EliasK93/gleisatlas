@@ -21,7 +21,7 @@ const R1_DARK = "rgb(90, 162, 230)";
 
 const section = (page: Page, name: string) => page.getByRole("region", { name, exact: true });
 const route = (page: Page) => section(page, "Strecke");
-const mapCard = (page: Page) => section(page, "Zeitfresser");
+const mapCard = (page: Page) => section(page, "Abschnitte auf der Karte");
 /**
  * The station rows of the route card: its list items with a link (a section between them has
  * none), the collapsed other stops included.
@@ -337,6 +337,154 @@ test("a richtung key that is the default or invalid is dropped", async ({ page }
   await expect(page).toHaveURL(/richtung=2$/);
 });
 
+/** The pairs of the sections of the shown direction, as the `abschnitt` key writes them. */
+const FIRST = "08000080-08000149";
+const SECOND = "08000149-08000367";
+const THIRD = "08000367-08000718";
+const lineMap = (page: Page) => page.getByTestId("line-map");
+const toggleOf = (page: Page, i: number) => connectors(page).nth(i).getByRole("button");
+/** Where the map drew the middle of each solid segment, in the map's own pixels (its test hook). */
+async function middles(page: Page): Promise<Record<string, [number, number]>> {
+  await expect(lineMap(page)).toHaveAttribute("data-ready", "true");
+  return JSON.parse((await lineMap(page).getAttribute("data-mids")) ?? "{}");
+}
+
+test("a click on a section selects it, a second click clears it", async ({ page }) => {
+  await mockApi(page);
+  await page.goto(`${LINE_PATH}?k=p90`);
+  await expect(connectors(page)).toHaveCount(3);
+  const toggle = toggleOf(page, 1);
+  await expect(toggle).toHaveAttribute("aria-pressed", "false");
+  await expect(lineMap(page)).toHaveAttribute("data-selected", "");
+  await toggle.click();
+  await expect(page).toHaveURL(new RegExp(`[?&]abschnitt=${SECOND}`));
+  await expect(page).toHaveURL(/[?&]k=p90/);
+  await expect(toggle).toHaveAttribute("aria-pressed", "true");
+  await expect(toggleOf(page, 0)).toHaveAttribute("aria-pressed", "false");
+  await expect(lineMap(page)).toHaveAttribute("data-selected", SECOND);
+  // A screen reader still hears the pair of stations, the minutes and the trips.
+  await expect(toggle).toHaveAccessibleName("Hamm (Westf) Hbf → Soest: +0,1 min · 8.000 Fahrten");
+  // Tinted background and outline from the theme tokens (--accent-soft, --accent).
+  await expect(toggle).toHaveCSS("background-color", "rgb(236, 235, 253)");
+  await expect(toggle).toHaveCSS("outline-color", "rgb(75, 71, 214)");
+  await expect(toggleOf(page, 0)).toHaveCSS("outline-style", "none");
+  // A change of the metric keeps the selection.
+  await page.getByRole("button", { name: "Ausfälle", exact: true }).click();
+  await expect(page).toHaveURL(new RegExp(`abschnitt=${SECOND}`));
+  await toggle.click();
+  await expect(page).not.toHaveURL(/abschnitt/);
+  await expect(toggle).toHaveAttribute("aria-pressed", "false");
+  await expect(lineMap(page)).toHaveAttribute("data-selected", "");
+});
+
+test("a click on a solid segment of the map selects its section and fits the map to it", async ({
+  page,
+}) => {
+  await mockApi(page);
+  await page.goto(LINE_PATH);
+  await expect(connectors(page)).toHaveCount(3);
+  const before = await middles(page);
+  expect(Object.keys(before)).toEqual([FIRST, SECOND, THIRD]);
+  await lineMap(page).scrollIntoViewIfNeeded();
+  const at = (await lineMap(page).boundingBox())!;
+  const [x, y] = before[SECOND];
+  await page.mouse.click(at.x + x, at.y + y);
+  await expect(page).toHaveURL(new RegExp(`abschnitt=${SECOND}`));
+  await expect(lineMap(page)).toHaveAttribute("data-selected", SECOND);
+  await expect(toggleOf(page, 1)).toHaveAttribute("aria-pressed", "true");
+  // The map moved to the section's two stations.
+  await expect.poll(async () => (await middles(page))[SECOND]).not.toEqual(before[SECOND]);
+  // A second click on the same segment clears it, and the map shows the whole line again.
+  const now = (await middles(page))[SECOND];
+  await page.mouse.click(at.x + now[0], at.y + now[1]);
+  await expect(page).not.toHaveURL(/abschnitt/);
+  await expect
+    .poll(async () => (await middles(page))[SECOND].map(Math.round))
+    .toEqual(before[SECOND].map(Math.round));
+});
+
+test("a link with abschnitt opens with the section selected and in view", async ({ page }) => {
+  await mockApi(page);
+  await page.goto(`${LINE_PATH}?abschnitt=${THIRD}`);
+  await expect(toggleOf(page, 2)).toHaveAttribute("aria-pressed", "true");
+  await expect(lineMap(page)).toHaveAttribute("data-selected", THIRD);
+  // Centred in the window once the sections are in.
+  const centre = async () => {
+    const b = await box(connectors(page).nth(2));
+    return b.y + b.height / 2 - page.viewportSize()!.height / 2;
+  };
+  await expect.poll(async () => Math.abs(await centre())).toBeLessThan(40);
+  // The map is fitted to the two stations of the section.
+  expect(Object.keys(await middles(page))).toContain(THIRD);
+});
+
+test("an abschnitt that is no section of the shown direction is dropped", async ({ page }) => {
+  await mockApi(page);
+  // The first is a skipping section, the second the other direction's, the others no pair at all.
+  for (const bad of ["08000080-08000367", "08000149-08000080", "x", "1-2-3"]) {
+    await page.goto(`${LINE_PATH}?abschnitt=${bad}&k=p90`);
+    await expect(connectors(page)).toHaveCount(3);
+    await expect(page).toHaveURL(/\/linie\/RE57%3A08000080\?k=p90$/);
+  }
+  // In the other direction its own pairs are valid.
+  await page.goto(`${LINE_PATH}?richtung=2&abschnitt=08000149-08000080`);
+  await expect(toggleOf(page, 2)).toHaveAttribute("aria-pressed", "true");
+  await expect(page).toHaveURL(/richtung=2&abschnitt=08000149-08000080$/);
+});
+
+test("a change of the direction clears the selected section", async ({ page }) => {
+  await mockApi(page);
+  await page.goto(`${LINE_PATH}?abschnitt=${SECOND}`);
+  await expect(toggleOf(page, 1)).toHaveAttribute("aria-pressed", "true");
+  await direction(page).getByRole("button", { name: "Richtung Dortmund Hbf" }).click();
+  await expect(page).toHaveURL(/[?&]richtung=2/);
+  await expect(page).not.toHaveURL(/abschnitt/);
+  await expect(lineMap(page)).toHaveAttribute("data-selected", "");
+  for (const i of [0, 1, 2])
+    await expect(toggleOf(page, i)).toHaveAttribute("aria-pressed", "false");
+});
+
+for (const anchor of ["strecke", "bildfahrplan"]) {
+  test(`a link with #${anchor} lands there after the data has arrived`, async ({ page }) => {
+    await mockApi(page);
+    // The sections come late: the route card grows then, and the Bildfahrplan moves down with it.
+    await page.route("**/linie/abschnitte*", async (route) => {
+      await new Promise((done) => setTimeout(done, 700));
+      await route.fallback();
+    });
+    // The cleaning of the foreign key keeps the anchor.
+    await page.goto(`${LINE_PATH}?g=fern#${anchor}`);
+    await expect(connectors(page)).toHaveCount(3);
+    await expect(page).toHaveURL(new RegExp(`/linie/RE57%3A08000080#${anchor}$`));
+    await expect.poll(() => page.evaluate(() => scrollY)).toBeGreaterThan(0);
+    // The route card's top edge stands at the scroll margin (16 px) of the window. The Bildfahrplan
+    // is the last card, still loading when the page scrolls to it, so the page may be too short to
+    // bring it quite to the top; had the scroll come before the sections, it would be far below.
+    const top = anchor === "strecke" ? 40 : 200;
+    await expect
+      .poll(async () => (await box(page.locator(`#${anchor}`))).y, { timeout: 5000 })
+      .toBeLessThan(top);
+    expect((await box(page.locator(`#${anchor}`))).y).toBeGreaterThanOrEqual(0);
+  });
+}
+
+test("an anchor survives the drop of a stale abschnitt that comes with the data", async ({
+  page,
+}) => {
+  await mockApi(page);
+  await page.route("**/linie/abschnitte*", async (route) => {
+    await new Promise((done) => setTimeout(done, 700));
+    await route.fallback();
+  });
+  // The pair is the other direction's: it is dropped in the render in which the page becomes ready.
+  await page.goto(`${LINE_PATH}?abschnitt=08000149-08000080#bildfahrplan`);
+  await expect(connectors(page)).toHaveCount(3);
+  await expect(page).toHaveURL(/\/linie\/RE57%3A08000080#bildfahrplan$/);
+  await expect
+    .poll(async () => (await box(page.locator("#bildfahrplan"))).y, { timeout: 5000 })
+    .toBeLessThan(200);
+});
+
 test("a ring that returns to its first station keeps the closing section in the route", async ({
   page,
 }) => {
@@ -514,7 +662,10 @@ test("the map is ready, labelled, tall enough and inside the page width", async 
   const at = await box(map);
   expect(at.height).toBeGreaterThan(250);
   expect(at.x + at.width).toBeLessThanOrEqual(page.viewportSize()!.width);
-  await expect(page.getByRole("region", { name: "Karte der Zeitfresser" })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Karte der Abschnitte" })).toBeVisible();
+  await expect(mapCard(page)).toContainText(
+    "Mittlere Minuten, die Züge zwischen zwei Halten verlieren oder aufholen. Ein Klick wählt einen Abschnitt.",
+  );
 });
 
 test("the map's attribution starts collapsed and opens from its button", async ({ page }) => {
@@ -662,7 +813,7 @@ test.describe("English", () => {
     await page.goto(LINE_PATH);
     const card = section(page, "Route");
     await expect(card).toContainText("Sum of the sections: +1.1 min");
-    await expect(section(page, "Time wasters").getByTestId("line-map")).toBeVisible();
+    await expect(section(page, "Sections on the map").getByTestId("line-map")).toBeVisible();
     const toggle = page.getByRole("group", { name: "Direction of travel" });
     await expect(toggle.getByRole("button", { name: "Direction Warburg (Westf)" })).toHaveAttribute(
       "aria-pressed",
@@ -722,6 +873,22 @@ test.describe("mobile", () => {
     const up = await box(stops(page).nth(1).getByTestId("route-line").first());
     expect(piece.y).toBeLessThanOrEqual(down.y + down.height + 0.5);
     expect(piece.y + piece.height).toBeGreaterThanOrEqual(up.y - 0.5);
+  });
+
+  test("a section button has a hit area of at least 44 px", async ({ page }) => {
+    await mockApi(page);
+    await page.goto(LINE_PATH);
+    await expect(connectors(page)).toHaveCount(3);
+    for (const i of [0, 1, 2]) {
+      const ok = await toggleOf(page, i).evaluate((el) => {
+        el.scrollIntoView({ block: "center", inline: "center" });
+        const r = el.getBoundingClientRect();
+        const x = r.left + r.width / 2;
+        const y = r.top + r.height / 2;
+        return [-21, 21].every((dy) => el.contains(document.elementFromPoint(x, y + dy)));
+      });
+      expect(ok, `section ${i}`).toBe(true);
+    }
   });
 
   test("the route fits the phone in both directions, with the dots left of the rows", async ({
@@ -822,7 +989,8 @@ test.describe("layout", () => {
     expect(Math.abs(bf.x - card.x)).toBeLessThan(2);
     expect(Math.abs(bf.x + bf.width - (map.x + map.width))).toBeLessThan(2);
     // Scrolled until the route's top is above the window, the map card holds at the top.
-    await page.evaluate((y) => scrollTo(0, y), card.y + 100);
+    // The fixture's route is short: 50 px stays inside the room the taller route leaves the map.
+    await page.evaluate((y) => scrollTo(0, y), card.y + 50);
     await expect.poll(async () => Math.round((await box(mapCard(page))).y)).toBe(24);
     expect((await box(route(page))).y).toBeLessThan(0);
   });

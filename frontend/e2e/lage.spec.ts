@@ -1348,6 +1348,13 @@ test.describe("the station panel", () => {
     await expect(panel(page)).not.toContainText("mit diesen Filtern");
   });
 
+  test("lists no lines: line values are monthly", async ({ page }) => {
+    const requests = await open(page, `tag=${DAY}&bhf=8000207`);
+    await expect(panel(page).getByRole("heading", { level: 2 })).toHaveText("Köln Hbf");
+    await expect(panel(page).getByRole("heading", { name: "Häufigste Linien" })).toHaveCount(0);
+    expect(requests.filter((u) => u.pathname.endsWith("/linien"))).toHaveLength(0);
+  });
+
   test("Alle Details opens the station page, which drops tag", async ({ page }) => {
     await open(page, `tag=${DAY}&bhf=8000207`);
     await panel(page).getByRole("link", { name: "Alle Details" }).click();

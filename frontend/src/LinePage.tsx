@@ -1,6 +1,6 @@
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
-import { Fragment, useId, type ReactNode } from "react";
-import { Link, Navigate, useParams, useSearchParams } from "react-router";
+import { Fragment, useEffect, useId, useMemo, useRef, type ReactNode } from "react";
+import { Link, Navigate, useLocation, useParams, useSearchParams } from "react-router";
 import { api, must, useMonthPeriod } from "./api";
 import { Bildfahrplan } from "./Bildfahrplan";
 import { Filters } from "./Filters";
@@ -24,6 +24,7 @@ import {
   cutLine,
   limitText,
   minutesText,
+  pairOf,
   sectionText,
   STEPS,
   stepOf,
@@ -49,6 +50,7 @@ import {
   SlowHint,
   StatRow,
   stationPath,
+  useHashScroll,
   ZEITVERLAUF,
 } from "./ui";
 import { clearParams, useSetParams } from "./useSetParams";
@@ -63,6 +65,7 @@ export default function LinePage() {
   const { id = "" } = useParams();
   const valid = id.length > 0 && id.length <= MAX_LINE_ID;
   const [params] = useSearchParams();
+  const { hash } = useLocation();
   const setParams = useSetParams();
   const read = readFilters(params);
   // A line has one train type and is itself the page, so category, station, state, line and view
@@ -101,6 +104,11 @@ export default function LinePage() {
   });
 
   const data = q.data;
+  const direction = f.richtung === "2" ? 2 : 1;
+  const view = useMemo(
+    () => (data ? viewOf(data, sections.data, direction) : undefined),
+    [data, sections.data, direction],
+  );
   // The Bildfahrplan's day stays while the line loads; then only a day of its trip window that is
   // not the newest one (the default) is kept.
   const tag =
@@ -114,9 +122,16 @@ export default function LinePage() {
         ? read.tag
         : undefined;
 
+  // A section that is none of the shown direction's rows is dropped once the sections are in.
+  const abschnitt =
+    view?.cut && !view.cut.rows.some((r) => pairOf(r) === f.abschnitt) ? undefined : f.abschnitt;
+
   // Drop invalid or unknown keys once, so a shared link only carries what the page shows.
-  const clean = writeFilters({ ...f, tag }).toString();
-  if (clean !== params.toString()) return <Navigate to={{ search: clean }} replace />;
+  const clean = writeFilters({ ...f, tag, abschnitt }).toString();
+  // #strecke and #bildfahrplan lie below the cards the data sizes: scroll once it has arrived and
+  // no cleaning redirect is pending (it would unmount the page before the anchor exists).
+  useHashScroll(!!data && !sections.isPending && clean === params.toString());
+  if (clean !== params.toString()) return <Navigate to={{ search: clean, hash }} replace />;
 
   if (!valid || data === null)
     return (
@@ -140,7 +155,7 @@ export default function LinePage() {
 
   let body;
   if (q.isError) body = <ErrorBanner onRetry={() => q.refetch()} />;
-  else if (!data) body = <Skeleton />;
+  else if (!data || !view) body = <Skeleton />;
   else if (data.bahnhoefe.every((s) => s.n === 0))
     body = (
       <EmptyCard
@@ -154,11 +169,17 @@ export default function LinePage() {
       <LineView
         line={data}
         sections={sections}
+        view={view}
         f={f}
-        direction={f.richtung === "2" ? 2 : 1}
+        direction={direction}
         tag={tag}
+        selected={abschnitt}
         onMetric={(k) => setParams(withParam("k", k))}
-        onDirection={(d) => setParams(withParam("richtung", d === 2 ? "2" : ""))}
+        // The pair belongs to a direction: the other one starts without a selection.
+        onDirection={(d) =>
+          setParams((p) => withParam("richtung", d === 2 ? "2" : "")(withParam("abschnitt", "")(p)))
+        }
+        onSection={(pair) => setParams(withParam("abschnitt", pair === abschnitt ? "" : pair))}
         onDay={(d) => setParams(withParam("tag", d === data.fahrplan_bis ? "" : d))}
       />
     );
@@ -211,35 +232,50 @@ function Skeleton() {
   );
 }
 
-function LineView({
-  line,
-  sections,
-  f,
-  direction,
-  tag,
-  onMetric,
-  onDirection,
-  onDay,
-}: {
-  line: Linie;
-  sections: UseQueryResult<Abschnitt[]>;
-  f: FilterKeys;
-  direction: 1 | 2;
-  /** The Bildfahrplan's day; undefined is its newest day. */
-  tag?: string;
-  onMetric: (m: Metric) => void;
-  onDirection: (d: 1 | 2) => void;
-  onDay: (day: string) => void;
-}) {
-  // A line that runs one way has no values in the other direction: no toggle, that direction.
-  const cuts = sections.data && {
-    one: cutLine(line.achse, line.bahnhoefe, sections.data, 1),
-    two: cutLine(line.achse, line.bahnhoefe, sections.data, 2),
+/**
+ * The line cut for the direction to show. A line that runs one way has no values in the other
+ * direction: no toggle, that direction. `cut` is undefined until the sections are in.
+ */
+function viewOf(line: Linie, sections: Abschnitt[] | undefined, direction: 1 | 2) {
+  const cuts = sections && {
+    one: cutLine(line.achse, line.bahnhoefe, sections, 1),
+    two: cutLine(line.achse, line.bahnhoefe, sections, 2),
   };
   const both = !!cuts && cuts.one.has && cuts.two.has;
   const shown = both ? direction : cuts?.two.has ? 2 : cuts ? 1 : direction;
   const ends = cuts && [cuts.one.axis[0]?.name, cuts.one.axis.at(-1)?.name];
   const cut = cuts && (shown === 1 ? cuts.one : cuts.two);
+  return { both, shown, ends, cut };
+}
+
+function LineView({
+  line,
+  sections,
+  view: { both, shown, ends, cut },
+  f,
+  direction,
+  tag,
+  selected,
+  onMetric,
+  onDirection,
+  onDay,
+  onSection,
+}: {
+  line: Linie;
+  sections: UseQueryResult<Abschnitt[]>;
+  view: ReturnType<typeof viewOf>;
+  f: FilterKeys;
+  direction: 1 | 2;
+  /** The Bildfahrplan's day; undefined is its newest day. */
+  tag?: string;
+  /** The selected section's `abschnitt` pair. */
+  selected?: string;
+  onMetric: (m: Metric) => void;
+  onDirection: (d: 1 | 2) => void;
+  onDay: (day: string) => void;
+  /** A section was clicked, in the route or on the map. */
+  onSection: (pair: string) => void;
+}) {
   const jump = "chip border-border bg-surface text-text-2 hover:text-text";
   return (
     <div className="flex flex-col gap-4">
@@ -291,7 +327,13 @@ function LineView({
       {/* The map comes first, so it stands above the route in one column; from 1280 px it
           moves to the right and stays in view while the route scrolls. */}
       <div className="grid gap-4 xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] xl:items-start">
-        <ZeitfresserMap stations={line.bahnhoefe} sections={sections} cut={cut} />
+        <ZeitfresserMap
+          stations={line.bahnhoefe}
+          sections={sections}
+          cut={cut}
+          selected={selected}
+          onSelect={onSection}
+        />
         <Route
           axis={axisStations(line.achse, line.bahnhoefe)}
           other={line.bahnhoefe.filter((s) => s.pos === null)}
@@ -300,6 +342,8 @@ function LineView({
           search={linePageSearch(f)}
           sections={sections}
           cut={cut}
+          selected={selected}
+          onSection={onSection}
         />
       </div>
       <div id="bildfahrplan" className="scroll-mt-4">
@@ -352,16 +396,36 @@ function RouteMark({ end, up, down }: { end: boolean; up?: string; down?: string
 
 /**
  * One section between two stations of the route: its piece of the line in the step colour and
- * the minutes and trips as text, after the pair of stations for a screen reader.
+ * the minutes and trips as text, after the pair of stations for a screen reader. A button that
+ * selects the section; the selected one is tinted and outlined.
  */
-function Connector({ row }: { row: Row }) {
+function Connector({
+  row,
+  selected,
+  onSelect,
+}: {
+  row: Row;
+  selected: boolean;
+  onSelect: () => void;
+}) {
   return (
-    <li data-testid="section" className="relative px-1 py-1.5 text-xs text-text-2 tabular-nums">
+    <li data-testid="section" className="relative text-xs text-text-2 tabular-nums">
       <Track>
         <i data-testid="route-line" className={`${PIECE} inset-y-0 ${tone(row.section)}`} />
       </Track>
-      <span className="sr-only">{row.name}: </span>
-      {sectionText(row.section)}
+      <button
+        type="button"
+        aria-pressed={selected}
+        onClick={onSelect}
+        className={`hit block w-full cursor-pointer rounded-md px-1 py-1.5 text-left ${
+          selected
+            ? "bg-accent-soft outline-2 -outline-offset-2 outline-accent"
+            : "hover:bg-surface-2"
+        }`}
+      >
+        <span className="sr-only">{row.name}: </span>
+        {sectionText(row.section)}
+      </button>
     </li>
   );
 }
@@ -380,6 +444,8 @@ function Route({
   search,
   sections,
   cut,
+  selected,
+  onSection,
 }: {
   /** The stations along the axis in direction 1 (`axisStations`). */
   axis: Bahnhof[];
@@ -391,12 +457,25 @@ function Route({
   sections: UseQueryResult<Abschnitt[]>;
   /** The line cut for the shown direction; undefined while the sections load or failed. */
   cut: Cut | undefined;
+  /** The selected section's `abschnitt` pair. */
+  selected?: string;
+  onSection: (pair: string) => void;
 }) {
   const id = useId();
+  const list = useRef<HTMLUListElement>(null);
   const route = reversed ? [...axis].reverse() : axis;
   // Row i is the section from route station i to i + 1 (`cutLine`).
   const none = !!cut && (cut.axis.length < 2 || sections.data?.length === 0);
   const rows = cut && !none ? cut.rows : undefined;
+  // A link with a selected section opens at it, centred, once the rows are there; a click later on
+  // leaves the page where it is.
+  const arrived = !!rows;
+  const opening = useRef(true);
+  useEffect(() => {
+    if (!arrived || !opening.current) return;
+    opening.current = false;
+    list.current?.querySelector("[aria-pressed=true]")?.scrollIntoView({ block: "center" });
+  }, [arrived]);
   const piece = (i: number) => (rows ? tone(rows[i]?.section) : "bg-text-3");
   // Only punctuality has a natural scale; the other bars are relative to the largest value.
   const most = Math.max(
@@ -434,7 +513,11 @@ function Route({
           <RowHead first={t("line.stations.col")} metric={t(`metric.${metric}`)} />
         </div>
         {route.length > 0 && (
-          <ul aria-label={t("line.stations.axis")} className="flex flex-col gap-2.5 pl-6 md:gap-0">
+          <ul
+            ref={list}
+            aria-label={t("line.stations.axis")}
+            className="flex flex-col gap-2.5 pl-6 md:gap-0"
+          >
             {route.map((s, i) => (
               // A ring visits a station more than once, so the EVA is no key.
               <Fragment key={i}>
@@ -447,7 +530,13 @@ function Route({
                     down={i < route.length - 1 ? piece(i) : undefined}
                   />,
                 )}
-                {rows?.[i] && <Connector row={rows[i]} />}
+                {rows?.[i] && (
+                  <Connector
+                    row={rows[i]}
+                    selected={pairOf(rows[i]) === selected}
+                    onSelect={() => onSection(pairOf(rows[i]))}
+                  />
+                )}
               </Fragment>
             ))}
           </ul>
@@ -522,35 +611,56 @@ function Legend() {
   );
 }
 
-/** The Zeitfresser map card: the sections of the shown direction solid, the others dashed. */
+/** The map card: the sections of the shown direction solid, the others dashed. */
 function ZeitfresserMap({
   stations,
   sections,
   cut,
+  selected,
+  onSelect,
 }: {
   stations: Bahnhof[];
   sections: UseQueryResult<Abschnitt[]>;
   /** The line cut for the shown direction; undefined while the sections load or failed. */
   cut: Cut | undefined;
+  /** The selected section's `abschnitt` pair. */
+  selected?: string;
+  onSelect: (pair: string) => void;
 }) {
   const id = useId();
-  const points = stations
-    .filter((s) => s.lon !== null && s.lat !== null)
-    .map((s) => ({ eva: s.eva, name: s.name, lon: s.lon!, lat: s.lat! }));
+  // Stable between renders, so a selection click does not hand the map new data.
+  const points = useMemo(
+    () =>
+      stations
+        .filter((s) => s.lon !== null && s.lat !== null)
+        .map((s) => ({ eva: s.eva, name: s.name, lon: s.lon!, lat: s.lat! })),
+    [stations],
+  );
   let body;
   if (points.length === 0) body = <p className="text-text-2">{t("line.map.none")}</p>;
   else if (sections.isPending)
     body = <Pulse className="h-[340px] animate-pulse rounded-lg bg-surface-2 md:h-[420px]" />;
   // Failed sections leave the stations on the map; the route card says what failed.
-  else body = <LineMap points={points} segments={cut?.segments ?? []} />;
+  else
+    body = (
+      <LineMap
+        points={points}
+        segments={cut?.segments ?? []}
+        selected={selected}
+        onSelect={onSelect}
+      />
+    );
   return (
     <section
       aria-labelledby={id}
       className="card flex min-w-0 flex-col gap-3 xl:sticky xl:top-6 xl:col-start-2 xl:row-start-1"
     >
-      <h2 id={id} className="text-base font-[620]">
-        {t("line.zf")}
-      </h2>
+      <div>
+        <h2 id={id} className="text-base font-[620]">
+          {t("line.map.title")}
+        </h2>
+        <p className="mt-1 text-xs text-text-3">{t("line.map.help")}</p>
+      </div>
       {body}
     </section>
   );

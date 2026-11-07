@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import createClient from "openapi-fetch";
 import { monthsOf } from "./metrics";
 import type { components, paths } from "./schema";
@@ -66,4 +66,26 @@ export function useMonthPeriod(f: { von?: string; bis?: string }) {
     ...monthsOf(f, months ?? []),
     ready: !!months || datenstand.isError || !(f.von || f.bis),
   };
+}
+
+/**
+ * The lines at a station for the category and the months of `f`. The map's station panel and the
+ * station page ask for the same thing, so they share one query key and the cache.
+ */
+export function useStationLines(
+  eva: string,
+  f: { g?: "regional" | "fern"; von?: string; bis?: string },
+) {
+  const m = useMonthPeriod(f);
+  return useQuery({
+    queryKey: ["linien", eva, f.g, m.von, m.bis],
+    queryFn: () =>
+      api
+        .GET("/stationen/{eva}/linien", {
+          params: { path: { eva }, query: { gattung: f.g ?? "alle", von: m.von, bis: m.bis } },
+        })
+        .then(must),
+    enabled: m.ready,
+    placeholderData: keepPreviousData,
+  });
 }

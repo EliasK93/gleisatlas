@@ -287,6 +287,8 @@ export type Filters = {
   z?: "monat";
   /** The line page's direction of travel: only "2" is written, direction 1 is the default. */
   richtung?: "2";
+  /** The line page's selected section, the two EVAs in the shown direction: "08000080-08000149". */
+  abschnitt?: string;
   k: Metric;
 };
 
@@ -302,6 +304,7 @@ export function readFilters(p: URLSearchParams): Filters {
   const linie = p.get("linie");
   const z = p.get("z");
   const richtung = p.get("richtung");
+  const abschnitt = p.get("abschnitt");
   return {
     g: g === "regional" || g === "fern" ? g : undefined,
     bhf: bhf && /^\d+$/.test(bhf) ? bhf : undefined,
@@ -312,6 +315,7 @@ export function readFilters(p: URLSearchParams): Filters {
     linie: linie && linie.length <= MAX_LINE_ID ? linie : undefined,
     z: z === "monat" ? z : undefined,
     richtung: richtung === "2" ? richtung : undefined,
+    abschnitt: abschnitt && /^\d+-\d+$/.test(abschnitt) ? abschnitt : undefined,
     k: METRICS.find((m) => m === k) ?? "puenktlich",
   };
 }
@@ -327,6 +331,7 @@ export function writeFilters({
   linie,
   z,
   richtung,
+  abschnitt,
   k,
 }: Filters): URLSearchParams {
   // The order is fixed, so a link built here equals the URL the page would write itself.
@@ -340,6 +345,7 @@ export function writeFilters({
     linie,
     z,
     richtung,
+    abschnitt,
     k: k === "puenktlich" ? undefined : k,
   };
   return new URLSearchParams(Object.entries(keys).filter((e): e is [string, string] => !!e[1]));

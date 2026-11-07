@@ -215,6 +215,12 @@ test("invalid URL values are dropped, so Teilen never copies them", async ({ pag
   expect(await page.evaluate(() => navigator.clipboard.readText())).toMatch(/\?k=median$/);
 });
 
+test("the line page's keys are dropped from the URL", async ({ page }) => {
+  await mockApi(page);
+  await page.goto("/muster/heatmap?richtung=2&abschnitt=08000080-08000149&k=median");
+  await expect(page).toHaveURL(/\/muster\/heatmap\?k=median$/);
+});
+
 test("empty state offers a reset", async ({ page }) => {
   await mockApi(page, () => EMPTY_HEATMAP);
   await page.goto("/muster/heatmap?g=fern");

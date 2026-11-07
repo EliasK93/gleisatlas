@@ -134,6 +134,7 @@ export default function ZeitverlaufPage() {
     tag: undefined,
     land: undefined,
     richtung: undefined,
+    abschnitt: undefined,
     bhf: read.linie ? undefined : read.bhf,
     z: read.linie ? undefined : read.z,
   };

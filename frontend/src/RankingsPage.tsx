@@ -72,6 +72,7 @@ export default function RankingsPage() {
     linie: undefined,
     z: undefined,
     richtung: undefined,
+    abschnitt: undefined,
   };
   const rank = readRank(params);
   // Days in the URL round outward: this page asks for whole months.

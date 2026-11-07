@@ -1,5 +1,13 @@
 /** Pieces shared by the Discover pages: metric switch, value display, states and Teilen. */
-import { useEffect, useId, useState, useSyncExternalStore, type ReactNode, type Ref } from "react";
+import {
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+  type Ref,
+} from "react";
 import { Link, NavLink, useLocation, type To } from "react-router";
 import { t, type MessageKey } from "./i18n";
 import { Icon } from "./Icon";
@@ -294,6 +302,20 @@ export function MetricSwitch({
       </p>
     </div>
   );
+}
+
+/**
+ * Scrolls once to the element named by the URL hash when `ready` turns true: the data that sizes
+ * the page above it has arrived, so the target no longer moves. A new hash scrolls again.
+ */
+export function useHashScroll(ready: boolean) {
+  const { hash } = useLocation();
+  const done = useRef("");
+  useEffect(() => {
+    if (!ready || !hash || done.current === hash) return;
+    done.current = hash;
+    document.getElementById(hash.slice(1))?.scrollIntoView();
+  }, [ready, hash]);
 }
 
 export const MAP = "/karte";
