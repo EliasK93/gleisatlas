@@ -2,6 +2,8 @@
 
 Manual mode stages everything first and fails on unstaged or untracked files.
 `--hook` (pre-commit) runs only the checks, and skips them all for a tree that already passed.
+Manual and hook mode run only the secret scan when everything changed since the last green tree
+is documentation (`*.md` except the licence file, `docs/images/`).
 `--ci` runs the checks without staging, scans the whole git history for secrets (nothing is
 staged in CI) and fails if a check left changed or untracked files behind.
 """
@@ -74,6 +76,23 @@ def fingerprint() -> str | None:
         return p.stdout.strip()
 
 
+def docs_only(tree: str | None, marker: Path | None) -> bool:
+    """True if the files changed since the last green tree are all docs (any doubt: False)."""
+    if not (tree and marker and marker.exists()):
+        return False
+    # --no-renames: a code file moved to a *.md path must show up under its old name too
+    diff = ["git", "diff", "--name-only", "--no-renames", marker.read_text().strip(), tree]
+    code, out = run(diff, ROOT)
+    files = out.splitlines()
+    return code == 0 and bool(files) and all(is_doc(f) for f in files)
+
+
+def is_doc(path: str) -> bool:
+    if path.startswith("docs/images/"):
+        return True
+    return path.endswith(".md") and path != "THIRD_PARTY_LICENSES.md"
+
+
 def main() -> int:
     hook, ci = "--hook" in sys.argv[1:], "--ci" in sys.argv[1:]
     if not (hook or ci):
@@ -85,9 +104,14 @@ def main() -> int:
     if hook and tree and marker and marker.exists() and marker.read_text().strip() == tree:
         print("PASS all checks (tree unchanged since the last green gate)")
         return 0
+    checks = CHECKS
+    if not ci and docs_only(tree, marker):
+        checks = []
+        tail = "" if hook else ", clean tree"
+        print(f"docs-only change since the last green gate: secret scan{tail}")
     secrets = GITLEAKS if ci else [*GITLEAKS, "--pre-commit", "--staged"]
     failed: list[str] = []
-    for name, cmd, cwd in [*CHECKS, ("gitleaks", secrets, ROOT)]:
+    for name, cmd, cwd in [*checks, ("gitleaks", secrets, ROOT)]:
         code, out = run(cmd, cwd)
         print(f"{'PASS' if code == 0 else 'FAIL'} {name}")
         if code:

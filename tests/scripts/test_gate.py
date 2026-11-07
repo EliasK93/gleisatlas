@@ -111,3 +111,90 @@ def test_manual_mode_always_runs_the_checks(repo: Path, monkeypatch: pytest.Monk
     gate_main(monkeypatch, "--hook")
     assert gate_main(monkeypatch) == 0
     assert runs(repo) == 2
+
+
+FAST_LINE = "docs-only change since the last green gate: secret scan"
+
+
+def green_then_change(repo: Path, monkeypatch: pytest.MonkeyPatch, path: str, *flags: str) -> int:
+    """A green hook run, then one changed file, then a run with `flags`: its result."""
+    gate_main(monkeypatch, "--hook")
+    target = repo / path
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text("changed")
+    return gate_main(monkeypatch, *flags)
+
+
+def test_a_docs_only_change_runs_only_the_secret_scan_in_manual_mode(
+    repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+):
+    gate_main(monkeypatch, "--hook")
+    (repo / "README.md").write_text("text")
+    capsys.readouterr()
+    assert gate_main(monkeypatch) == 0
+    out = capsys.readouterr().out
+    assert f"{FAST_LINE}, clean tree" in out
+    assert "PASS clean tree" in out
+    assert runs(repo) == 1
+
+
+def test_a_docs_only_change_runs_only_the_secret_scan_in_hook_mode(
+    repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+):
+    gate_main(monkeypatch, "--hook")
+    (repo / "README.md").write_text("text")
+    capsys.readouterr()
+    assert gate_main(monkeypatch, "--hook") == 0
+    out = capsys.readouterr().out
+    assert FAST_LINE in out
+    assert "clean tree" not in out
+    assert runs(repo) == 1
+
+
+def test_a_fast_run_saves_the_fingerprint(
+    repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+):
+    gate_main(monkeypatch, "--hook")
+    (repo / "README.md").write_text("text")
+    gate_main(monkeypatch, "--hook")
+    capsys.readouterr()
+    assert gate_main(monkeypatch, "--hook") == 0
+    assert PASS_LINE in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("path", ["b.txt", "THIRD_PARTY_LICENSES.md", "docs/x.py"])
+def test_a_change_that_is_not_docs_runs_every_check(
+    repo: Path, monkeypatch: pytest.MonkeyPatch, path: str
+):
+    assert green_then_change(repo, monkeypatch, path, "--hook") == 0
+    assert runs(repo) == 2
+
+
+def test_a_change_under_docs_images_counts_as_docs(repo: Path, monkeypatch: pytest.MonkeyPatch):
+    assert green_then_change(repo, monkeypatch, "docs/images/a.png", "--hook") == 0
+    assert runs(repo) == 1
+
+
+def test_ci_runs_every_check_for_a_docs_only_change(repo: Path, monkeypatch: pytest.MonkeyPatch):
+    # the new file stays untracked in CI, so the clean-tree check fails: only the counts matter
+    green_then_change(repo, monkeypatch, "README.md", "--ci")
+    assert runs(repo) == 2
+
+
+def test_a_marker_naming_an_unknown_tree_runs_every_check(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+):
+    gate_main(monkeypatch, "--hook")
+    (repo / ".git" / "gate-green").write_text("0" * 40)
+    (repo / "README.md").write_text("text")
+    assert gate_main(monkeypatch, "--hook") == 0
+    assert runs(repo) == 2
+
+
+def test_a_code_file_renamed_to_markdown_runs_every_check(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+):
+    gate_main(monkeypatch, "--hook")
+    (repo / "a.txt").rename(repo / "notes.md")
+    assert gate_main(monkeypatch, "--hook") == 0
+    assert runs(repo) == 2
