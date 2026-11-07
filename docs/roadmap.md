@@ -80,7 +80,6 @@ Details in [lines.md](lines.md).
 - [x] Zeitfresser: the sections between stations coloured by where trains lose or make up time, on a map and as a strip, with the mean minutes per section (re-check: `tests/core/test_sections.py`, `tests/pipeline/test_aggregate.py` (`test_sections_count_and_sum_the_changes_per_line_and_month`), `frontend/e2e/line.spec.ts` (the strip, the direction toggle, the step colours); the colour limits are confirmed in the product owner's test round)
 - [x] Whole-line tiles on the line page, lines marked without live data and left out of the Rankings, a Rankings switch Linien · Einzelzüge (re-check: `tests/core/test_lines.py`, `tests/api/test_rankings_api.py`, `tests/api/test_line_api.py`, `frontend/e2e/line.spec.ts` and `frontend/e2e/rankings.spec.ts`; the list is in [lines.md](lines.md) §5)
 - [x] Bildfahrplan: the graphic timetable of the line for one day of the last 28 days, planned against actual (re-check: the Bildfahrplan milestone in [lines.md](lines.md) §5). A table `combine` writes (`fahrten.parquet`, 56 MB) is downloaded at start on Azure like the other files; a trip belongs to its start day and the chart runs past 24:00 for night trips; replacement buses are also dropped by line name
-- [ ] Maybe: network-wide Zeitfresser records as a Rankings tab "Abschnitte" (the worst and best sections, per station pair and direction, pooled over all lines, with a minimum of trips; each row links to its lines). Decide after the Bildfahrplan.
 
 ## Finding lines
 Lines are hard to reach: only through a station's line table or the best and worst Rankings. Details: the search in [map.md](map.md), the line page in [lines.md](lines.md).
@@ -88,20 +87,42 @@ Lines are hard to reach: only through a station's line table or the best and wor
 - [x] A line picker in the Zeitverlauf: a "Linie" chip opens the search in its lines-only scope and sets `linie`; the chip of a set line opens it too, to change the line (re-check: `frontend/e2e/zeitverlauf.spec.ts`, "the Linie chip opens a line picker; a pick sets the line, drops the station and asks for its series", "with a line set, its chip opens the picker to change the line", "the line picker says when no line matches"; details in [app-shell.md](app-shell.md))
 - [x] The line page's route and Zeitfresser strip become one route card with the map beside it, and jump chips under the header (re-check: `frontend/e2e/line.spec.ts`, the milestone in [lines.md](lines.md) §5 names the tests)
 
-### To discuss
-- Restructuring the main navigation, for example pages per entity (station, line) instead of per chart.
-- An advanced search page: stations by conditions, and the lines that stop at a station.
-- The lines in the map's station panel.
-- Deep links to parts of the line page (the route, a section, the Bildfahrplan day).
+## Gate fast path
+- [x] A docs-only change runs only the secret scan, and in manual mode the clean-tree check: when every file changed since the last green gate run is a Markdown file (not `THIRD_PARTY_LICENSES.md`) or under `docs/images/`, in manual and hook mode. Anything else, a missing or unknown green tree and `--ci` run every check. A green fast run writes the marker like a full run (re-check: `uv run pytest -q tests/scripts/test_gate.py`, `test_a_docs_only_change_runs_only_the_secret_scan_in_manual_mode`, `test_a_docs_only_change_runs_only_the_secret_scan_in_hook_mode`, `test_a_fast_run_saves_the_fingerprint`, `test_a_change_that_is_not_docs_runs_every_check`, `test_a_change_under_docs_images_counts_as_docs`, `test_ci_runs_every_check_for_a_docs_only_change`, `test_a_marker_naming_an_unknown_tree_runs_every_check`, `test_a_code_file_renamed_to_markdown_runs_every_check`)
+- [x] Seen for real: after a green gate, one edit to a `.md` file and `uv run python scripts/gate.py` prints "docs-only change since the last green gate: secret scan, clean tree" and only the secret scan and the clean tree run, then the edit is reverted
+
+## Lines from the map and deep links
+Details in [map.md](map.md) (the station panel) and [lines.md](lines.md) (the section link and the anchors).
+- [x] The Karte's station panel lists the station's five busiest lines, each opening its line page, and "Alle {count} Linien" opens the station page at its table of lines (re-check: the milestone in [map.md](map.md) §5 names the tests in `frontend/e2e/map.spec.ts`, `lage.spec.ts` and `station.spec.ts`)
+- [x] A section of the line page has its own URL key `abschnitt`, set in the route card or on the map, and `#strecke`, `#bildfahrplan` and `#linien` scroll to their target once the data has arrived (re-check: the milestone in [lines.md](lines.md) §5 names the tests in `frontend/e2e/line.spec.ts` and `heatmap.spec.ts`)
+
+## Next, in order
+Each step gets its own plan and its own section here once it starts.
+1. [x] A docs-only fast path in the gate (section "Gate fast path")
+2. [x] Lines from the map and deep links (section "Lines from the map and deep links")
+3. [ ] Rankings and the heatmap, one data rebuild for all of them:
+   - a Rankings tab "Abschnitte": the network-wide worst and best Zeitfresser sections, per station pair and direction, pooled over all lines, with a minimum of trips; each row links to its lines
+   - a Rankings tab with records independent of delays: stations with the most and fewest stops, lines with the most and fewest trains per hour, with a minimum sample
+   - a line filter for the Wochentag × Uhrzeit heatmap, from a per-line weekday × hour table (a larger file to download)
+4. [ ] The image registry on GitHub Container Registry instead of Azure Container Registry, checked with one test deploy together with the larger data
+5. [ ] The planner, M9+ below
+6. [ ] Talk about the move to a VPS (section above) once the planner's connection source is decided, since the source sets what the server needs
 
 ## M9+ Planner (v1.0)
 - [ ] Connection-source spike (ADR)
 - [ ] Replay engine
 - [ ] Planner and transfer UI
 
-## After v1.0
-Optional features and backlog per SPEC 3.1 and 3.4.
-- [ ] Live-Lage with a larger station set than the 131 (decide first how the days before full coverage are handled and the selection rule, for example at least 3 per state)
-- [ ] A line filter for the Wochentag × Uhrzeit heatmap. It needs a per-line weekday × hour table, so a rebuild of the data and a larger file to download
-- [ ] Maybe: an hour curve of the shown day in the Germany or state card of Live-Lage, against the normal's same hours. Only if it adds something the Zeitverlauf and the heatmap do not already show; otherwise drop it
-- [ ] Maybe: how much later a rail replacement bus (SEV) arrives than the train it replaces. Measure first whether the buses stop at the train's station and how much later they are (about 90 % of replacement rows name the replaced train); shown only if the data really shows it
+## Ideas, unsorted
+Not planned yet; further ideas and details in SPEC 3.1 and 3.4.
+- Restructuring the main navigation, for example pages per entity (station, line) instead of per chart.
+- An advanced search page: stations by conditions, and the lines that stop at a station.
+- Live-Lage with a larger station set than the 131 (decide first how the days before full coverage are handled and the selection rule, for example at least 3 per state).
+- Line data on Live-Lage: the collector keeps the line, so Live-Lage can show the worst lines today nationwide and per state (pooled over the 131 stations) and a station's lines as plain counts; with `fahrten.parquet` that reaches 28 days back. Measured on 28 days: by noon about 110 lines a day reach 50 stops pooled, a station has a median of 4 lines with 15 stops (7 for the whole day), long-distance trains are single-train lines and need grouping. If taken up, it goes before the image-registry deploy, so one deploy checks the changed collector.
+- Maybe: an hour curve of the shown day in the Germany or state card of Live-Lage, against the normal's same hours. Only if it adds something the Zeitverlauf and the heatmap do not already show; otherwise drop it.
+- On the daily series: a calendar view, marked holidays and strikes, the 10 worst and best days.
+- Weather correlation on the daily series (DWD Open Data or Meteostat).
+- A comparison with the official DB punctuality figures.
+- A passenger-rights calculator: how often a station, line or connection reaches 60 or 120 minutes.
+- Lines that cross the border marked as "section in Germany".
+- Maybe: how much later a rail replacement bus (SEV) arrives than the train it replaces. Measure first whether the buses stop at the train's station and how much later they are (about 90 % of replacement rows name the replaced train); shown only if the data really shows it.
