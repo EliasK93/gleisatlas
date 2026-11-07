@@ -9,7 +9,7 @@ Built with Claude Code using test-driven development, planned milestones and rev
 <table>
 <tr>
 <td align="center" valign="top" width="50%"><p><b>Map</b></p><img src="docs/images/map.png" width="100%" alt="Map of Germany with every station as a dot coloured by punctuality"><br>Every station as a dot, coloured by punctuality and sized by the number of stops, on a map of Germany.</td>
-<td align="center" valign="top" width="50%"><p><b>Map (dark) with a station</b></p><img src="docs/images/map-dark.png" width="100%" alt="Dark map zoomed to Köln Hbf with the station panel open"><br>A click on a dot opens the station's key figures in a panel next to the map, here in the dark theme.</td>
+<td align="center" valign="top" width="50%"><p><b>Map (dark) with a station</b></p><img src="docs/images/map-dark.png" width="100%" alt="Dark map zoomed to Köln Hbf with the station panel open"><br>A click on a dot opens the station's key figures and its busiest lines in a panel next to the map, here in the dark theme.</td>
 </tr>
 <tr>
 <td align="center" valign="top" width="50%"><p><b>Map for a range of days</b></p><img src="docs/images/period.png" width="100%" alt="Map with two date fields set to 10 to 31 October 2026"><br>Any range of days up to the last complete one, set with two date fields, here 10th to 31st October 2026.</td>
@@ -35,13 +35,13 @@ Built with Claude Code using test-driven development, planned milestones and rev
 
 ## Features
 
-- **Map**: about 5,400 stations on a map of Germany, coloured by punctuality, typical delay, worst 10% (P90) or cancellations, for any range of days up to the last complete one (two date fields).
+- **Map**: about 5,400 stations on a map of Germany, coloured by punctuality, typical delay, worst 10% (P90) or cancellations, for any range of days up to the last complete one (two date fields). A click on a station opens its key figures and its five busiest lines.
 - **Live situation**: the 131 large stations for one day, today so far against the same hours of the usual days (the same weekday over the 12 weeks before), or any past day back to 2024-07. The 16 federal states show their deviation from the usual as a card and an area, Germany as a card, every station as a dot. Today comes from its own collector for the DB Timetables API (optional, see below). Without the collector, today comes from the raw data that [piebro/deutsche-bahn-data](https://huggingface.co/datasets/piebro/deutsche-bahn-data) has already published for the day, which is partial and up to about 10 hours behind.
 - **Four metrics on every page**: one switch for punctuality, typical delay, worst 10% and cancellations. The choice stays when the page changes.
 - **Station page**: key figures, the delay distribution, the weekday × hour pattern, long-distance and regional trains side by side, the lines at the station and a sparkline by month.
 - **Weekday × hour heatmap**: when trains are least and most punctual, with a short summary.
 - **Rankings**: stations or lines, worst and best, with a minimum sample so that chance doesn't win.
-- **Line page**: one line along its route with the four metrics per stop, the sections where trains lose or make up time (on a map and along the route), and a graphic timetable of planned against actual trips for any of the last 28 days.
+- **Line page**: one line along its route with the four metrics per stop, the sections where trains lose or make up time (on a map and along the route), and a graphic timetable of planned against actual trips for any of the last 28 days. A section picked on the route or the map has its own link.
 - **Time series**: day by day with a trend, or monthly as a switch (lines are monthly). Timetable changes and gaps in the data are marked.
 - **Filters in the URL**: period, category (regional or long-distance), station and metric live in the link, so a shared link opens the same view.
 - **Search**: stations and lines, Ctrl+K jumps to the search field.
