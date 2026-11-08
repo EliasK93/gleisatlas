@@ -20,12 +20,12 @@ Built with Claude Code using test-driven development, planned milestones and rev
 <td align="center" valign="top" width="50%"><p><b>Station</b></p><img src="docs/images/station.png" width="100%" alt="Station page of Köln Hbf"><br>Key figures, delay distribution, weekday × hour pattern, and long-distance and regional trains side by side.</td>
 </tr>
 <tr>
-<td align="center" valign="top" width="50%"><p><b>Weekday × hour</b></p><img src="docs/images/heatmap.png" width="100%" alt="Heatmap of punctuality by weekday and hour at Köln Hbf"><br>When trains are least punctual, by weekday and hour, for one station or for all of them together.</td>
+<td align="center" valign="top" width="50%"><p><b>Weekday × hour</b></p><img src="docs/images/heatmap.png" width="100%" alt="Heatmap of punctuality by weekday and hour at Köln Hbf"><br>When trains are least punctual, by weekday and hour, for one station, one line or all of them together.</td>
 <td align="center" valign="top" width="50%"><p><b>Four metrics, one switch</b></p><img src="docs/images/metrics.png" width="100%" alt="Heatmap of the worst 10% by weekday and hour at Köln Hbf with the metric switch and its explanation line"><br>Punctuality, typical delay, worst 10% and cancellations: the same switch on every page of the app.</td>
 </tr>
 <tr>
 <td align="center" valign="top" width="50%"><p><b>Over time</b></p><img src="docs/images/zeitverlauf.png" width="100%" alt="Monthly punctuality and cancellation rate of the RE1"><br>Month by month for a line, here the RE1, with timetable changes marked. Network and stations also by day.</td>
-<td align="center" valign="top" width="50%"><p><b>Rankings</b></p><img src="docs/images/rankings.png" width="100%" alt="Rankings of the least and most reliable stations"><br>The least and most reliable stations or lines, with a minimum sample so that chance does not win.</td>
+<td align="center" valign="top" width="50%"><p><b>Rankings</b></p><img src="docs/images/rankings.png" width="100%" alt="Rankings of the least and most reliable stations"><br>The least and most reliable stations, lines or sections, with a minimum sample so that chance does not win.</td>
 </tr>
 <tr>
 <td align="center" valign="top" width="50%"><p><b>Line</b></p><img src="docs/images/line.png" width="100%" alt="Line page of the RE57 with its key figures, the route and a map of its sections"><br>One line along its route, here the RE57: each section between two stops coloured by where trains lose or make up time.</td>
@@ -39,8 +39,8 @@ Built with Claude Code using test-driven development, planned milestones and rev
 - **Live situation**: the 131 large stations for one day, today so far against the same hours of the usual days (the same weekday over the 12 weeks before), or any past day back to 2024-07. The 16 federal states show their deviation from the usual as a card and an area, Germany as a card, every station as a dot. Today comes from its own collector for the DB Timetables API (optional, see below). Without the collector, today comes from the raw data that [piebro/deutsche-bahn-data](https://huggingface.co/datasets/piebro/deutsche-bahn-data) has already published for the day, which is partial and up to about 10 hours behind.
 - **Four metrics on every page**: one switch for punctuality, typical delay, worst 10% and cancellations. The choice stays when the page changes.
 - **Station page**: key figures, the delay distribution, the weekday × hour pattern, long-distance and regional trains side by side, the lines at the station and a sparkline by month.
-- **Weekday × hour heatmap**: when trains are least and most punctual, with a short summary.
-- **Rankings**: stations or lines, worst and best, with a minimum sample so that chance doesn't win.
+- **Weekday × hour heatmap**: when trains are least and most punctual, for one station, one line or all of them together, with a short summary.
+- **Rankings**: the worst and best stations, lines and sections between two stops, with a minimum sample so that chance doesn't win, and records like the busiest stations and the lines with the most trains per hour. Each list starts with its top 10 and shows more on a click.
 - **Line page**: one line along its route with the four metrics per stop, the sections where trains lose or make up time (on a map and along the route), and a graphic timetable of planned against actual trips for any of the last 28 days. A section picked on the route or the map has its own link.
 - **Time series**: day by day with a trend, or monthly as a switch (lines are monthly). Timetable changes and gaps in the data are marked.
 - **Filters in the URL**: period, category (regional or long-distance), station and metric live in the link, so a shared link opens the same view.
