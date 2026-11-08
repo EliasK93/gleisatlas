@@ -132,4 +132,5 @@ Not planned yet; further ideas and details in SPEC 3.1 and 3.4.
 - A comparison with the official DB punctuality figures.
 - A passenger-rights calculator: how often a station, line or connection reaches 60 or 120 minutes.
 - Lines that cross the border marked as "section in Germany".
+- Trim the API's memory so it fits 0.5 vCPU / 1 GiB again. The largest steps are a cold `/karte`, `/rankings?typ=bahnhoefe` and `/rankings/rekorde?art=takt`; measured locally, the peak working set was 1136 MiB with all caches warm.
 - Maybe: how much later a rail replacement bus (SEV) arrives than the train it replaces. Measure first whether the buses stop at the train's station and how much later they are (about 90 % of replacement rows name the replaced train); shown only if the data really shows it.

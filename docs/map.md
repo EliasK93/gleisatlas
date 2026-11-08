@@ -157,7 +157,7 @@ The filter keys `g`, `von`, `bis` and `k` are the ones of the shell (see [app-sh
 
 - [x] OpenFreeMap tiles and style load on the deployed site, including the attribution of OpenStreetMap, OpenMapTiles and OpenFreeMap that the style carries.
 - [ ] WebGL works on the target browsers, desktop and phone. Without WebGL the map does not render; search and detail pages still work. Desktop seen in Chrome, Edge and Firefox; phone open.
-- [x] The map's first computation of `/karte` on the Azure Container Apps size (0.5 vCPU / 1 GiB) stays acceptable; measured with the cold and warm `/karte` check in [deployment.md](deployment.md) §6.
+- [x] The map's first computation of `/karte` on the Azure Container Apps size stays acceptable; measured with the cold and warm `/karte` check in [deployment.md](deployment.md) §6.
 - [ ] The cold `/karte` on the deployed site, now reading `days.parquet`, stays acceptable (measured locally with one thread: October 2026 0.57 s, the default range 2.7 s).
 - The station popover check stays in [app-shell.md](app-shell.md).
 
