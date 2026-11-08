@@ -58,6 +58,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/rankings/abschnitte": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Rankings Abschnitte */
+        get: operations["getRankingsAbschnitte"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/rankings/rekorde": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Rankings Rekorde */
+        get: operations["getRankingsRekorde"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/stationen": {
         parameters: {
             query?: never;
@@ -280,6 +314,32 @@ export interface components {
             /** Minuten */
             minuten: number;
         };
+        /** AbschnittLinie */
+        AbschnittLinie: {
+            /** Id */
+            id: string;
+            /** Label */
+            label: string;
+            /** N */
+            n: number;
+            /** Richtung */
+            richtung: (1 | 2) | null;
+        };
+        /** AbschnittsRangliste */
+        AbschnittsRangliste: {
+            /** Min N */
+            min_n: number;
+            /** Von */
+            von: string;
+            /** Bis */
+            bis: string;
+            /** Anzahl */
+            anzahl: number;
+            /** Schlechteste */
+            schlechteste: components["schemas"]["RanglistenAbschnitt"][];
+            /** Beste */
+            beste: components["schemas"]["RanglistenAbschnitt"][];
+        };
         /** Cell */
         Cell: {
             /** N */
@@ -425,6 +485,8 @@ export interface components {
             cells: components["schemas"]["Cell"][];
             /** Tage */
             tage: components["schemas"]["Day"][];
+            /** Titel */
+            titel?: string | null;
         };
         /** Karte */
         Karte: {
@@ -590,6 +652,25 @@ export interface components {
             /** Beste */
             beste: components["schemas"]["RanglistenEintrag"][];
         };
+        /** RanglistenAbschnitt */
+        RanglistenAbschnitt: {
+            /** Von Eva */
+            von_eva: string;
+            /** Von Name */
+            von_name: string;
+            /** Nach Eva */
+            nach_eva: string;
+            /** Nach Name */
+            nach_name: string;
+            /** N */
+            n: number;
+            /** Minuten */
+            minuten: number;
+            /** Linien Anzahl */
+            linien_anzahl: number;
+            /** Linien */
+            linien: components["schemas"]["AbschnittLinie"][];
+        };
         /** RanglistenEintrag */
         RanglistenEintrag: {
             /** N */
@@ -608,6 +689,37 @@ export interface components {
             name: string;
             /** Typ */
             typ: string | null;
+        };
+        /** RekordEintrag */
+        RekordEintrag: {
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
+            /** Wert */
+            wert: number;
+            /** N */
+            n: number;
+        };
+        /** Rekorde */
+        Rekorde: {
+            /**
+             * Art
+             * @enum {string}
+             */
+            art: "halte" | "takt";
+            /** Min N */
+            min_n: number;
+            /** Von */
+            von: string;
+            /** Bis */
+            bis: string;
+            /** Anzahl */
+            anzahl: number;
+            /** Meiste */
+            meiste: components["schemas"]["RekordEintrag"][];
+            /** Wenigste */
+            wenigste: components["schemas"]["RekordEintrag"][];
         };
         /** Station */
         Station: {
@@ -834,6 +946,7 @@ export interface operations {
                 eva?: string | null;
                 von?: string | null;
                 bis?: string | null;
+                linie?: string | null;
             };
             header?: never;
             path?: never;
@@ -919,6 +1032,75 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Rangliste"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    getRankingsAbschnitte: {
+        parameters: {
+            query?: {
+                min_n?: number;
+                gattung?: "alle" | "regional" | "fern";
+                von?: string | null;
+                bis?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AbschnittsRangliste"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    getRankingsRekorde: {
+        parameters: {
+            query: {
+                art: "halte" | "takt";
+                min_n?: number;
+                gattung?: "alle" | "regional" | "fern";
+                von?: string | null;
+                bis?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Rekorde"];
                 };
             };
             /** @description Validation Error */

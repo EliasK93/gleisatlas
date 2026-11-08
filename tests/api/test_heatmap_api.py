@@ -1,3 +1,5 @@
+import os
+
 import polars as pl
 import pytest
 from fastapi.testclient import TestClient
@@ -131,6 +133,89 @@ def test_a_search_term_over_100_characters_is_422(client: TestClient):
 def test_datenstand(client: TestClient):
     d = client.get("/datenstand").json()
     assert (d["monate"], d["bahnhoefe"]) == (["2026-09", "2026-10"], 2)
+
+
+LINE = "RE5:1"  # the client's line, label "RE5 Dortmund Hbf – Warburg (Westf)"
+LABEL = "RE5 Dortmund Hbf – Warburg (Westf)"
+
+
+def write_line_hours(tmp_path, monkeypatch) -> None:
+    """RE5: Monday 08 h 3 on time and 1 at +10 (September), Friday 17 h 2 on time (October);
+    ICE 123: Monday 08 h 2 cancelled (fern); OTHER: Tuesday 09 h 5 on time."""
+    rows = [
+        (LINE, "regional", 0, 8, "2026-09", 0, 3),
+        (LINE, "regional", 0, 8, "2026-09", 10, 1),
+        (LINE, "fern", 4, 17, "2026-10", 0, 2),
+        ("ICE 123:1", "fern", 0, 8, "2026-09", None, 2),
+        ("OTHER:1", "regional", 1, 9, "2026-09", 0, 5),
+    ]
+    schema = {
+        "linie": pl.String,
+        "gruppe": pl.String,
+        "weekday": pl.Int8,
+        "hour": pl.Int8,
+        "month": pl.String,
+        "bucket": pl.Int32,
+        "n": pl.UInt32,
+    }
+    path = tmp_path / "linien_stunden.parquet"
+    pl.DataFrame(rows, schema=schema, orient="row").write_parquet(path)
+    monkeypatch.setattr(main, "LINIEN_STUNDEN_PATH", str(path))
+
+
+def test_a_line_has_its_own_heatmap_and_a_title(client: TestClient, tmp_path, monkeypatch):
+    write_line_hours(tmp_path, monkeypatch)
+    h = heatmap(client, linie=LINE)
+    assert h["titel"] == LABEL
+    assert [(c["weekday"], c["hour"], c["n"]) for c in h["cells"]] == [(0, 8, 4), (4, 17, 2)]
+    assert (h["n"], h["von"], h["bis"]) == (6, "2026-09", "2026-10")
+    assert h["cells"][0]["ausfallquote"] == 0.0 and h["cells"][0]["p90"] == 10.0
+    assert [t["weekday"] for t in h["tage"]] == [0, 4]
+    assert heatmap(client, linie="ICE 123:1")["cells"][0]["ausfallquote"] == 1.0  # another line
+
+
+def test_a_line_heatmap_follows_gattung_and_period(client: TestClient, tmp_path, monkeypatch):
+    write_line_hours(tmp_path, monkeypatch)
+    assert heatmap(client, linie=LINE, gattung="fern")["n"] == 2
+    assert heatmap(client, linie=LINE, gattung="regional")["n"] == 4
+    assert heatmap(client, linie=LINE, von="2026-10")["n"] == 2
+    empty = heatmap(client, linie=LINE, von="2027-01")
+    assert (empty["n"], empty["cells"], empty["titel"]) == (0, [], LABEL)
+
+
+def test_the_heatmap_without_a_line_has_no_title(client: TestClient):
+    assert heatmap(client)["titel"] is None
+    assert heatmap(client, eva="1")["titel"] is None
+
+
+def test_a_line_heatmap_needs_a_known_line_and_no_station(
+    client: TestClient, tmp_path, monkeypatch
+):
+    write_line_hours(tmp_path, monkeypatch)
+    assert client.get("/heatmap", params={"linie": "NOPE:1"}).status_code == 404
+    assert client.get("/heatmap", params={"linie": LINE, "eva": "1"}).status_code == 422
+    assert client.get("/heatmap", params={"linie": "x" * 201}).status_code == 422
+
+
+def test_the_line_heatmap_cache_follows_a_rewritten_file(client: TestClient, tmp_path, monkeypatch):
+    write_line_hours(tmp_path, monkeypatch)
+    assert heatmap(client, linie=LINE)["n"] == 6
+    pl.DataFrame(
+        [(LINE, "regional", 0, 8, "2026-09", 0, 1)],
+        schema={
+            "linie": pl.String,
+            "gruppe": pl.String,
+            "weekday": pl.Int8,
+            "hour": pl.Int8,
+            "month": pl.String,
+            "bucket": pl.Int32,
+            "n": pl.UInt32,
+        },
+        orient="row",
+    ).write_parquet(main.LINIEN_STUNDEN_PATH)
+    stat = os.stat(main.LINIEN_STUNDEN_PATH)
+    os.utime(main.LINIEN_STUNDEN_PATH, ns=(stat.st_atime_ns, stat.st_mtime_ns + 10**9))
+    assert heatmap(client, linie=LINE)["n"] == 1
 
 
 def test_endpoints(client: TestClient):

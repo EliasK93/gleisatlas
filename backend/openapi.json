@@ -75,6 +75,23 @@
        ],
        "title": "Bis"
       }
+     },
+     {
+      "name": "linie",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string",
+         "maxLength": 200
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Linie"
+      }
      }
     ],
     "responses": {
@@ -299,6 +316,199 @@
        "application/json": {
         "schema": {
          "$ref": "#/components/schemas/Rangliste"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/rankings/abschnitte": {
+   "get": {
+    "summary": "Rankings Abschnitte",
+    "operationId": "getRankingsAbschnitte",
+    "parameters": [
+     {
+      "name": "min_n",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "integer",
+       "minimum": 15,
+       "default": 500,
+       "title": "Min N"
+      }
+     },
+     {
+      "name": "gattung",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "enum": [
+        "alle",
+        "regional",
+        "fern"
+       ],
+       "type": "string",
+       "default": "alle",
+       "title": "Gattung"
+      }
+     },
+     {
+      "name": "von",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string",
+         "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])$"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Von"
+      }
+     },
+     {
+      "name": "bis",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string",
+         "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])$"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Bis"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/AbschnittsRangliste"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/rankings/rekorde": {
+   "get": {
+    "summary": "Rankings Rekorde",
+    "operationId": "getRankingsRekorde",
+    "parameters": [
+     {
+      "name": "art",
+      "in": "query",
+      "required": true,
+      "schema": {
+       "enum": [
+        "halte",
+        "takt"
+       ],
+       "type": "string",
+       "title": "Art"
+      }
+     },
+     {
+      "name": "min_n",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "integer",
+       "minimum": 15,
+       "default": 500,
+       "title": "Min N"
+      }
+     },
+     {
+      "name": "gattung",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "enum": [
+        "alle",
+        "regional",
+        "fern"
+       ],
+       "type": "string",
+       "default": "alle",
+       "title": "Gattung"
+      }
+     },
+     {
+      "name": "von",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string",
+         "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])$"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Von"
+      }
+     },
+     {
+      "name": "bis",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "anyOf": [
+        {
+         "type": "string",
+         "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])$"
+        },
+        {
+         "type": "null"
+        }
+       ],
+       "title": "Bis"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/Rekorde"
         }
        }
       }
@@ -1081,6 +1291,89 @@
     ],
     "title": "Abschnitt"
    },
+   "AbschnittLinie": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "label": {
+      "type": "string",
+      "title": "Label"
+     },
+     "n": {
+      "type": "integer",
+      "title": "N"
+     },
+     "richtung": {
+      "anyOf": [
+       {
+        "type": "integer",
+        "enum": [
+         1,
+         2
+        ]
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Richtung"
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "label",
+     "n",
+     "richtung"
+    ],
+    "title": "AbschnittLinie"
+   },
+   "AbschnittsRangliste": {
+    "properties": {
+     "min_n": {
+      "type": "integer",
+      "title": "Min N"
+     },
+     "von": {
+      "type": "string",
+      "title": "Von"
+     },
+     "bis": {
+      "type": "string",
+      "title": "Bis"
+     },
+     "anzahl": {
+      "type": "integer",
+      "title": "Anzahl"
+     },
+     "schlechteste": {
+      "items": {
+       "$ref": "#/components/schemas/RanglistenAbschnitt"
+      },
+      "type": "array",
+      "title": "Schlechteste"
+     },
+     "beste": {
+      "items": {
+       "$ref": "#/components/schemas/RanglistenAbschnitt"
+      },
+      "type": "array",
+      "title": "Beste"
+     }
+    },
+    "type": "object",
+    "required": [
+     "min_n",
+     "von",
+     "bis",
+     "anzahl",
+     "schlechteste",
+     "beste"
+    ],
+    "title": "AbschnittsRangliste"
+   },
    "Cell": {
     "properties": {
      "n": {
@@ -1583,6 +1876,17 @@
       },
       "type": "array",
       "title": "Tage"
+     },
+     "titel": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Titel"
      }
     },
     "type": "object",
@@ -2192,6 +2496,57 @@
     ],
     "title": "Rangliste"
    },
+   "RanglistenAbschnitt": {
+    "properties": {
+     "von_eva": {
+      "type": "string",
+      "title": "Von Eva"
+     },
+     "von_name": {
+      "type": "string",
+      "title": "Von Name"
+     },
+     "nach_eva": {
+      "type": "string",
+      "title": "Nach Eva"
+     },
+     "nach_name": {
+      "type": "string",
+      "title": "Nach Name"
+     },
+     "n": {
+      "type": "integer",
+      "title": "N"
+     },
+     "minuten": {
+      "type": "number",
+      "title": "Minuten"
+     },
+     "linien_anzahl": {
+      "type": "integer",
+      "title": "Linien Anzahl"
+     },
+     "linien": {
+      "items": {
+       "$ref": "#/components/schemas/AbschnittLinie"
+      },
+      "type": "array",
+      "title": "Linien"
+     }
+    },
+    "type": "object",
+    "required": [
+     "von_eva",
+     "von_name",
+     "nach_eva",
+     "nach_name",
+     "n",
+     "minuten",
+     "linien_anzahl",
+     "linien"
+    ],
+    "title": "RanglistenAbschnitt"
+   },
    "RanglistenEintrag": {
     "properties": {
      "n": {
@@ -2267,6 +2622,87 @@
      "typ"
     ],
     "title": "RanglistenEintrag"
+   },
+   "RekordEintrag": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "name": {
+      "type": "string",
+      "title": "Name"
+     },
+     "wert": {
+      "type": "number",
+      "title": "Wert"
+     },
+     "n": {
+      "type": "integer",
+      "title": "N"
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "name",
+     "wert",
+     "n"
+    ],
+    "title": "RekordEintrag"
+   },
+   "Rekorde": {
+    "properties": {
+     "art": {
+      "type": "string",
+      "enum": [
+       "halte",
+       "takt"
+      ],
+      "title": "Art"
+     },
+     "min_n": {
+      "type": "integer",
+      "title": "Min N"
+     },
+     "von": {
+      "type": "string",
+      "title": "Von"
+     },
+     "bis": {
+      "type": "string",
+      "title": "Bis"
+     },
+     "anzahl": {
+      "type": "integer",
+      "title": "Anzahl"
+     },
+     "meiste": {
+      "items": {
+       "$ref": "#/components/schemas/RekordEintrag"
+      },
+      "type": "array",
+      "title": "Meiste"
+     },
+     "wenigste": {
+      "items": {
+       "$ref": "#/components/schemas/RekordEintrag"
+      },
+      "type": "array",
+      "title": "Wenigste"
+     }
+    },
+    "type": "object",
+    "required": [
+     "art",
+     "min_n",
+     "von",
+     "bis",
+     "anzahl",
+     "meiste",
+     "wenigste"
+    ],
+    "title": "Rekorde"
    },
    "Station": {
     "properties": {

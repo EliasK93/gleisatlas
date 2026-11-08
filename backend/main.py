@@ -37,6 +37,11 @@ LINES_PATH = os.environ.get("LINES_PATH", "data/lines.parquet")
 LINIEN_PATH = os.environ.get("LINIEN_PATH", "data/linien.parquet")
 ABSCHNITTE_PATH = os.environ.get("ABSCHNITTE_PATH", "data/abschnitte.parquet")
 LINIENWEG_PATH = os.environ.get("LINIENWEG_PATH", "data/linienweg.parquet")
+# like the aggregate, but per line: weekday x hour x delay bucket; and the trips per line and month
+LINIEN_STUNDEN_PATH = os.environ.get("LINIEN_STUNDEN_PATH", "data/linien_stunden.parquet")
+TAKT_PATH = os.environ.get("TAKT_PATH", "data/takt.parquet")
+# every stop per station, group and month: the aggregate counts arrivals only
+HALTE_PATH = os.environ.get("HALTE_PATH", "data/halte.parquet")
 DAYS_PATH = os.environ.get("DAYS_PATH", "data/days.parquet")
 TAGE_PATH = os.environ.get("TAGE_PATH", "data/tage.parquet")
 DAY_HOURS_PATH = os.environ.get("DAY_HOURS_PATH", "data/day_hours.parquet")
@@ -60,6 +65,9 @@ DATA_FILES = (
     LINIEN_PATH,
     ABSCHNITTE_PATH,
     LINIENWEG_PATH,
+    LINIEN_STUNDEN_PATH,
+    TAKT_PATH,
+    HALTE_PATH,
     DAYS_PATH,
     TAGE_PATH,
     DAY_HOURS_PATH,
@@ -176,6 +184,7 @@ class Heatmap(BaseModel):
     n: int
     cells: list[Cell]
     tage: list[Day]  # same statistics per weekday over all hours
+    titel: str | None = None  # the line label for a line's heatmap; None otherwise
 
 
 class Station(BaseModel):
@@ -310,6 +319,52 @@ class Rangliste(BaseModel):
     anzahl: int  # entries that meet min_n and have a value for the metric
     schlechteste: list[RanglistenEintrag]  # worst first, at most 10
     beste: list[RanglistenEintrag]  # best first, at most 10
+
+
+class AbschnittLinie(BaseModel):
+    id: str  # `linie` key
+    label: str
+    n: int  # trips of the line through the section
+    # the line page's direction in which the section is a row of the route; None for a section off
+    # the line's axis (a branch, a skipped stop): the page cannot select it
+    richtung: Literal[1, 2] | None
+
+
+class RanglistenAbschnitt(BaseModel):
+    von_eva: str
+    von_name: str
+    nach_eva: str
+    nach_name: str
+    n: int  # trips over the section in the period, all lines
+    minuten: float  # mean change of the delay over the section; negative: minutes made up
+    linien_anzahl: int
+    linien: list[AbschnittLinie]  # the three busiest, ties by id
+
+
+class AbschnittsRangliste(BaseModel):
+    min_n: int
+    von: str
+    bis: str
+    anzahl: int  # sections that meet min_n
+    schlechteste: list[RanglistenAbschnitt]  # most minutes lost first, at most 10
+    beste: list[RanglistenAbschnitt]  # most minutes made up first, at most 10
+
+
+class RekordEintrag(BaseModel):
+    id: str  # EVA of a station, `linie` key of a line
+    name: str  # station name or line label
+    wert: float  # stops per day (halte) or trips per hour of service (takt), 2 decimals
+    n: int  # stops it rests on, cancelled included: a station's all, a line's arrivals
+
+
+class Rekorde(BaseModel):
+    art: Literal["halte", "takt"]
+    min_n: int
+    von: str
+    bis: str
+    anzahl: int  # entries that meet min_n
+    meiste: list[RekordEintrag]  # highest value first, at most 10
+    wenigste: list[RekordEintrag]  # lowest value first, at most 10
 
 
 class StationLinie(Stats):
@@ -657,24 +712,34 @@ def heatmap(
     eva: Annotated[str | None, Query(pattern=DIGITS)] = None,
     von: Month = None,
     bis: Month = None,
+    linie: Annotated[str | None, Query(max_length=200)] = None,
 ) -> Heatmap:
-    return heatmap_for(
-        AGG_PATH, os.stat(AGG_PATH).st_mtime_ns, gattung, eva, period_start(von, bis), bis
+    if eva and linie:
+        raise HTTPException(status_code=422, detail="Give either eva or linie, not both")
+    path = LINIEN_STUNDEN_PATH if linie else AGG_PATH
+    label = known_line(linie)["label"] if linie else None
+    found = heatmap_for(
+        path, os.stat(path).st_mtime_ns, gattung, eva, period_start(von, bis), bis, linie
     )
+    return found.model_copy(update={"titel": label})
 
 
 # ponytail: per-process cache like karte_for; 16 entries hold the nationwide views and a few
-# stations, revisit when the station page's heatmap is used heavily
+# stations or lines, revisit when the station page's heatmap is used heavily
 @lru_cache(maxsize=16)
 def heatmap_for(
-    agg: str,
+    agg: str,  # the aggregate, or with `linie` the per-line hours
     mtime: int,  # part of the key, so new data is never served stale
     gattung: str,
     eva: str | None,
     von: str | None,
     bis: str | None,
+    linie: str | None = None,
 ) -> Heatmap:
-    return heatmap_from(pl.scan_parquet(agg), gattung, eva, von, bis)
+    lf = pl.scan_parquet(agg)
+    if linie:
+        lf = lf.filter(pl.col("linie") == linie)
+    return heatmap_from(lf, gattung, eva, von, bis)
 
 
 @app.get("/karte", response_model=Karte, operation_id="getKarte")
@@ -820,11 +885,14 @@ METRICS: dict[str, Metric] = {
 }
 
 
+MinN = Annotated[int, Query(ge=LOW_N)]
+
+
 @app.get("/rankings", response_model=Rangliste, operation_id="getRankings")
 def rankings(
     typ: Literal["linien", "bahnhoefe"],
     metrik: Literal["puenktlich", "median", "p90", "ausfallquote"] = "puenktlich",
-    min_n: Annotated[int, Query(ge=LOW_N)] = 500,
+    min_n: MinN = 500,
     gattung: Gattung = "alle",
     von: Month = None,
     bis: Month = None,
@@ -861,6 +929,232 @@ def rankings(
         schlechteste=[show(e) for e in worst[:10]],
         beste=[show(e) for e in best[:10]],
     )
+
+
+def files_of(*paths: str) -> tuple[tuple[str, int], ...]:
+    """(path, mtime) of each file: the cache key of a result computed from them."""
+    return tuple((p, os.stat(p).st_mtime_ns) for p in paths)
+
+
+@lru_cache(maxsize=16)
+def sections_for(
+    files: tuple[tuple[str, int], ...],  # abschnitte, linien, lines, linienweg, stations
+    gattung: str,
+    von: str | None,
+    bis: str | None,
+    min_n: int,
+) -> AbschnittsRangliste:
+    """All lines' sections pooled by direction and ranked by the mean change of the delay."""
+    abschnitte, linien, lines, weg, _ = (p for p, _ in files)
+    sel = selection(pl.scan_parquet(abschnitte), "alle", None, von, bis)
+    if gattung != "alle":
+        members = collect(
+            pl.scan_parquet(lines).filter(pl.col("gruppe") == gattung).select("linie").unique()
+        )["linie"]
+        sel = sel.filter(pl.col("linie").is_in(members.implode()))
+    found = span(sel)
+    if found is None:
+        return AbschnittsRangliste(min_n=min_n, von="", bis="", anzahl=0, schlechteste=[], beste=[])
+    # In-memory joins: Polars 2.0's streaming join panics on an empty side.
+    live = collect(
+        pl.scan_parquet(linien).filter(~pl.col("ohne_echtzeit")).select("linie", "label")
+    )
+    per_line = collect(
+        sel.group_by("linie", "from_eva", "to_eva").agg(
+            n=pl.col("n").sum().cast(pl.Int64), minutes=pl.col("minutes").sum()
+        )
+    ).join(live, on="linie")
+    names = named_stations().select("eva", "name")
+    pooled = (
+        per_line.group_by("from_eva", "to_eva")
+        .agg(n=pl.col("n").sum(), minutes=pl.col("minutes").sum(), linien_anzahl=pl.len())
+        .filter(pl.col("n") >= min_n)
+        .join(names.rename({"eva": "from_eva", "name": "von_name"}), on="from_eva")
+        .join(names.rename({"eva": "to_eva", "name": "nach_name"}), on="to_eva")
+        .with_columns(minuten=(pl.col("minutes") / pl.col("n")).round(2))
+        .drop("minutes")
+    )
+    rows = list(pooled.iter_rows(named=True))
+    worst = sorted(rows, key=lambda r: (-r["minuten"], -r["n"], r["von_name"], r["nach_name"]))
+    best = sorted(rows, key=lambda r: (r["minuten"], -r["n"], r["von_name"], r["nach_name"]))
+    shown = worst[:10] + best[:10]
+
+    busiest: dict[tuple[str, str], list[tuple[str, str, int]]] = defaultdict(list)
+    wanted = {(r["from_eva"], r["to_eva"]) for r in shown}
+    for linie, a, b, n, label in (
+        per_line.sort("n", "linie", descending=[True, False])
+        .select("linie", "from_eva", "to_eva", "n", "label")
+        .iter_rows()
+    ):
+        if (a, b) in wanted and len(busiest[a, b]) < 3:
+            busiest[a, b].append((linie, label, n))
+
+    # The line page's rule (frontend `cutLine`): richtung 1 reads the axis forwards, richtung 2
+    # backwards; its rows are the pairs of consecutive named axis stations.
+    top = {linie for lines_ in busiest.values() for linie, _, _ in lines_}
+    walk = collect(
+        pl.scan_parquet(weg)
+        .filter(pl.col("linie").is_in(pl.Series(sorted(top), dtype=pl.String).implode()))
+        .sort("linie", "pos")
+        .select("linie", "eva")
+    )
+    named = set(names["eva"])
+    forward: dict[str, set[tuple[str, str]]] = {}
+    for linie, evas in walk.group_by("linie", maintain_order=True).agg("eva").iter_rows():
+        axis = [e for e in evas if e in named]
+        forward[linie] = set(zip(axis, axis[1:], strict=False))
+
+    def richtung(linie: str, a: str, b: str) -> Literal[1, 2] | None:
+        steps = forward.get(linie, set())
+        return 1 if (a, b) in steps else 2 if (b, a) in steps else None
+
+    def show(r: dict) -> RanglistenAbschnitt:
+        a, b = r["from_eva"], r["to_eva"]
+        return RanglistenAbschnitt(
+            von_eva=a,
+            von_name=r["von_name"],
+            nach_eva=b,
+            nach_name=r["nach_name"],
+            n=r["n"],
+            minuten=r["minuten"],
+            linien_anzahl=r["linien_anzahl"],
+            linien=[
+                AbschnittLinie(id=linie, label=label, n=n, richtung=richtung(linie, a, b))
+                for linie, label, n in busiest[a, b]
+            ],
+        )
+
+    return AbschnittsRangliste(
+        min_n=min_n,
+        von=found[0],
+        bis=found[1],
+        anzahl=len(rows),
+        schlechteste=[show(r) for r in worst[:10]],
+        beste=[show(r) for r in best[:10]],
+    )
+
+
+@app.get(
+    "/rankings/abschnitte",
+    response_model=AbschnittsRangliste,
+    operation_id="getRankingsAbschnitte",
+)
+def rankings_abschnitte(
+    min_n: MinN = 500, gattung: Gattung = "alle", von: Month = None, bis: Month = None
+) -> AbschnittsRangliste:
+    files = files_of(ABSCHNITTE_PATH, LINIEN_PATH, LINES_PATH, LINIENWEG_PATH, STATIONS_PATH)
+    return sections_for(files, gattung, period_start(von, bis), bis, min_n)
+
+
+SERVICE_HOURS = 16  # the hours the trips of takt.parquet start in: 06:00 to 21:59
+
+
+Record = tuple[float, str, str, int]  # (unrounded value, id, name, n): sorted before it is rounded
+
+
+def days_of(months: list[str]) -> int:
+    """The calendar days of the months 'YYYY-MM'."""
+    return sum(calendar.monthrange(int(m[:4]), int(m[5:]))[1] for m in months)
+
+
+def stops_per_day(
+    files: tuple[tuple[str, int], ...], gattung: str, von: str | None, bis: str | None, min_n: int
+) -> tuple[tuple[str, str, int] | None, list[Record]]:
+    """(span, stations with their stops per calendar day of their own months in the period), over
+    every stop (`halte.parquet`: the stops where a train starts included)."""
+    sel = selection(pl.scan_parquet(files[0][0]), gattung, None, von, bis)
+    found = span(sel)
+    if found is None:
+        return None, []
+    per_eva = collect(
+        sel.group_by("eva").agg(n=pl.col("n").sum().cast(pl.Int64), months=pl.col("month").unique())
+    ).join(named_stations().select("eva", "name"), on="eva")
+    return found, [
+        (n / days_of(months), eva, name, n)
+        for eva, n, months, name in per_eva.select("eva", "n", "months", "name").iter_rows()
+        if n >= min_n
+    ]
+
+
+def trips_per_hour(
+    files: tuple[tuple[str, int], ...], gattung: str, von: str | None, bis: str | None, min_n: int
+) -> tuple[tuple[str, str, int] | None, list[Record]]:
+    """(span, lines with their trips per hour of service over the days of the months they have
+    stops in), over the lines that are no single train and have live data. A line without trips
+    in the service hours is left out."""
+    lines, linien, takt = (p for p, _ in files)
+    sel = selection(pl.scan_parquet(lines), gattung, None, von, bis)
+    found = span(sel)
+    if found is None:
+        return None, []
+    stops = collect(
+        sel.group_by("linie").agg(
+            n=pl.col("n").sum().cast(pl.Int64), months=pl.col("month").unique()
+        )
+    )
+    ranked = collect(
+        pl.scan_parquet(linien)
+        .filter(~pl.col("zug") & ~pl.col("ohne_echtzeit"))
+        .select("linie", "label")
+    )
+    trips = collect(
+        selection(pl.scan_parquet(takt), gattung, None, von, bis)
+        .group_by("linie")
+        .agg(trips=pl.col("trips").sum().cast(pl.Int64))
+    )
+    both = stops.join(ranked, on="linie").join(trips, on="linie")
+    return found, [
+        (count / (days_of(months) * SERVICE_HOURS), linie, label, n)
+        for linie, n, months, label, count in both.select(
+            "linie", "n", "months", "label", "trips"
+        ).iter_rows()
+        if n >= min_n
+    ]
+
+
+@lru_cache(maxsize=16)
+def records_for(
+    art: str,
+    files: tuple[tuple[str, int], ...],  # halte: halte, stations; takt: lines, linien, takt
+    gattung: str,
+    von: str | None,
+    bis: str | None,
+    min_n: int,
+) -> Rekorde:
+    found, entries = (stops_per_day if art == "halte" else trips_per_hour)(
+        files, gattung, von, bis, min_n
+    )
+
+    def show(rows: list[Record]) -> list[RekordEintrag]:
+        return [
+            RekordEintrag(id=i, name=name, wert=round(v, 2), n=n) for v, i, name, n in rows[:10]
+        ]
+
+    return Rekorde(
+        art="halte" if art == "halte" else "takt",
+        min_n=min_n,
+        von=found[0] if found else "",
+        bis=found[1] if found else "",
+        anzahl=len(entries),
+        meiste=show(sorted(entries, key=lambda e: (-e[0], -e[3], e[2]))),
+        wenigste=show(sorted(entries, key=lambda e: (e[0], -e[3], e[2]))),
+    )
+
+
+@app.get("/rankings/rekorde", response_model=Rekorde, operation_id="getRankingsRekorde")
+def rankings_rekorde(
+    art: Literal["halte", "takt"],
+    min_n: MinN = 500,
+    gattung: Gattung = "alle",
+    von: Month = None,
+    bis: Month = None,
+) -> Rekorde:
+    files = (
+        files_of(HALTE_PATH, STATIONS_PATH)
+        if art == "halte"
+        else files_of(LINES_PATH, LINIEN_PATH, TAKT_PATH)
+    )
+    return records_for(art, files, gattung, period_start(von, bis), bis, min_n)
 
 
 @app.get("/stationen", response_model=list[Station], operation_id="getStationen")
