@@ -25,7 +25,7 @@ const chip = (on: boolean) =>
  * Global filter bar of the Discover area. All state lives in the URL. `noStation` leaves out the
  * Bahnhof chip, `noCategory` the Gattung chip and `noPeriod` the Zeitraum chip. `stationName` is the selected station's name when
  * the page already has it: a string uses it, `null` waits for the page's data, `undefined` looks
- * the station up. `lines` (the time series) adds a Linie chip that picks a line; with a `linie` in
+ * the station up. `lines` (the time series and the heatmap) adds a Linie chip that picks a line; with a `linie` in
  * the URL the chip shows `lineTitle`, opens the picker to change it and has a remove button. `lage` (the
  * Live-Lage page) shows a day instead of a period and a train type: a day field and chips for
  * Heute, Gestern and Vorgestern. Its newest day is the default and so never written as `tag`.
@@ -197,7 +197,7 @@ export function Filters({
           id="bhf"
           scope="bahnhoefe"
           className={`${chip(!!f.bhf)} cursor-pointer`}
-          // A picked station wins over a line, which only the time series knows.
+          // A picked station replaces a line, which only the time series and the heatmap know.
           onPick={(eva) =>
             setParams((p) => {
               p.delete("linie");

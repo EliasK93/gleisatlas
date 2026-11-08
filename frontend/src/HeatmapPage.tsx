@@ -25,6 +25,7 @@ import {
   FILL,
   MetricSwitch,
   MusterSwitch,
+  PRIMARY,
   ShareButton,
   show,
   TipBox,
@@ -46,25 +47,30 @@ const HOURS = Array.from({ length: 24 }, (_, h) => h);
 export default function HeatmapPage() {
   const [params] = useSearchParams();
   const setParams = useSetParams();
+  const read = readFilters(params);
+  // The API takes a station or a line, not both: a line wins, as on the time series page.
   const f: FilterKeys = {
-    ...readFilters(params),
+    ...read,
     tag: undefined,
     land: undefined,
-    linie: undefined,
     z: undefined,
     richtung: undefined,
     abschnitt: undefined,
+    bhf: read.linie ? undefined : read.bhf,
   };
   // Days in the URL round outward: this page asks for whole months.
   const m = useMonthPeriod(f);
   const q = useQuery({
-    queryKey: ["heatmap", f.g, f.bhf, m.von, m.bis],
+    queryKey: ["heatmap", f.g, f.bhf, f.linie, m.von, m.bis],
+    // A line the API does not know is a page state (null), not an error.
     queryFn: () =>
       api
         .GET("/heatmap", {
-          params: { query: { gattung: f.g ?? "alle", eva: f.bhf, von: m.von, bis: m.bis } },
+          params: {
+            query: { gattung: f.g ?? "alle", eva: f.bhf, linie: f.linie, von: m.von, bis: m.bis },
+          },
         })
-        .then(must),
+        .then((r) => (r.response.status === 404 ? null : must(r))),
     enabled: m.ready,
     placeholderData: keepPreviousData,
   });
@@ -77,6 +83,18 @@ export default function HeatmapPage() {
 
   let body;
   if (q.isError) body = <ErrorBanner onRetry={() => q.refetch()} />;
+  else if (data === null)
+    body = (
+      <EmptyCard title={t("zv.unknownLine")} hint={t("zv.unknownLineHint")}>
+        <button
+          type="button"
+          className={`${PRIMARY} mt-4`}
+          onClick={() => setParams(withParam("linie", ""))}
+        >
+          {t("zv.unknownReset")}
+        </button>
+      </EmptyCard>
+    );
   else if (!data) body = <Skeleton />;
   else if (data.n === 0)
     body = (
@@ -109,7 +127,7 @@ export default function HeatmapPage() {
         </div>
         <ShareButton />
       </div>
-      <Filters />
+      <Filters lines lineTitle={data?.titel ?? undefined} />
       {body}
     </Page>
   );

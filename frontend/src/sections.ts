@@ -1,6 +1,6 @@
 /** The sections of a line along its axis: the route's sections, the map's segments, the colour steps. Pure functions, no React. */
 import { LOCALE, t } from "./i18n";
-import { int, NBSP } from "./metrics";
+import { int, NBSP, oneDecimal } from "./metrics";
 import type { components } from "./schema";
 
 type Abschnitt = components["schemas"]["Abschnitt"];
@@ -21,10 +21,6 @@ export function stepOf(minutes: number): Step {
   return (i < 0 ? 5 : i + 1) as Step;
 }
 
-const oneDecimal = new Intl.NumberFormat(LOCALE, {
-  minimumFractionDigits: 1,
-  maximumFractionDigits: 1,
-});
 const limitFormat = new Intl.NumberFormat(LOCALE, { maximumFractionDigits: 2 });
 
 /** The number of `format` with its sign: "+1,8", "−0,4" (a real minus), "±0,0". */

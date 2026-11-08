@@ -15,7 +15,7 @@ export const APPROX_N = 50;
 export const MAX_LINE_ID = 200;
 
 const whole = new Intl.NumberFormat(LOCALE, { maximumFractionDigits: 0 });
-const oneDecimal = new Intl.NumberFormat(LOCALE, {
+export const oneDecimal = new Intl.NumberFormat(LOCALE, {
   minimumFractionDigits: 1,
   maximumFractionDigits: 1,
 });
@@ -351,26 +351,43 @@ export function writeFilters({
   return new URLSearchParams(Object.entries(keys).filter((e): e is [string, string] => !!e[1]));
 }
 
-/** The rankings page's own URL keys: what it lists, the minimum sample and, for lines, lines or single trains. */
+/**
+ * The rankings page's own URL keys: what it lists, the minimum sample, for lines lines or single
+ * trains, and for the records stops or trains.
+ */
 // ponytail: four minimum-sample values only, though the API accepts any value from 15; a number field when users want other limits
 export const MIN_NS = [100, 500, 1000, 5000] as const;
-export type Rank = { typ: "linien" | "bahnhoefe"; min: number; art: "linien" | "zuege" };
+export const RANK_TYPES = ["linien", "bahnhoefe", "abschnitte", "rekorde"] as const;
+export type Rank = {
+  typ: (typeof RANK_TYPES)[number];
+  min: number;
+  art: "linien" | "zuege";
+  rekord: "halte" | "takt";
+};
 
-/** Reads `typ`, `min` and `art`; unknown values fall back to the default (stations, 500, lines). */
+/**
+ * Reads `typ`, `min`, `art` and `rekord`; unknown values fall back to the default (stations, 500,
+ * lines, stops).
+ */
 export function readRank(p: URLSearchParams): Rank {
   return {
-    typ: p.get("typ") === "linien" ? "linien" : "bahnhoefe",
+    typ: RANK_TYPES.find((v) => v === p.get("typ")) ?? "bahnhoefe",
     min: MIN_NS.find((n) => String(n) === p.get("min")) ?? 500,
     art: p.get("art") === "zuege" ? "zuege" : "linien",
+    rekord: p.get("rekord") === "takt" ? "takt" : "halte",
   };
 }
 
-/** The filter keys, then the rankings keys, each without its default; `art` only for lines. */
-export function writeRank(f: Filters, { typ, min, art }: Rank): URLSearchParams {
+/** The filter keys, then the rankings keys, each without its default; `art` only for lines, `rekord` only for records. */
+export function writeRank(
+  f: Filters,
+  { typ, min, art, rekord }: Omit<Rank, "rekord"> & { rekord?: Rank["rekord"] },
+): URLSearchParams {
   const p = writeFilters(f);
   if (typ !== "bahnhoefe") p.set("typ", typ);
   if (min !== 500) p.set("min", String(min));
   if (typ === "linien" && art === "zuege") p.set("art", art);
+  if (typ === "rekorde" && rekord === "takt") p.set("rekord", rekord);
   return p;
 }
 
@@ -392,9 +409,14 @@ export const withParam = (key: string, value: string) => (p: URLSearchParams) =>
 export const lineSearch = (f: Pick<Filters, "k" | "g">, linie: string) =>
   writeFilters({ k: f.k, g: f.g, linie }).toString();
 
-/** The search string of a line's page: the metric and the period. A line has one train type, so no category. */
-export const linePageSearch = (f: Pick<Filters, "k" | "von" | "bis">) =>
-  writeFilters({ k: f.k, von: f.von, bis: f.bis }).toString();
+/**
+ * The search string of a line's page: the metric and the period, and with `at` the direction and
+ * section to open on. A line has one train type, so no category.
+ */
+export const linePageSearch = (
+  f: Pick<Filters, "k" | "von" | "bis">,
+  at?: Pick<Filters, "richtung" | "abschnitt">,
+) => writeFilters({ k: f.k, von: f.von, bis: f.bis, ...at }).toString();
 
 /**
  * URL updater for the period: sets `edge` and, when that crosses the other edge (shown or

@@ -1,5 +1,5 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
-import { EMPTY_HEATMAP, heatmapFixture, mockApi } from "./fixtures";
+import { EMPTY_HEATMAP, heatmapFixture, mockApi, NOT_FOUND, queryOf } from "./fixtures";
 
 // Scale tokens from theme.css as the browser reports them.
 const R1 = "rgb(33, 102, 172)";
@@ -219,6 +219,64 @@ test("the line page's keys are dropped from the URL", async ({ page }) => {
   await mockApi(page);
   await page.goto("/muster/heatmap?richtung=2&abschnitt=08000080-08000149&k=median");
   await expect(page).toHaveURL(/\/muster\/heatmap\?k=median$/);
+});
+
+const LINE = "linie=RE57%3A08000080";
+const heatmapRequests = (all: URL[]) => all.filter((u) => u.pathname === "/heatmap");
+const lastHeatmap = (all: URL[]) => queryOf(heatmapRequests(all).at(-1));
+
+test("a line goes into the request and its title into the chip; a station is dropped", async ({
+  page,
+}) => {
+  const all = await mockApi(page);
+  await page.goto(`/muster/heatmap?bhf=8000207&${LINE}&g=fern&k=median`);
+  await expect(page.getByRole("table")).toBeVisible();
+  // The line wins over the station, as on the time series page.
+  await expect(page).toHaveURL(`/muster/heatmap?g=fern&${LINE}&k=median`);
+  expect(lastHeatmap(all)).toEqual({ gattung: "fern", linie: "RE57:08000080" });
+  await expect(page.getByText(/^Linie:/)).toContainText("RE57 · Köln Hbf");
+  await expect(page.getByRole("button", { name: /^Bahnhof/ })).toContainText("Alle");
+  await expect(page.getByText("n = 203.000 Halte · Sept. 2026")).toBeVisible();
+});
+
+test("the Linie chip picks a line and asks again; its x removes the line", async ({ page }) => {
+  const all = await mockApi(page);
+  await page.goto("/muster/heatmap?bhf=8000207");
+  await expect(page.getByRole("table")).toBeVisible();
+  expect(lastHeatmap(all)).toEqual({ gattung: "alle", eva: "8000207" });
+  await page.getByRole("button", { name: /^Linie:\s*Alle$/ }).click();
+  const field = page.getByRole("combobox", { name: "Linie suchen" });
+  await field.fill("re57");
+  await page
+    .getByRole("listbox", { name: "Linie" })
+    .getByText("RE57 Dortmund Hbf – Warburg (Westf)")
+    .click();
+  await expect(page).toHaveURL(`/muster/heatmap?${LINE}`);
+  await expect.poll(() => lastHeatmap(all)).toEqual({ gattung: "alle", linie: "RE57:08000080" });
+  await expect(page.getByText(/^Linie:/)).toContainText("RE57 · Köln Hbf");
+  await page.getByRole("button", { name: "Linie entfernen" }).click();
+  await expect(page).toHaveURL(/\/muster\/heatmap$/);
+  await expect.poll(() => lastHeatmap(all)).toEqual({ gattung: "alle" });
+  await expect(page.getByText(/^Linie:/)).toContainText("Alle");
+});
+
+test("a line the API does not know has its own state with a way back", async ({ page }) => {
+  await mockApi(page, (linie) => (linie ? NOT_FOUND : heatmapFixture()));
+  await page.goto(`/muster/heatmap?g=fern&${LINE}`);
+  await expect(page.getByText("Diese Linie gibt es in den Daten nicht (mehr)")).toBeVisible();
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  await page.getByRole("button", { name: "Auswahl entfernen" }).click();
+  await expect(page).toHaveURL(/\/muster\/heatmap\?g=fern$/);
+  await expect(page.getByRole("table")).toBeVisible();
+});
+
+test("a line without journeys in the filters shows the empty state", async ({ page }) => {
+  await mockApi(page, (linie) => (linie ? EMPTY_HEATMAP : heatmapFixture()));
+  await page.goto(`/muster/heatmap?${LINE}`);
+  await expect(page.getByText("Für diese Filter gibt es keine Fahrten")).toBeVisible();
+  await page.getByRole("button", { name: "Filter zurücksetzen" }).click();
+  await expect(page).toHaveURL(/\/muster\/heatmap$/);
+  await expect(page.getByRole("table")).toBeVisible();
 });
 
 test("empty state offers a reset", async ({ page }) => {

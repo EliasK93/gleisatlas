@@ -8,6 +8,11 @@ type Datenstand = components["schemas"]["Datenstand"];
 type Karte = components["schemas"]["Karte"];
 type Statistik = components["schemas"]["Statistik"];
 type Rangliste = components["schemas"]["Rangliste"];
+type AbschnittsRangliste = components["schemas"]["AbschnittsRangliste"];
+type RanglistenAbschnitt = components["schemas"]["RanglistenAbschnitt"];
+type AbschnittLinie = components["schemas"]["AbschnittLinie"];
+type Rekorde = components["schemas"]["Rekorde"];
+type RekordEintrag = components["schemas"]["RekordEintrag"];
 type StationLinie = components["schemas"]["StationLinie"];
 type Zeitverlauf = components["schemas"]["Zeitverlauf"];
 type Monat = components["schemas"]["Monat"];
@@ -236,8 +241,11 @@ export const datenstandHeute = (sources: Sources = "live"): Datenstand => ({
 
 const base = { n: 1240, ausfallquote: 0.02, median: 2, p90: 8, puenktlich: 0.75 };
 
-/** 7 × 24 cells; Monday (row 0) holds the boundary cases, Sunday 3–4 Uhr is missing entirely. */
-export function heatmapFixture(): Heatmap {
+/**
+ * 7 × 24 cells; Monday (row 0) holds the boundary cases, Sunday 3–4 Uhr is missing entirely. For a
+ * line the API adds its `titel`, here as the time series fixture names a line.
+ */
+export function heatmapFixture(linie: string | null = null): Heatmap {
   const special: Record<number, Partial<Cell>> = {
     0: { puenktlich: 0.9 }, // class 1
     1: { puenktlich: 0.89 }, // class 2
@@ -265,7 +273,8 @@ export function heatmapFixture(): Heatmap {
     weekday,
     puenktlich: weekday === 0 ? 0.81 : 0.75,
   }));
-  return { von: "2026-09", bis: "2026-09", n: 203000, cells, tage };
+  const titel = linie ? `${linie.split(":")[0]} · Köln Hbf` : undefined;
+  return { von: "2026-09", bis: "2026-09", n: 203000, cells, tage, titel };
 }
 
 export const EMPTY_HEATMAP: Heatmap = { von: "", bis: "", n: 0, cells: [], tage: [] };
@@ -339,6 +348,82 @@ export const emptyRangliste = (typ: string, metrik: string, minN: number): Rangl
   schlechteste: [],
   beste: [],
 });
+
+/**
+ * The ten worst and ten best sections. Worst row 1 has 76 lines (three named, a line that runs it
+ * backwards and one whose usual route lacks it among them), row 2 a single line, the rest three.
+ * The EVAs are 80001n0 and 80002n0.
+ */
+export function abschnitteRanglisteFixture(gattung = "alle", minN = 500): AbschnittsRangliste {
+  const named = (i: number): AbschnittLinie[] => [
+    {
+      id: `ICE ${50 + i}:8000207`,
+      label: `ICE ${50 + i} Hamburg Hbf – München Hbf`,
+      n: 900,
+      richtung: 1,
+    },
+    {
+      id: `RE ${i + 1}:8000207`,
+      label: `RE ${i + 1} Hamburg Hbf – Berlin Hbf`,
+      n: 500,
+      richtung: 2,
+    },
+    {
+      id: `IC ${i + 2}:8000207`,
+      label: `IC ${i + 2} Hamburg Hbf – Leipzig Hbf`,
+      n: 90,
+      richtung: null,
+    },
+  ];
+  const section = (i: number, worst: boolean): RanglistenAbschnitt => ({
+    von_eva: `80001${i}0`,
+    von_name: `${worst ? "Verlust" : "Gewinn"}von ${i}`,
+    nach_eva: `80002${i}0`,
+    nach_name: `${worst ? "Verlust" : "Gewinn"}nach ${i}`,
+    n: 1500 - i * 100,
+    minuten: worst ? 14.3 - i * 1.1 : -20.2 + i * 1.5,
+    linien_anzahl: i === 0 ? 76 : i === 1 ? 1 : 3,
+    linien: i === 1 ? named(i).slice(0, 1) : named(i),
+  });
+  const ten = (worst: boolean) => Array.from({ length: 10 }, (_, i) => section(i, worst));
+  return {
+    min_n: minN,
+    von: "2025-11",
+    bis: "2026-09",
+    anzahl: gattung === "alle" ? 14211 : 3000,
+    schlechteste: ten(true),
+    beste: ten(false),
+  };
+}
+
+/**
+ * The ten most and ten fewest. Stations: 1,618 stops a day down to 718; trains per hour: 29.4 down
+ * to 15.9, and the fewest from 0.06 (a train a day) over 0.14 to 1.0 and more.
+ */
+export function rekordeFixture(art = "halte", minN = 500): Rekorde {
+  const entry = (wert: number, i: number): RekordEintrag =>
+    art === "halte"
+      ? { id: `80007${i}0`, name: `Knoten ${i}`, wert, n: Math.round(wert * 30) }
+      : {
+          id: `S ${i + 1}:8000207`,
+          name: `S ${i + 1} Hamburg Hbf – Wedel`,
+          wert,
+          n: 20000 - i * 1000,
+        };
+  const most = (i: number) =>
+    art === "halte" ? 1618 - i * 100 : Math.round((29.4 - i * 1.5) * 100) / 100;
+  const fewest = (i: number) =>
+    art === "halte" ? 3.2 + i * 0.1 : i < 5 ? Math.round(6 + i * 2) / 100 : (i - 4) * 0.2 + 0.8;
+  return {
+    art: art === "halte" ? "halte" : "takt",
+    min_n: minN,
+    von: "2025-11",
+    bis: "2026-09",
+    anzahl: 2445,
+    meiste: Array.from({ length: 10 }, (_, i) => entry(most(i), i)),
+    wenigste: Array.from({ length: 10 }, (_, i) => entry(fewest(i), i)),
+  };
+}
 
 /**
  * Twelve lines at a station in the API's order: ten with a value, worst first; RE 11, whose stops
@@ -835,14 +920,14 @@ export const sucheFixture = (q: string): Suche => ({
 export const NOT_FOUND = "not-found";
 
 /** Serves the API and the base map style from fixtures. `heatmap`, `karte`, `statistik`,
- * `rankings`, `linien`, `zeitverlauf`, `tagesverlauf`, `tageskarte`, `linie`, `abschnitte` and
+ * `rankings`, `rankingAbschnitte`, `rekorde`, `linien`, `zeitverlauf`, `tagesverlauf`, `tageskarte`, `linie`, `abschnitte` and
  * `fahrplan` return the body, or null for a server error; an unknown EVA is a 404, and so is
- * `NOT_FOUND` from `zeitverlauf`, `tagesverlauf`, `tageskarte`, `linie`, `abschnitte` or `fahrplan`.
+ * `NOT_FOUND` from `zeitverlauf`, `tagesverlauf`, `tageskarte`, `linie`, `abschnitte` or `fahrplan`, and `heatmap` for an unknown line.
  * Returns the list of requested API URLs.
  */
 export async function mockApi(
   page: Page,
-  heatmap: () => Heatmap | null = heatmapFixture,
+  heatmap: (linie: string | null) => Heatmap | typeof NOT_FOUND | null = heatmapFixture,
   karte: () => Karte | null = karteFixture,
   statistik: (station: Station, gattung: string) => Statistik | null = statistikFixture,
   rankings: (typ: string, metrik: string, minN: number) => Rangliste | null = rankingFixture,
@@ -861,6 +946,11 @@ export async function mockApi(
   linie: (id: string) => Linie | typeof NOT_FOUND | null = lineFixture,
   abschnitte: (id: string) => Abschnitt[] | typeof NOT_FOUND | null = abschnitteFixture,
   fahrplan: (id: string, tag: string) => Fahrplan | typeof NOT_FOUND | null = fahrplanFixture,
+  rankingAbschnitte: (
+    gattung: string,
+    minN: number,
+  ) => AbschnittsRangliste | null = abschnitteRanglisteFixture,
+  rekorde: (art: string, minN: number) => Rekorde | null = rekordeFixture,
 ): Promise<URL[]> {
   const requests: URL[] = [];
   await page.route("https://tiles.openfreemap.org/**", (route) =>
@@ -878,7 +968,7 @@ export async function mockApi(
       requests.push(url);
       const [, name, eva, detail] = API_PATH.exec(url.pathname)!;
       let body: unknown;
-      if (name === "heatmap") body = heatmap();
+      if (name === "heatmap") body = heatmap(url.searchParams.get("linie"));
       else if (name === "karte") body = karte();
       else if (name === "tageskarte") {
         const q = url.searchParams;
@@ -896,7 +986,11 @@ export async function mockApi(
               : linie(id);
       } else if (name === "rankings") {
         const q = url.searchParams;
-        body = rankings(q.get("typ") ?? "", q.get("metrik") ?? "", Number(q.get("min_n")));
+        const minN = Number(q.get("min_n"));
+        // /rankings/abschnitte and /rankings/rekorde share the prefix.
+        if (eva === "abschnitte") body = rankingAbschnitte(q.get("gattung") ?? "alle", minN);
+        else if (eva === "rekorde") body = rekorde(q.get("art") ?? "", minN);
+        else body = rankings(q.get("typ") ?? "", q.get("metrik") ?? "", minN);
       } else if (name === "zeitverlauf") {
         const q = url.searchParams;
         body = zeitverlauf(q.get("eva"), q.get("linie"), q.get("gattung") ?? "alle");
