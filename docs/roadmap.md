@@ -100,10 +100,12 @@ Details in [map.md](map.md) (the station panel) and [lines.md](lines.md) (the se
 Each step gets its own plan and its own section here once it starts.
 1. [x] A docs-only fast path in the gate (section "Gate fast path")
 2. [x] Lines from the map and deep links (section "Lines from the map and deep links")
-3. [ ] Rankings and the heatmap, one data rebuild for all of them:
+3. [x] Rankings and the heatmap, one data rebuild for all of them:
    - a Rankings tab "Abschnitte": the network-wide worst and best Zeitfresser sections, per station pair and direction, pooled over all lines, with a minimum of trips; each row links to its lines
-   - a Rankings tab with records independent of delays: stations with the most and fewest stops, lines with the most and fewest trains per hour, with a minimum sample
+   - a Rankings tab with records independent of delays: stations with the most and fewest stops, lines with the most and fewest trains per hour, without the minimum-sample chips (a fixed floor instead)
    - a line filter for the Wochentag × Uhrzeit heatmap, from a per-line weekday × hour table (a larger file to download)
+   - Re-check, pipeline and API: `uv run pytest -q tests/pipeline tests/api`, in particular the record-table milestone in [pipeline.md](pipeline.md) §5, `tests/api/test_rankings_api.py` (`test_sections_pool_over_the_lines_and_keep_each_direction`, `test_stops_per_day_count_every_stop_over_the_days_of_the_period`, `test_trips_per_hour_of_service_come_from_the_takt_table`) and `tests/api/test_heatmap_api.py` (`test_a_line_has_its_own_heatmap_and_a_title`); the full list is the milestone in [patterns.md](patterns.md) §5
+   - Re-check, UI: `npm --prefix frontend run test:e2e`, `frontend/e2e/rankings.spec.ts` and `frontend/e2e/heatmap.spec.ts`; the rules and decisions are in [patterns.md](patterns.md) §2 and §3, the data files in [pipeline.md](pipeline.md) §2 and the download list in [deployment.md](deployment.md) §4
 4. [ ] The image registry on GitHub Container Registry instead of Azure Container Registry, checked with one test deploy together with the larger data
 5. [ ] The planner, M9+ below
 6. [ ] Talk about the move to a VPS (section above) once the planner's connection source is decided, since the source sets what the server needs
