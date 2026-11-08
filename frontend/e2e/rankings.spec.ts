@@ -48,6 +48,8 @@ const noScroll = (page: Page) =>
 const rankingRequests = (requests: URL[]) => requests.filter((u) => u.pathname === "/rankings");
 /** The query of the latest /rankings request. */
 const lastQuery = (requests: URL[]) => queryOf(rankingRequests(requests).at(-1));
+/** The "Show more" button under a list. */
+const more = (list: Locator) => list.getByRole("button", { name: "Mehr anzeigen" });
 const pressed = (page: Page, name: string) =>
   page.getByRole("button", { name, exact: true }).and(page.locator('[aria-pressed="true"]'));
 
@@ -668,6 +670,155 @@ test.describe("desktop", () => {
     expect(below.x).toBe(above.x);
     expect(await noScroll(page)).toBe(true);
   });
+
+  test("show more: a click asks for 110, grows that list only and counts it; each list counts on its own", async ({
+    page,
+  }) => {
+    const requests = await mockApi(page);
+    await page.goto("/muster/rankings");
+    const worst = column(page, WORST);
+    const best = column(page, BEST);
+    await expect(worst.getByText("10 von 2.445")).toBeVisible();
+    await expect(best.getByText("10 von 2.445")).toBeVisible();
+    expect(lastQuery(requests)).not.toHaveProperty("limit");
+    const button = more(worst);
+    // The polite live region speaks only after a click in its own list, never on load.
+    const live = worst.locator('[aria-live="polite"]');
+    await expect(live).toHaveText("");
+    await button.click();
+    await expect(worst.getByRole("listitem")).toHaveCount(110);
+    await expect(worst.getByText("110 von 2.445")).toBeVisible();
+    await expect(live).toHaveText("110 Einträge angezeigt");
+    await expect(best.locator('[aria-live="polite"]')).toHaveText("");
+    expect(lastQuery(requests)).toMatchObject({ limit: "110" });
+    // Rank numbers keep counting, and the button keeps the focus.
+    await expect(worst.getByRole("listitem").last()).toContainText("110");
+    await expect(button).toBeFocused();
+    await expect(best.getByRole("listitem")).toHaveCount(10);
+    await expect(best.getByText("10 von 2.445")).toBeVisible();
+    // The other list has its own count; the request already holds its 110 rows.
+    const before = rankingRequests(requests).length;
+    await more(best).click();
+    await expect(best.getByRole("listitem")).toHaveCount(110);
+    expect(rankingRequests(requests)).toHaveLength(before);
+    // The next click on the first list asks for more and leaves the second at 110.
+    await button.click();
+    await expect(worst.getByRole("listitem")).toHaveCount(210);
+    expect(lastQuery(requests)).toMatchObject({ limit: "210" });
+    await expect(worst.getByText("210 von 2.445")).toBeVisible();
+    await expect(best.getByRole("listitem")).toHaveCount(110);
+    await expect(page).not.toHaveURL(/limit|shown/);
+  });
+
+  test("show more: the last click shows every row and removes the button and the count", async ({
+    page,
+  }) => {
+    const requests = await mockApi(page, undefined, undefined, undefined, (typ, metrik, minN) => ({
+      ...rankingFixture(typ, metrik, minN),
+      anzahl: 25,
+    }));
+    await page.goto("/muster/rankings");
+    const worst = column(page, WORST);
+    await expect(worst.getByText("10 von 25")).toBeVisible();
+    await more(worst).click();
+    await expect(worst.getByRole("listitem")).toHaveCount(25);
+    expect(lastQuery(requests)).toMatchObject({ limit: "110" });
+    await expect(more(worst)).toHaveCount(0);
+    await expect(worst.getByText(/ von /)).toHaveCount(0);
+    // The button is gone, so the focus moves to the first row that was added.
+    await expect(worst.getByRole("listitem").nth(10).getByRole("link")).toBeFocused();
+    // The other list is still at ten and keeps its button.
+    await expect(column(page, BEST).getByRole("listitem")).toHaveCount(10);
+    await expect(more(column(page, BEST))).toBeVisible();
+  });
+
+  test("show more: a filter, the metric or the tab returns both lists to ten and drops the limit", async ({
+    page,
+  }) => {
+    const requests = await mockApi(page);
+    await page.goto("/muster/rankings");
+    const worst = column(page, WORST);
+    for (const change of [
+      () => page.getByRole("button", { name: "Typische Verspätung" }).click(),
+      () => page.getByRole("button", { name: "1.000", exact: true }).click(),
+      () => page.getByLabel("Gattung:").selectOption("fern"),
+      () => page.getByRole("button", { name: "Linien", exact: true }).click(),
+    ])
+      await test.step(`${change}`, async () => {
+        await more(worst).click();
+        await expect(worst.getByRole("listitem")).toHaveCount(110);
+        const asked = rankingRequests(requests).length;
+        await change();
+        await expect.poll(() => rankingRequests(requests).length).toBeGreaterThan(asked);
+        await expect(worst.getByRole("listitem")).toHaveCount(10);
+        await expect(worst.getByText("10 von 2.445")).toBeVisible();
+        await expect(worst.locator('[aria-live="polite"]')).toHaveText("");
+        expect(lastQuery(requests)).not.toHaveProperty("limit");
+      });
+  });
+
+  test("show more: the last click on sections moves the focus to the first added row", async ({
+    page,
+  }) => {
+    await mockApi(page, ...DEFAULTS, (g, minN) => ({
+      ...abschnitteRanglisteFixture(g, minN),
+      anzahl: 25,
+    }));
+    await page.goto("/muster/rankings?typ=abschnitte");
+    const lose = column(page, LOSE);
+    await more(lose).click();
+    await expect(lose.getByRole("listitem")).toHaveCount(25);
+    await expect(more(lose)).toHaveCount(0);
+    await expect(lose.getByRole("listitem").nth(10)).toBeFocused();
+  });
+
+  test("show more: the sections lists have the button, the count and the limit", async ({
+    page,
+  }) => {
+    const requests = await mockApi(page);
+    await page.goto("/muster/rankings?typ=abschnitte");
+    const lose = column(page, LOSE);
+    await expect(lose.getByText("10 von 14.211")).toBeVisible();
+    expect(lastOf(requests, "/rankings/abschnitte")).not.toHaveProperty("limit");
+    await more(lose).click();
+    await expect(lose.getByRole("listitem")).toHaveCount(110);
+    await expect(lose.getByText("110 von 14.211")).toBeVisible();
+    expect(lastOf(requests, "/rankings/abschnitte")).toMatchObject({ limit: "110" });
+    await expect(lose.getByRole("listitem").last()).toContainText("110");
+    await expect(column(page, MAKE_UP).getByRole("listitem")).toHaveCount(10);
+    await expect(more(column(page, MAKE_UP))).toBeVisible();
+  });
+
+  test("show more: the records lists have the button, and the Halte or Züge switch starts over", async ({
+    page,
+  }) => {
+    const requests = await mockApi(page);
+    await page.goto("/muster/rankings?typ=rekorde");
+    const most = column(page, MOST);
+    await expect(most.getByText("10 von 2.445")).toBeVisible();
+    await expect(more(column(page, FEWEST))).toBeVisible();
+    await more(most).click();
+    await expect(most.getByRole("listitem")).toHaveCount(110);
+    expect(lastOf(requests, "/rankings/rekorde")).toMatchObject({ art: "halte", limit: "110" });
+    await page.getByRole("group", { name: "Halte oder Züge" }).getByText("Züge").click();
+    await expect(most.getByRole("listitem").first()).toContainText("Züge/h");
+    await expect(most.getByRole("listitem")).toHaveCount(10);
+    await expect(most.getByText("10 von 2.445")).toBeVisible();
+    expect(lastOf(requests, "/rankings/rekorde")).not.toHaveProperty("limit");
+  });
+
+  test("show more: going back to the earlier query starts at ten again", async ({ page }) => {
+    await mockApi(page);
+    await page.goto("/muster/rankings");
+    const worst = column(page, WORST);
+    await more(worst).click();
+    await expect(worst.getByRole("listitem")).toHaveCount(110);
+    await page.getByRole("button", { name: "Typische Verspätung" }).click();
+    await expect(worst.getByRole("listitem")).toHaveCount(10);
+    await page.getByRole("button", { name: "Pünktlichkeit", exact: true }).click();
+    await expect(worst.getByRole("listitem")).toHaveCount(10);
+    await expect(worst.getByText("10 von 2.445")).toBeVisible();
+  });
 });
 
 test("the column header names the value bold and the grey cancellation column", async ({
@@ -770,6 +921,34 @@ test.describe("mobile", () => {
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
       true,
     );
+  });
+
+  test("show more: the shown tab grows, the other keeps its ten, and the button has a 44 px hit area", async ({
+    page,
+  }) => {
+    const requests = await mockApi(page);
+    await page.goto("/muster/rankings");
+    const worst = column(page, WORST);
+    const button = more(worst);
+    await expect(worst.getByText("10 von 2.445")).toBeVisible();
+    // A tap 21 px above and below the centre still lands on the button.
+    const hit = await button.evaluate((el) => {
+      el.scrollIntoView({ block: "center", inline: "center" });
+      const r = el.getBoundingClientRect();
+      const x = r.left + r.width / 2;
+      const y = r.top + r.height / 2;
+      return [-21, 21].every((dy) => el.contains(document.elementFromPoint(x, y + dy)));
+    });
+    expect(hit).toBe(true);
+    await button.click();
+    await expect(worst.getByRole("listitem")).toHaveCount(110);
+    expect(lastQuery(requests)).toMatchObject({ limit: "110" });
+    await page.getByRole("tab", { name: BEST }).click();
+    await expect(column(page, BEST).getByRole("listitem")).toHaveCount(10);
+    await expect(column(page, BEST).getByText("10 von 2.445")).toBeVisible();
+    await page.getByRole("tab", { name: WORST }).click();
+    await expect(column(page, WORST).getByRole("listitem")).toHaveCount(110);
+    expect(await noScroll(page)).toBe(true);
   });
 
   test("the lines or single trains switch fits the phone and has 44 px hit areas", async ({

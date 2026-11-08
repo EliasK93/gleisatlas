@@ -1,5 +1,5 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Link, Navigate, useSearchParams } from "react-router";
 import { clearParams, useSetParams } from "./useSetParams";
 import { api, must, useMonthPeriod } from "./api";
@@ -95,6 +95,17 @@ export default function RankingsPage() {
   const rank = readRank(params);
   // Days in the URL round outward: this page asks for whole months.
   const m = useMonthPeriod(f);
+  // How many rows each of the two lists shows. The counts belong to the query they were raised
+  // under: when any part of it changes, both fall back to the first ten, also on a return to an
+  // earlier query. Resetting during the render needs no effect.
+  const identity = [rank.typ, rank.art, rank.rekord, f.k, rank.min, f.g, m.von, m.bis].join("|");
+  const fresh = (): Grown => ({ identity, counts: [FIRST, FIRST], clicked: null, focus: null });
+  const [grown, setGrown] = useState(fresh);
+  if (grown.identity !== identity) setGrown(fresh());
+  const { counts } = grown;
+  // The request asks for the larger count, and for nothing at all while both lists show the first ten.
+  const larger = Math.max(...counts);
+  const limit = larger > FIRST ? larger : undefined;
   // Lines are the default: the request names single trains only.
   const single = rank.typ === "linien" && rank.art === "zuege";
   // Stations and lines have the metric; sections and records have their own value.
@@ -103,7 +114,7 @@ export default function RankingsPage() {
   // stations that just reach a threshold. `min` stays in the URL for the other tabs.
   const isRecords = rank.typ === "rekorde";
   const list = useQuery({
-    queryKey: ["rankings", rank.typ, single, f.k, rank.min, f.g, m.von, m.bis],
+    queryKey: ["rankings", rank.typ, single, f.k, rank.min, f.g, m.von, m.bis, limit],
     queryFn: () =>
       api
         .GET("/rankings", {
@@ -116,6 +127,7 @@ export default function RankingsPage() {
               gattung: f.g ?? "alle",
               von: m.von,
               bis: m.bis,
+              limit,
             },
           },
         })
@@ -124,18 +136,20 @@ export default function RankingsPage() {
     placeholderData: keepPreviousData,
   });
   const sections = useQuery({
-    queryKey: ["rankings-abschnitte", rank.min, f.g, m.von, m.bis],
+    queryKey: ["rankings-abschnitte", rank.min, f.g, m.von, m.bis, limit],
     queryFn: () =>
       api
         .GET("/rankings/abschnitte", {
-          params: { query: { min_n: rank.min, gattung: f.g ?? "alle", von: m.von, bis: m.bis } },
+          params: {
+            query: { min_n: rank.min, gattung: f.g ?? "alle", von: m.von, bis: m.bis, limit },
+          },
         })
         .then(must),
     enabled: m.ready && rank.typ === "abschnitte",
     placeholderData: keepPreviousData,
   });
   const records = useQuery({
-    queryKey: ["rankings-rekorde", rank.rekord, f.g, m.von, m.bis],
+    queryKey: ["rankings-rekorde", rank.rekord, f.g, m.von, m.bis, limit],
     queryFn: () =>
       api
         .GET("/rankings/rekorde", {
@@ -146,6 +160,7 @@ export default function RankingsPage() {
               gattung: f.g ?? "alle",
               von: m.von,
               bis: m.bis,
+              limit,
             },
           },
         })
@@ -172,11 +187,32 @@ export default function RankingsPage() {
         onReset={() => setParams(clearParams)}
       />
     );
-  else if (rank.typ === "abschnitte" && sections.data)
-    body = <SectionLists data={sections.data} filters={f} />;
-  else if (rank.typ === "rekorde" && records.data)
-    body = <RecordLists data={records.data} art={rank.rekord} filters={f} />;
-  else if (list.data) body = <Lists data={list.data} metric={f.k} rank={rank} filters={f} />;
+  else {
+    // A click while the larger request is in flight would only queue another one.
+    const total = q.data.anzahl;
+    const paging: Paging = {
+      counts,
+      total,
+      busy: q.isPlaceholderData,
+      clicked: grown.clicked,
+      focus: grown.focus,
+      onMore: (i, shown) => {
+        if (q.isPlaceholderData) return;
+        const next: Counts = [...counts];
+        next[i] += STEP;
+        // The last click removes the button, so the focus goes to the first row it adds.
+        const focus = next[i] >= total ? { list: i, index: shown } : null;
+        setGrown({ identity, counts: next, clicked: i, focus });
+      },
+      onFocused: () => setGrown((g) => ({ ...g, focus: null })),
+    };
+    if (rank.typ === "abschnitte" && sections.data)
+      body = <SectionLists data={sections.data} filters={f} paging={paging} />;
+    else if (rank.typ === "rekorde" && records.data)
+      body = <RecordLists data={records.data} art={rank.rekord} filters={f} paging={paging} />;
+    else if (list.data)
+      body = <Lists data={list.data} metric={f.k} rank={rank} filters={f} paging={paging} />;
+  }
 
   const metaKey = {
     bahnhoefe: "rk.meta.bahnhoefe",
@@ -269,13 +305,46 @@ export default function RankingsPage() {
   );
 }
 
-type Column = { key: string; title: MessageKey; list: ReactNode };
+const FIRST = 10;
+const STEP = 100;
+/** Rows shown in the first and the second list. */
+type Counts = [number, number];
+/** The page's paging state: the counts, the list last clicked and the row to focus once it exists. */
+type Grown = {
+  identity: string;
+  counts: Counts;
+  clicked: 0 | 1 | null;
+  focus: { list: 0 | 1; index: number } | null;
+};
+/** The rows each list shows, how many exist, and the click that adds a step to one list. */
+type Paging = {
+  counts: Counts;
+  total: number;
+  busy: boolean;
+  clicked: Grown["clicked"];
+  focus: Grown["focus"];
+  onMore: (list: 0 | 1, shown: number) => void;
+  onFocused: () => void;
+};
+
+type Column = { key: string; title: MessageKey; list: ReactNode; shown: number };
 
 /** The columns of a ranking side by side, or as tabs on a narrow screen. */
-function Columns({ columns }: { columns: Column[] }) {
+function Columns({ columns, paging }: { columns: Column[]; paging: Paging }) {
   const narrow = useNarrow();
   const [tab, setTab] = useState(columns[0].key);
   const shown = narrow ? [columns.find((c) => c.key === tab) ?? columns[0]] : columns;
+  const sections = useRef<(HTMLElement | null)[]>([]);
+  // After the last click: focus the first added row once it is rendered. A link row gives the focus
+  // to its link, a section row (no link of its own) is focusable itself.
+  useEffect(() => {
+    const { focus, onFocused } = paging;
+    const row = focus && sections.current[focus.list]?.querySelectorAll("ul > li")[focus.index];
+    if (!row) return;
+    const target = row.hasAttribute("tabindex") ? row : (row.querySelector("a") ?? row);
+    (target as HTMLElement).focus();
+    onFocused();
+  });
   return (
     <>
       {narrow && (
@@ -289,14 +358,46 @@ function Columns({ columns }: { columns: Column[] }) {
         />
       )}
       <div className="grid gap-4 xl:grid-cols-2">
-        {shown.map(({ key, title, list }) => (
-          <section key={key} aria-labelledby={`rk-${key}`} className="card min-w-0">
-            <h2 id={`rk-${key}`} className="mb-2 text-base font-[620]">
-              {t(title)}
-            </h2>
-            {list}
-          </section>
-        ))}
+        {shown.map(({ key, title, list, shown: rows }) => {
+          const index = columns.findIndex((c) => c.key === key) as 0 | 1;
+          return (
+            <section
+              key={key}
+              ref={(el) => {
+                sections.current[index] = el;
+              }}
+              aria-labelledby={`rk-${key}`}
+              className="card min-w-0"
+            >
+              <h2 id={`rk-${key}`} className="mb-2 text-base font-[620]">
+                {t(title)}
+              </h2>
+              {list}
+              {rows < paging.total && (
+                <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2">
+                  {/* aria-disabled, not disabled: the button keeps the focus while the rows load. */}
+                  <button
+                    type="button"
+                    className="btn aria-disabled:cursor-wait aria-disabled:opacity-60"
+                    aria-disabled={paging.busy}
+                    onClick={() => paging.onMore(index, rows)}
+                  >
+                    {t("rk.more")}
+                  </button>
+                  <p className="text-xs text-text-3 tabular-nums">
+                    {t("rk.shown", { shown: int(rows), count: int(paging.total) })}
+                  </p>
+                  {/* Spoken only after a click in this list, once its rows are there. */}
+                  <p className="sr-only" aria-live="polite">
+                    {paging.clicked === index && !paging.busy
+                      ? t("rk.announce", { shown: int(rows) })
+                      : ""}
+                  </p>
+                </div>
+              )}
+            </section>
+          );
+        })}
       </div>
     </>
   );
@@ -308,15 +409,21 @@ function Lists({
   metric,
   rank,
   filters,
+  paging,
 }: {
   data: Rangliste;
   metric: Metric;
   rank: Rank;
   filters: FilterKeys;
+  paging: Paging;
 }) {
-  // Only punctuality has a natural scale; the other bars are relative to the largest value.
+  const rows = {
+    schlechteste: data.schlechteste.slice(0, paging.counts[0]),
+    beste: data.beste.slice(0, paging.counts[1]),
+  };
+  // Only punctuality has a natural scale; the other bars are relative to the largest shown value.
   const most = Math.max(
-    ...[...data.schlechteste, ...data.beste].map((e) => show(metric, e, "").value ?? 0),
+    ...[...rows.schlechteste, ...rows.beste].map((e) => show(metric, e, "").value ?? 0),
     1,
   );
   // Station rows keep the filters; the rankings keys are this page's own. A line row opens
@@ -330,6 +437,7 @@ function Lists({
   ).map(({ key, title }) => ({
     key,
     title,
+    shown: rows[key].length,
     list: (
       <>
         {/* The names of the two figure columns: the selected metric, and the grey cancellations. */}
@@ -340,7 +448,7 @@ function Lists({
           </span>
         </div>
         <ul>
-          {data[key].map((e, i) => (
+          {rows[key].map((e, i) => (
             <Row
               key={e.id}
               entry={e}
@@ -358,7 +466,7 @@ function Lists({
       </>
     ),
   }));
-  return <Columns columns={columns} />;
+  return <Columns columns={columns} paging={paging} />;
 }
 
 /**
@@ -415,7 +523,19 @@ function Row({
 }
 
 /** The sections that lose the most time and those that make up the most. */
-function SectionLists({ data, filters }: { data: AbschnittsRangliste; filters: FilterKeys }) {
+function SectionLists({
+  data,
+  filters,
+  paging,
+}: {
+  data: AbschnittsRangliste;
+  filters: FilterKeys;
+  paging: Paging;
+}) {
+  const rows = {
+    schlechteste: data.schlechteste.slice(0, paging.counts[0]),
+    beste: data.beste.slice(0, paging.counts[1]),
+  };
   const columns = (
     [
       { key: "schlechteste", title: "rk.sections.worst" },
@@ -424,9 +544,10 @@ function SectionLists({ data, filters }: { data: AbschnittsRangliste; filters: F
   ).map(({ key, title }) => ({
     key,
     title,
+    shown: rows[key].length,
     list: (
       <ul>
-        {data[key].map((s, i) => (
+        {rows[key].map((s, i) => (
           <SectionRow
             key={`${s.von_eva}-${s.nach_eva}`}
             section={s}
@@ -437,7 +558,7 @@ function SectionLists({ data, filters }: { data: AbschnittsRangliste; filters: F
       </ul>
     ),
   }));
-  return <Columns columns={columns} />;
+  return <Columns columns={columns} paging={paging} />;
 }
 
 /**
@@ -456,7 +577,7 @@ function SectionRow({
   const pair = `${s.von_eva}-${s.nach_eva}`;
   const more = s.linien_anzahl - s.linien.length;
   return (
-    <li className={`${FIGURE_ROW} border-b border-border last:border-b-0`}>
+    <li tabIndex={-1} className={`${FIGURE_ROW} border-b border-border last:border-b-0`}>
       <span className="text-xs text-text-3 tabular-nums">{rank}</span>
       <span className="min-w-0">
         <span className="font-[550]">
@@ -509,13 +630,19 @@ function RecordLists({
   data,
   art,
   filters,
+  paging,
 }: {
   data: Rekorde;
   art: Rank["rekord"];
   filters: FilterKeys;
+  paging: Paging;
 }) {
   // A station opens its page with the filters, a line its page in the same metric and period.
   const search = art === "halte" ? writeFilters(filters).toString() : linePageSearch(filters);
+  const rows = {
+    meiste: data.meiste.slice(0, paging.counts[0]),
+    wenigste: data.wenigste.slice(0, paging.counts[1]),
+  };
   const columns = (
     [
       { key: "meiste", title: "rk.records.most" },
@@ -524,9 +651,10 @@ function RecordLists({
   ).map(({ key, title }) => ({
     key,
     title,
+    shown: rows[key].length,
     list: (
       <ul>
-        {data[key].map((e, i) => (
+        {rows[key].map((e, i) => (
           <RecordRow
             key={e.id}
             entry={e}
@@ -538,7 +666,7 @@ function RecordLists({
       </ul>
     ),
   }));
-  return <Columns columns={columns} />;
+  return <Columns columns={columns} paging={paging} />;
 }
 
 function RecordRow({

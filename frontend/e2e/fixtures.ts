@@ -916,6 +916,17 @@ export const sucheFixture = (q: string): Suche => ({
   ...(SUCHE[q] ?? { linien: [], zuerst: "bahnhoefe" }),
 });
 
+/** `rows` grown to `length` by copies of the last row with a unique id (or section EVA). */
+function growRows(rows: Record<string, unknown>[], length: number): Record<string, unknown>[] {
+  const last = rows.at(-1);
+  if (!last) return rows;
+  const vary = (i: number) =>
+    "id" in last
+      ? { ...last, id: `${last.id}~${i}` }
+      : { ...last, von_eva: `${last.von_eva}~${i}` };
+  return Array.from({ length: Math.max(length, 0) }, (_, i) => rows[i] ?? vary(i));
+}
+
 /** What a `zeitverlauf` or `tagesverlauf` callback returns for an unknown selection (a 404). */
 export const NOT_FOUND = "not-found";
 
@@ -991,6 +1002,15 @@ export async function mockApi(
         if (eva === "abschnitte") body = rankingAbschnitte(q.get("gattung") ?? "alle", minN);
         else if (eva === "rekorde") body = rekorde(q.get("art") ?? "", minN);
         else body = rankings(q.get("typ") ?? "", q.get("metrik") ?? "", minN);
+        // A `limit` asks for more rows: the answer has min(limit, anzahl) of each list.
+        const limit = Number(q.get("limit"));
+        if (limit && body) {
+          const lists = { ...(body as { anzahl: number } & Record<string, unknown>) };
+          body = lists;
+          for (const key of ["schlechteste", "beste", "meiste", "wenigste"])
+            if (Array.isArray(lists[key]))
+              lists[key] = growRows(lists[key], Math.min(limit, lists.anzahl));
+        }
       } else if (name === "zeitverlauf") {
         const q = url.searchParams;
         body = zeitverlauf(q.get("eva"), q.get("linie"), q.get("gattung") ?? "alle");
