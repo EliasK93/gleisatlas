@@ -12,12 +12,16 @@ from pipeline.aggregate import (
     day_hours,
     days,
     dropped,
+    line_hours,
+    line_trips,
     lines,
     meta,
+    month_networks,
     routes,
     runs,
     sections,
     stations,
+    stop_counts,
     with_coords,
 )
 from tests.conftest import complete
@@ -428,3 +432,120 @@ def test_buses_by_line_name_never_reach_any_table():
     assert lines(bus.lazy()).height == 0
     assert sections(bus.lazy()).height == 0
     assert runs(bus.lazy()).height == 0
+    assert line_hours(bus.lazy(), month_networks(bus.lazy())).height == 0
+    assert line_trips(bus.lazy(), month_networks(bus.lazy())).height == 0
+
+
+def test_line_hours_are_the_line_cells_per_weekday_and_hour(source: pl.DataFrame):
+    lf = source.lazy()
+    out = line_hours(lf, month_networks(lf))
+    assert out.schema == pl.Schema(
+        {
+            "name": pl.String,
+            "net": pl.String,
+            "gruppe": pl.String,
+            "weekday": pl.Int8,
+            "hour": pl.Int8,
+            "month": pl.String,
+            "bucket": pl.Int32,
+            "n": pl.UInt32,
+        }
+    )
+    ice = out.filter(pl.col("name") == "ICE 123")
+    assert ice.select("net", "gruppe", "weekday", "hour", "month", "bucket", "n").rows() == [
+        ("1", "fern", 0, 8, "2026-09", 10, 1)
+    ]
+    per_name = ["name"]
+    expected = lines(lf).group_by(per_name).agg(pl.col("n").sum()).sort(per_name)
+    assert out.group_by(per_name).agg(pl.col("n").sum()).sort(per_name).equals(expected)
+    cancelled = out.filter(pl.col("bucket").is_null())
+    assert cancelled.select("name", "n").rows() == [("RE5", 1)]
+
+
+def test_stop_counts_include_the_stops_where_a_train_starts_or_ends():
+    out = stop_counts(trips().lazy())
+    assert out.schema == pl.Schema(
+        {"eva": pl.String, "gruppe": pl.String, "month": pl.String, "n": pl.UInt32}
+    )
+    # station 1: two departure-only first stops; 2: two stops; 3: t1's last stop (arrival only)
+    assert out.sort("eva").rows() == [
+        ("1", "regional", "2026-09", 2),
+        ("2", "regional", "2026-09", 2),
+        ("3", "regional", "2026-09", 1),
+    ]
+
+
+def test_stop_counts_keep_cancelled_stops_and_leave_out_buses_and_rows_without_a_plan(
+    source: pl.DataFrame,
+):
+    # the source's station 1: ICE, three RE with an arrival (one cancelled) and the 08:30 one; the
+    # bus and the row without any planned time stay out
+    assert stop_counts(source.lazy()).sort("eva", "gruppe").rows() == [
+        ("08000002", "regional", "2026-10", 1),
+        ("1", "fern", "2026-09", 1),
+        ("1", "regional", "2026-09", 4),
+    ]
+    bus = trips().with_columns(line_number=pl.lit("SEV BUS"), train_type=pl.lit("SBB"))
+    assert stop_counts(bus.lazy()).height == 0
+
+
+def with_rides(df: pl.DataFrame) -> pl.DataFrame:
+    """`trips()` rows with the source's ride id taken from the trip id."""
+    return df.with_columns(train_line_ride_id=pl.col("id").str.extract(r"^(t\d)-", 1))
+
+
+def trips_leaving(t2_departure: dt) -> pl.DataFrame:
+    """`trips()` with the first stop of t2 leaving at `t2_departure` (its other times follow)."""
+    first = (pl.col("train_line_station_num") == 1) & pl.col("id").str.starts_with("t2")
+    return with_rides(trips()).with_columns(
+        departure_planned_time=pl.when(first)
+        .then(pl.lit(t2_departure))
+        .otherwise(pl.col("departure_planned_time")),
+    )
+
+
+def count_trips(df: pl.DataFrame) -> list[tuple]:
+    out = line_trips(df.lazy(), month_networks(df.lazy()))
+    return out.select("name", "net", "gruppe", "month", "trips").rows()
+
+
+def test_line_trips_count_the_trips_leaving_between_6_and_22_by_their_first_stop():
+    assert line_trips(trips().lazy(), month_networks(trips().lazy())).schema == pl.Schema(
+        {
+            "name": pl.String,
+            "net": pl.String,
+            "gruppe": pl.String,
+            "month": pl.String,
+            "trips": pl.UInt32,
+        }
+    )
+    assert count_trips(trips_leaving(dt(2026, 9, 7, 6, 0))) == [
+        ("RE5", "1", "regional", "2026-09", 2)
+    ]
+    assert count_trips(trips_leaving(dt(2026, 9, 7, 21, 59))) == [
+        ("RE5", "1", "regional", "2026-09", 2)
+    ]
+    assert count_trips(trips_leaving(dt(2026, 9, 7, 5, 59))) == [
+        ("RE5", "1", "regional", "2026-09", 1)
+    ]
+    assert count_trips(trips_leaving(dt(2026, 9, 7, 22, 0))) == [
+        ("RE5", "1", "regional", "2026-09", 1)
+    ]
+
+
+def test_a_trip_on_two_days_counts_twice_and_takes_its_group_from_its_first_stop():
+    one = with_rides(trips())
+    next_day = one.with_columns(
+        id=pl.col("id").str.replace("2609070800", "2609080800"),
+        departure_planned_time=pl.col("departure_planned_time") + pl.duration(days=1),
+        arrival_planned_time=pl.col("arrival_planned_time") + pl.duration(days=1),
+        arrival_change_time=pl.col("arrival_change_time") + pl.duration(days=1),
+        # the first stop is an IC, the later ones RE: the trip belongs to the first stop's group
+        train_type=pl.when(pl.col("train_line_station_num") == 1)
+        .then(pl.lit("IC"))
+        .otherwise(pl.lit("RE")),
+    )
+    assert count_trips(pl.concat([one, next_day])) == [
+        ("RE5", "1", "fern", "2026-09", 2),
+        ("RE5", "1", "regional", "2026-09", 2),
+    ]

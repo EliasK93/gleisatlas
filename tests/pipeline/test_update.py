@@ -384,7 +384,40 @@ def test_large_parquet_is_written_empty_without_a_month_before_full_coverage(dat
     assert (large.schema, large.height) == (pl.Schema({"eva": pl.String}), 0)
 
 
-@pytest.mark.parametrize("table", ["sections", "routes"])
+def test_combine_writes_the_stops_per_station_group_and_month(data_dir, tmp_path):
+    def month(rows: list[Row], starts: list[int]) -> pl.DataFrame:
+        df = src(rows)  # every row has an arrival; the first stops of a trip have a departure only
+        planned = df["arrival_planned_time"]
+        return df.with_columns(
+            departure_planned_time=planned,
+            arrival_planned_time=pl.when(pl.int_range(pl.len()).is_in(starts))
+            .then(None)
+            .otherwise(planned),
+        )
+
+    sep = month(
+        [
+            ("1", "Alpha", "RE", "RE5", "1", "t1", "2026-09-07 08:00", "Beta"),  # starts here
+            ("2", "Beta", "RE", "RE5", "1", "t1", "2026-09-07 08:10", "Beta"),
+            ("1", "Alpha", "RE", "RE5", "2", "t2", "2026-09-08 08:00", "Beta"),  # starts here
+            ("1", "Alpha", "RE", "RE5", "3", "t3", "2026-09-08 09:00", "Beta"),  # passes through
+        ],
+        [0, 2],
+    )
+    paths = {"2026-09": tmp_path / "sep.parquet", "2026-10": tmp_path / "oct.parquet"}
+    sep.write_parquet(paths["2026-09"])
+    src(OCT).write_parquet(paths["2026-10"])
+    update(data_dir, lambda: list(paths), lambda m: paths[m])
+    halte = pl.read_parquet(data_dir / "halte.parquet")
+    assert halte.columns == ["eva", "gruppe", "month", "n"]
+    assert halte.rows() == [  # sorted by station and month
+        ("1", "regional", "2026-09", 3),
+        ("1", "fern", "2026-10", 1),
+        ("2", "regional", "2026-09", 1),
+    ]
+
+
+@pytest.mark.parametrize("table", ["sections", "routes", "line_hours", "line_trips", "stops"])
 def test_month_without_the_line_section_tables_is_reprocessed(data_dir, fetch, fetched, table):
     run(data_dir, fetch)
     (data_dir / "months" / "2026-09" / f"{table}.parquet").unlink()
@@ -446,6 +479,71 @@ def test_combine_turns_the_axis_to_the_label_order(data_dir, tmp_path):
     update(data_dir, lambda: ["2026-09"], lambda month: path)
     axis = pl.read_parquet(data_dir / "linienweg.parquet")
     assert axis.rows() == [("RE5:1", 0, "3"), ("RE5:1", 1, "2"), ("RE5:1", 2, "1")]
+
+
+def test_combine_writes_the_line_hours_per_line_and_network(data_dir, fetch):
+    run(data_dir, fetch)
+    hours = pl.read_parquet(data_dir / "linien_stunden.parquet")
+    assert hours.columns == ["linie", "gruppe", "weekday", "hour", "month", "bucket", "n"]
+    # S1 runs in two networks without a shared station: two lines, not one
+    assert hours["linie"].unique().sort().to_list() == ["ICE 123:1", "S1:3", "S1:5"]
+    assert hours.equals(hours.sort("linie", "month", maintain_order=True))
+    per_line = ["linie"]
+    cells = pl.read_parquet(data_dir / "lines.parquet")
+    expected = cells.group_by(per_line).agg(pl.col("n").sum()).sort(per_line)
+    assert hours.group_by(per_line).agg(pl.col("n").sum()).sort(per_line).equals(expected)
+    s1 = hours.filter(pl.col("linie") == "S1:3")
+    assert s1.select("weekday", "hour", "bucket", "n").rows() == [(0, 8, 0, 2), (1, 8, 0, 1)]
+
+
+def test_combine_writes_the_trips_per_line_and_network(data_dir, tmp_path):
+    def trip(ride: str, evas: list[str], hhmm: str) -> list[Row]:
+        return [(e, f"S{e}", "S", "S1", ride, ride, f"2026-09-07 {hhmm}", "Delta") for e in evas]
+
+    # two S1 networks (stations 3-4 and 5-6); the 05:00 trip of the first one is not counted
+    rows = (
+        trip("a", ["3", "4"], "08:00")
+        + trip("c", ["3", "4"], "05:00")
+        + trip("b", ["5", "6"], "08:00")
+    )
+    nums = [1, 2] * 3
+    path = tmp_path / "sep.parquet"
+    with_ids(rows, nums, [0] * 6).with_columns(
+        departure_planned_time=pl.col("arrival_planned_time")
+    ).write_parquet(path)
+    update(data_dir, lambda: ["2026-09"], lambda _: path)
+    takt = pl.read_parquet(data_dir / "takt.parquet")
+    assert takt.columns == ["linie", "gruppe", "month", "trips"]
+    assert takt.sort("linie").rows() == [
+        ("S1:3", "regional", "2026-09", 1),
+        ("S1:5", "regional", "2026-09", 1),
+    ]
+
+
+def test_a_line_whose_month_networks_merge_lands_on_one_id_in_the_line_profiles(data_dir, tmp_path):
+    def trip(ride: str, evas: list[str], day: str) -> pl.DataFrame:
+        rows: list[Row] = [
+            (e, f"S{e}", "S", "S1", ride, ride, f"{day} 08:{10 * i:02d}", "Delta")
+            for i, e in enumerate(evas)
+        ]
+        return with_ids(rows, [1, 2], [0, 0]).with_columns(
+            departure_planned_time=pl.col("arrival_planned_time")
+        )
+
+    # S1 is the network 3-4 in September (net "3") and 2-3 in October (net "2"): the stations
+    # share the 3, so the combined line is one
+    paths = {"2026-09": tmp_path / "sep.parquet", "2026-10": tmp_path / "oct.parquet"}
+    trip("a", ["3", "4"], "2026-09-07").write_parquet(paths["2026-09"])
+    trip("b", ["2", "3"], "2026-10-05").write_parquet(paths["2026-10"])
+    update(data_dir, lambda: list(paths), lambda month: paths[month])
+    hours = pl.read_parquet(data_dir / "linien_stunden.parquet")
+    takt = pl.read_parquet(data_dir / "takt.parquet")
+    assert hours["linie"].unique().to_list() == ["S1:2"]
+    assert hours["month"].unique().sort().to_list() == ["2026-09", "2026-10"]
+    assert takt.rows() == [
+        ("S1:2", "regional", "2026-09", 1),
+        ("S1:2", "regional", "2026-10", 1),
+    ]
 
 
 def test_combine_without_ids_writes_empty_section_tables(data_dir, fetch):

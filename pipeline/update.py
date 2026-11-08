@@ -30,6 +30,8 @@ from pipeline.aggregate import (
     days,
     dropped,
     ends,
+    line_hours,
+    line_trips,
     lines,
     meta,
     month_networks,
@@ -37,6 +39,7 @@ from pipeline.aggregate import (
     runs,
     sections,
     stations,
+    stop_counts,
     with_coords,
 )
 from pipeline.coords import OUT as COORDS
@@ -66,6 +69,9 @@ MONTH_FILES = (
     "sections",
     "routes",
     "runs",
+    "line_hours",
+    "line_trips",
+    "stops",
 )
 AGGREGATE_ORDER = ("month", "eva", "weekday", "hour", "gruppe", "bucket")
 DAYS_ORDER = ("day", "eva", "gruppe", "bucket")
@@ -111,11 +117,12 @@ def process(src: Path, month: str, out: Path) -> str:
     tmp = out.with_name(f"{out.name}.tmp")
     shutil.rmtree(tmp, ignore_errors=True)
     tmp.mkdir(parents=True)
+    nets = month_networks(lf)
     tables = {
         "aggregate": aggregate(lf),
         "lines": lines(lf),
         "ends": ends(lf),
-        "networks": month_networks(lf),
+        "networks": nets,
         "stations": stations(lf),
         "meta": meta(lf, month),
         "days": days(lf),
@@ -124,6 +131,9 @@ def process(src: Path, month: str, out: Path) -> str:
         "sections": sections(lf),
         "routes": routes(lf),
         "runs": runs(lf),
+        "line_hours": line_hours(lf, nets),
+        "line_trips": line_trips(lf, nets),
+        "stops": stop_counts(lf),
     }
     for name, df in tables.items():
         df.write_parquet(tmp / f"{name}.parquet")
@@ -340,6 +350,9 @@ def combine(data_dir: Path) -> None:
     # The hour table covers only the large stations (the day map's today needs no others); month
     # and day folders keep theirs whole. They are found in the two files just written.
     _read(dirs, "meta").sort("month").write_parquet(data_dir / "monate.parquet")
+    _read(dirs, "stops").group_by("eva", "gruppe", "month").agg(pl.col("n").sum()).sort(
+        "eva", "month", "gruppe"
+    ).write_parquet(data_dir / "halte.parquet")
     large = write_large(data_dir)
     (
         pl.scan_parquet([d / "day_hours.parquet" for d in [*dirs, *raw_dirs]])
@@ -397,7 +410,33 @@ def combine(data_dir: Path) -> None:
         .write_parquet(data_dir / "linien.parquet")
     )
     write_line_sections(data_dir, dirs, line_of, top_ends(all_ends, line_of))
+    write_line_profiles(data_dir, dirs, line_of)
     write_trips(data_dir, [*dirs, *raw_dirs], line_of)
+
+
+def write_line_profiles(data_dir: Path, dirs: list[Path], line_of: pl.DataFrame) -> None:
+    """Write `linien_stunden.parquet` (the delay histogram per line, weekday, hour and month) and
+    `takt.parquet` (the trips per line, group and month), only for the lines of `linien.parquet`
+    and sorted by line and month. A month table holds the month's network `net`, its lowest EVA:
+    that is an EVA of the network, so `line_of` (name, eva, linie) maps it to the line."""
+    known = pl.read_parquet(data_dir / "linien.parquet").select("linie")
+
+    def of_line(name: str, keys: list[str], total: str) -> pl.DataFrame:
+        return (
+            _read(dirs, name)
+            .join(line_of, left_on=["name", "net"], right_on=["name", "eva"])
+            .join(known, on="linie", how="semi")
+            .group_by(keys)
+            .agg(pl.col(total).sum())
+            .sort(keys, nulls_last=True)
+        )
+
+    of_line("line_hours", ["linie", "month", "gruppe", "weekday", "hour", "bucket"], "n").select(
+        "linie", "gruppe", "weekday", "hour", "month", "bucket", "n"
+    ).write_parquet(data_dir / "linien_stunden.parquet")
+    of_line("line_trips", ["linie", "month", "gruppe"], "trips").select(
+        "linie", "gruppe", "month", "trips"
+    ).write_parquet(data_dir / "takt.parquet")
 
 
 def write_trips(data_dir: Path, folders: list[Path], line_of: pl.DataFrame) -> None:

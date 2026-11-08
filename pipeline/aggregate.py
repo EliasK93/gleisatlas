@@ -90,6 +90,8 @@ def _arrivals(lf: pl.LazyFrame) -> pl.LazyFrame:
 _month = pl.col("time").dt.strftime("%Y-%m")  # `time` lies within the file month, unlike planned
 _bucket = arrival_delay_expr(_planned, pl.col("arrival_change_time"), pl.col("arrival_is_canceled"))
 _gruppe = category_expr(pl.col("train_type"))
+_weekday = _planned.dt.weekday() - 1  # 0 = Monday
+_hour = _planned.dt.hour()
 
 
 def aggregate(lf: pl.LazyFrame) -> pl.DataFrame:
@@ -97,8 +99,8 @@ def aggregate(lf: pl.LazyFrame) -> pl.DataFrame:
     return (
         _arrivals(lf)
         .select(
-            weekday=_planned.dt.weekday() - 1,  # 0 = Monday
-            hour=_planned.dt.hour(),
+            weekday=_weekday,
+            hour=_hour,
             gruppe=_gruppe,
             eva=pl.col("eva"),
             month=_month,
@@ -127,6 +129,62 @@ def lines(lf: pl.LazyFrame) -> pl.DataFrame:
         .group_by(keys)
         .agg(n=pl.len())
         .sort(keys, nulls_last=True)
+        .collect()
+    )
+
+
+def stop_counts(lf: pl.LazyFrame) -> pl.DataFrame:
+    """Every stop with a planned arrival or departure per (eva, gruppe, month), cancelled ones
+    included: unlike `aggregate`, the stops where a train starts count too."""
+    keys = ["eva", "gruppe", "month"]
+    return (
+        clean(lf)
+        .filter(_arrival | pl.col("departure_planned_time").is_not_null())
+        .select(eva="eva", gruppe=_gruppe, month=_month)
+        .group_by(keys)
+        .agg(n=pl.len())
+        .sort(keys)
+        .collect()
+    )
+
+
+def line_hours(lf: pl.LazyFrame, nets: pl.DataFrame) -> pl.DataFrame:
+    """`lines` per weekday and hour with the stations summed away: (name, net, gruppe, weekday,
+    hour, month, bucket, n), `net` the line's month network from `nets` (`month_networks`)."""
+    keys = ["name", "net", "gruppe", "weekday", "hour", "month", "bucket"]
+    return (
+        _arrivals(lf)
+        .select(
+            name=line_name_expr(),
+            eva="eva",
+            weekday=_weekday,
+            hour=_hour,
+            gruppe=_gruppe,
+            month=_month,
+            bucket=_bucket,
+        )
+        .join(nets.lazy(), on=["name", "eva"])
+        .group_by(keys)
+        .agg(n=pl.len())
+        .sort(keys, nulls_last=True)
+        .collect()
+    )
+
+
+def line_trips(lf: pl.LazyFrame, nets: pl.DataFrame) -> pl.DataFrame:
+    """Trips per line name and network: (name, net, gruppe, month, trips). A trip counts once per
+    day when its first stop's planned departure is between 06:00 and 21:59; name, network, group
+    and month are those of the first stop (`nets` is `month_networks`)."""
+    keys = ["name", "net", "gruppe", "month"]
+    return (
+        _trip_stops(lf, gruppe=_gruppe, month=_month, departure=pl.col("departure_planned_time"))
+        .group_by("trip")
+        .agg(pl.all().sort_by("num").first())
+        .filter(pl.col("departure").dt.hour().is_between(6, 21))
+        .join(nets.lazy(), on=["name", "eva"])
+        .group_by(keys)
+        .agg(trips=pl.len())
+        .sort(keys)
         .collect()
     )
 
