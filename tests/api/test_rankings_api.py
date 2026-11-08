@@ -256,6 +256,46 @@ def test_at_most_ten_entries(ranked: TestClient, tmp_path, monkeypatch):
     assert (r["anzahl"], len(r["beste"]), len(r["schlechteste"])) == (25, 10, 10)
 
 
+def many_stations(tmp_path, monkeypatch) -> None:
+    """25 stations Sxx with n 20 + i, all punctual."""
+    path = tmp_path / "many.parquet"
+    rows = [(0, 8, "regional", str(i), "2026-10", 0, 20 + i) for i in range(25)]
+    frame(rows, ["weekday", "hour", "gruppe", "eva", "month", "bucket", "n"]).cast(
+        {"bucket": pl.Int32}
+    ).write_parquet(path)
+    stations = tmp_path / "many-stations.parquet"
+    frame(
+        [(str(i), f"S{i:02}", 1, None) for i in range(25)], ["eva", "name", "n", "land"]
+    ).write_parquet(stations)
+    monkeypatch.setattr(main, "AGG_PATH", str(path))
+    monkeypatch.setattr(main, "STATIONS_PATH", str(stations))
+
+
+def test_limit_sets_how_many_entries_each_end_lists(ranked: TestClient, tmp_path, monkeypatch):
+    many_stations(tmp_path, monkeypatch)
+    r = rankings(ranked, typ="bahnhoefe", min_n=15, limit=12)
+    assert (r["anzahl"], len(r["beste"]), len(r["schlechteste"])) == (25, 12, 12)
+    assert names(rankings(ranked, typ="bahnhoefe", min_n=15, limit=3)["beste"]) == names(
+        r["beste"][:3]
+    )
+    everything = rankings(ranked, typ="bahnhoefe", min_n=15, limit=1000)
+    assert (len(everything["beste"]), len(everything["schlechteste"])) == (25, 25)
+
+
+def test_limit_works_for_lines_too(ranked: TestClient):
+    r = rankings(ranked, typ="linien", min_n=15, limit=2)
+    assert (r["anzahl"], len(r["beste"]), len(r["schlechteste"])) == (3, 2, 2)
+    assert len(rankings(ranked, typ="linien", min_n=15, limit=50)["beste"]) == 3
+
+
+def test_a_second_limit_reuses_the_cached_rankings(ranked: TestClient):
+    for typ, cached in [("bahnhoefe", main.station_stats_for), ("linien", main.line_stats_for)]:
+        rankings(ranked, typ=typ, min_n=15, limit=10)
+        hits = cached.cache_info().hits
+        rankings(ranked, typ=typ, min_n=15, limit=20)
+        assert cached.cache_info().hits == hits + 1
+
+
 @pytest.mark.parametrize(
     "params",
     [
@@ -267,6 +307,7 @@ def test_at_most_ten_entries(ranked: TestClient, tmp_path, monkeypatch):
         {"typ": "linien", "min_n": "x"},
         {"typ": "linien", "gattung": "bahn"},
         {"typ": "linien", "von": "2026-9"},
+        {"typ": "linien", "limit": 0},
     ],
 )
 def test_invalid_input_is_422(client: TestClient, params: dict):
@@ -492,6 +533,46 @@ def test_at_most_ten_sections_each_and_the_lists_overlap(
     assert {e["von_eva"] for e in r["schlechteste"]} & {e["von_eva"] for e in r["beste"]}
 
 
+def twelve_sections(tmp_path, monkeypatch) -> None:
+    """RE5 over twelve consecutive sections, the section i to i + 1 with i * 100 minutes."""
+    rows = [("RE5:10", str(i), str(i + 1), "2026-10", 100, i * 100) for i in range(12)]
+    write_sections(tmp_path / "twelve.parquet", rows)
+    names = [(str(i), f"S{i:02}", 1, None) for i in range(13)]
+    frame(names, ["eva", "name", "n", "land"]).write_parquet(tmp_path / "twelve-stations.parquet")
+    axis = [("RE5:10", pos, str(pos)) for pos in range(13)]
+    frame(axis, ["linie", "pos", "eva"]).cast({"pos": pl.Int32}).write_parquet(
+        tmp_path / "twelve-weg.parquet"
+    )
+    monkeypatch.setattr(main, "ABSCHNITTE_PATH", str(tmp_path / "twelve.parquet"))
+    monkeypatch.setattr(main, "STATIONS_PATH", str(tmp_path / "twelve-stations.parquet"))
+    monkeypatch.setattr(main, "LINIENWEG_PATH", str(tmp_path / "twelve-weg.parquet"))
+
+
+def test_limit_sets_how_many_sections_each_end_lists(sektionen: TestClient, tmp_path, monkeypatch):
+    twelve_sections(tmp_path, monkeypatch)
+    r = sections(sektionen, limit=11)
+    assert (r["anzahl"], len(r["schlechteste"]), len(r["beste"])) == (12, 11, 11)
+    everything = sections(sektionen, limit=100)
+    assert (len(everything["schlechteste"]), len(everything["beste"])) == (12, 12)
+    assert everything["schlechteste"][:11] == r["schlechteste"]
+
+
+def test_a_section_beyond_the_tenth_still_names_its_lines_and_richtung(
+    sektionen: TestClient, tmp_path, monkeypatch
+):
+    twelve_sections(tmp_path, monkeypatch)
+    last = sections(sektionen, limit=12)["schlechteste"][11]
+    assert last["von_name"] == "S00"
+    assert last["linien"] == [{"id": "RE5:10", "label": "RE5", "n": 100, "richtung": 1}]
+
+
+def test_a_second_limit_reuses_the_cached_sections(sektionen: TestClient):
+    sections(sektionen, limit=10)
+    hits = main.sections_for.cache_info().hits
+    sections(sektionen, limit=20)
+    assert main.sections_for.cache_info().hits == hits + 1
+
+
 def test_an_empty_period_has_no_sections(sektionen: TestClient):
     r = sections(sektionen, von="2027-01")
     assert (r["von"], r["bis"], r["anzahl"], r["schlechteste"], r["beste"]) == ("", "", 0, [], [])
@@ -513,6 +594,7 @@ def test_the_sections_cache_follows_a_rewritten_file(sektionen: TestClient):
         {"gattung": "bahn"},
         {"von": "2026-9"},
         {"bis": "2026-13"},
+        {"limit": 0},
     ],
 )
 def test_the_section_and_record_parameters_are_checked(client: TestClient, params: dict):
@@ -551,6 +633,31 @@ def test_stop_records_follow_min_n_and_gattung(ranked: TestClient):
     assert records(ranked, art="halte", min_n=50)["anzahl"] == 2
     fern = records(ranked, art="halte", gattung="fern")
     assert [(e["name"], e["wert"]) for e in fern["meiste"]] == [("Cora", 1.29)]
+
+
+def test_limit_sets_how_many_records_each_end_lists(ranked: TestClient):
+    r = records(ranked, art="halte", limit=2)
+    assert (r["anzahl"], [e["name"] for e in r["meiste"]]) == (3, ["Bert", "Anna"])
+    assert [e["name"] for e in r["wenigste"]] == ["Cora", "Anna"]
+    everything = records(ranked, art="halte", limit=50)
+    assert (len(everything["meiste"]), len(everything["wenigste"])) == (3, 3)
+
+
+def test_limit_works_for_the_trip_records(takt: TestClient):
+    r = records(takt, art="takt", limit=1)
+    assert ([e["name"] for e in r["meiste"]], [e["name"] for e in r["wenigste"]]) == (
+        ["RE5"],
+        ["ICE 1"],
+    )
+    assert r["anzahl"] == 2
+
+
+def test_a_second_limit_reuses_the_cached_records(takt: TestClient):
+    for art in ("halte", "takt"):
+        records(takt, art=art, limit=10)
+        hits = main.records_for.cache_info().hits
+        records(takt, art=art, limit=20)
+        assert main.records_for.cache_info().hits == hits + 1
 
 
 def test_an_empty_period_has_no_records(ranked: TestClient):

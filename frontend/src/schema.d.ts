@@ -1018,6 +1018,8 @@ export interface operations {
                 bis?: string | null;
                 /** @description With typ=linien: lines or single trains; ignored for stations. */
                 art?: "linien" | "zuege";
+                /** @description How many entries each of the two lists returns. */
+                limit?: number;
             };
             header?: never;
             path?: never;
@@ -1052,6 +1054,8 @@ export interface operations {
                 gattung?: "alle" | "regional" | "fern";
                 von?: string | null;
                 bis?: string | null;
+                /** @description How many entries each of the two lists returns. */
+                limit?: number;
             };
             header?: never;
             path?: never;
@@ -1087,6 +1091,8 @@ export interface operations {
                 gattung?: "alle" | "regional" | "fern";
                 von?: string | null;
                 bis?: string | null;
+                /** @description How many entries each of the two lists returns. */
+                limit?: number;
             };
             header?: never;
             path?: never;

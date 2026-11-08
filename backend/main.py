@@ -12,7 +12,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from functools import lru_cache
-from typing import Annotated, Literal
+from typing import Annotated, Literal, NamedTuple
 from urllib.parse import quote
 
 import polars as pl
@@ -886,6 +886,7 @@ METRICS: dict[str, Metric] = {
 
 
 MinN = Annotated[int, Query(ge=LOW_N)]
+Limit = Annotated[int, Query(ge=1, description="How many entries each of the two lists returns.")]
 
 
 @app.get("/rankings", response_model=Rangliste, operation_id="getRankings")
@@ -900,6 +901,7 @@ def rankings(
         Literal["linien", "zuege"],
         Query(description="With typ=linien: lines or single trains; ignored for stations."),
     ] = "linien",
+    limit: Limit = 10,
 ) -> Rangliste:
     von = period_start(von, bis)
     if typ == "bahnhoefe":
@@ -926,9 +928,31 @@ def rankings(
         von=found[0] if found else "",
         bis=found[1] if found else "",
         anzahl=len(worst),
-        schlechteste=[show(e) for e in worst[:10]],
-        beste=[show(e) for e in best[:10]],
+        schlechteste=[show(e) for e in worst[:limit]],
+        beste=[show(e) for e in best[:limit]],
     )
+
+
+class LineRow(NamedTuple):
+    """An `AbschnittLinie` as a plain tuple."""
+
+    id: str
+    label: str
+    n: int
+    richtung: Literal[1, 2] | None
+
+
+class SectionRow(NamedTuple):
+    """A `RanglistenAbschnitt` as a plain tuple: the cache keeps these, not the models."""
+
+    von_eva: str
+    von_name: str
+    nach_eva: str
+    nach_name: str
+    n: int
+    minuten: float
+    linien_anzahl: int
+    linien: tuple[LineRow, ...]
 
 
 def files_of(*paths: str) -> tuple[tuple[str, int], ...]:
@@ -936,6 +960,8 @@ def files_of(*paths: str) -> tuple[tuple[str, int], ...]:
     return tuple((p, os.stat(p).st_mtime_ns) for p in paths)
 
 
+# ponytail: about 10 MB per entry (min_n 500, the whole network) x 16 entries; lower maxsize if
+# memory on the 1 GiB container gets tight.
 @lru_cache(maxsize=16)
 def sections_for(
     files: tuple[tuple[str, int], ...],  # abschnitte, linien, lines, linienweg, stations
@@ -943,8 +969,10 @@ def sections_for(
     von: str | None,
     bis: str | None,
     min_n: int,
-) -> AbschnittsRangliste:
-    """All lines' sections pooled by direction and ranked by the mean change of the delay."""
+) -> tuple[tuple[str, str], tuple[SectionRow, ...], tuple[SectionRow, ...]]:
+    """((von, bis), worst, best): all lines' sections pooled by direction and ranked by the mean
+    change of the delay, each with its lines. One tuple per section, shared by both lists: the
+    route slices them and builds the models (kept as models they cost about 3 KB a section)."""
     abschnitte, linien, lines, weg, _ = (p for p, _ in files)
     sel = selection(pl.scan_parquet(abschnitte), "alle", None, von, bis)
     if gattung != "alle":
@@ -954,7 +982,7 @@ def sections_for(
         sel = sel.filter(pl.col("linie").is_in(members.implode()))
     found = span(sel)
     if found is None:
-        return AbschnittsRangliste(min_n=min_n, von="", bis="", anzahl=0, schlechteste=[], beste=[])
+        return ("", ""), (), ()
     # In-memory joins: Polars 2.0's streaming join panics on an empty side.
     live = collect(
         pl.scan_parquet(linien).filter(~pl.col("ohne_echtzeit")).select("linie", "label")
@@ -974,19 +1002,15 @@ def sections_for(
         .with_columns(minuten=(pl.col("minutes") / pl.col("n")).round(2))
         .drop("minutes")
     )
-    rows = list(pooled.iter_rows(named=True))
-    worst = sorted(rows, key=lambda r: (-r["minuten"], -r["n"], r["von_name"], r["nach_name"]))
-    best = sorted(rows, key=lambda r: (r["minuten"], -r["n"], r["von_name"], r["nach_name"]))
-    shown = worst[:10] + best[:10]
 
     busiest: dict[tuple[str, str], list[tuple[str, str, int]]] = defaultdict(list)
-    wanted = {(r["from_eva"], r["to_eva"]) for r in shown}
     for linie, a, b, n, label in (
-        per_line.sort("n", "linie", descending=[True, False])
+        per_line.join(pooled.select("from_eva", "to_eva"), on=["from_eva", "to_eva"], how="semi")
+        .sort("n", "linie", descending=[True, False])
         .select("linie", "from_eva", "to_eva", "n", "label")
         .iter_rows()
     ):
-        if (a, b) in wanted and len(busiest[a, b]) < 3:
+        if len(busiest[a, b]) < 3:
             busiest[a, b].append((linie, label, n))
 
     # The line page's rule (frontend `cutLine`): richtung 1 reads the axis forwards, richtung 2
@@ -1008,30 +1032,26 @@ def sections_for(
         steps = forward.get(linie, set())
         return 1 if (a, b) in steps else 2 if (b, a) in steps else None
 
-    def show(r: dict) -> RanglistenAbschnitt:
+    def section(r: dict) -> SectionRow:
         a, b = r["from_eva"], r["to_eva"]
-        return RanglistenAbschnitt(
-            von_eva=a,
-            von_name=r["von_name"],
-            nach_eva=b,
-            nach_name=r["nach_name"],
+        return SectionRow(
+            von_eva=sys.intern(a),
+            von_name=sys.intern(r["von_name"]),
+            nach_eva=sys.intern(b),
+            nach_name=sys.intern(r["nach_name"]),
             n=r["n"],
             minuten=r["minuten"],
             linien_anzahl=r["linien_anzahl"],
-            linien=[
-                AbschnittLinie(id=linie, label=label, n=n, richtung=richtung(linie, a, b))
-                for linie, label, n in busiest[a, b]
-            ],
+            linien=tuple(
+                LineRow(sys.intern(i), sys.intern(label), n, richtung(i, a, b))
+                for i, label, n in busiest[a, b]
+            ),
         )
 
-    return AbschnittsRangliste(
-        min_n=min_n,
-        von=found[0],
-        bis=found[1],
-        anzahl=len(rows),
-        schlechteste=[show(r) for r in worst[:10]],
-        beste=[show(r) for r in best[:10]],
-    )
+    rows = [section(r) for r in pooled.iter_rows(named=True)]
+    worst = sorted(rows, key=lambda r: (-r.minuten, -r.n, r.von_name, r.nach_name))
+    best = sorted(rows, key=lambda r: (r.minuten, -r.n, r.von_name, r.nach_name))
+    return found[:2], tuple(worst), tuple(best)
 
 
 @app.get(
@@ -1040,10 +1060,28 @@ def sections_for(
     operation_id="getRankingsAbschnitte",
 )
 def rankings_abschnitte(
-    min_n: MinN = 500, gattung: Gattung = "alle", von: Month = None, bis: Month = None
+    min_n: MinN = 500,
+    gattung: Gattung = "alle",
+    von: Month = None,
+    bis: Month = None,
+    limit: Limit = 10,
 ) -> AbschnittsRangliste:
     files = files_of(ABSCHNITTE_PATH, LINIEN_PATH, LINES_PATH, LINIENWEG_PATH, STATIONS_PATH)
-    return sections_for(files, gattung, period_start(von, bis), bis, min_n)
+    (first, last), worst, best = sections_for(files, gattung, period_start(von, bis), bis, min_n)
+
+    def show(r: SectionRow) -> RanglistenAbschnitt:
+        return RanglistenAbschnitt(
+            **{**r._asdict(), "linien": [AbschnittLinie(**x._asdict()) for x in r.linien]}
+        )
+
+    return AbschnittsRangliste(
+        min_n=min_n,
+        von=first,
+        bis=last,
+        anzahl=len(worst),
+        schlechteste=[show(r) for r in worst[:limit]],
+        beste=[show(r) for r in best[:limit]],
+    )
 
 
 SERVICE_HOURS = 16  # the hours the trips of takt.parquet start in: 06:00 to 21:59
@@ -1122,14 +1160,16 @@ def records_for(
     bis: str | None,
     min_n: int,
 ) -> Rekorde:
+    """The records, every entry; the route slices the lists."""
     found, entries = (stops_per_day if art == "halte" else trips_per_hour)(
         files, gattung, von, bis, min_n
     )
 
-    def show(rows: list[Record]) -> list[RekordEintrag]:
-        return [
-            RekordEintrag(id=i, name=name, wert=round(v, 2), n=n) for v, i, name, n in rows[:10]
-        ]
+    # each entry's model is built once and shared by both lists; the sort keeps the unrounded value
+    pairs = [(e, RekordEintrag(id=e[1], name=e[2], wert=round(e[0], 2), n=e[3])) for e in entries]
+
+    def show(key) -> list[RekordEintrag]:
+        return [model for _, model in sorted(pairs, key=lambda p: key(p[0]))]
 
     return Rekorde(
         art="halte" if art == "halte" else "takt",
@@ -1137,8 +1177,8 @@ def records_for(
         von=found[0] if found else "",
         bis=found[1] if found else "",
         anzahl=len(entries),
-        meiste=show(sorted(entries, key=lambda e: (-e[0], -e[3], e[2]))),
-        wenigste=show(sorted(entries, key=lambda e: (e[0], -e[3], e[2]))),
+        meiste=show(lambda e: (-e[0], -e[3], e[2])),
+        wenigste=show(lambda e: (e[0], -e[3], e[2])),
     )
 
 
@@ -1149,13 +1189,17 @@ def rankings_rekorde(
     gattung: Gattung = "alle",
     von: Month = None,
     bis: Month = None,
+    limit: Limit = 10,
 ) -> Rekorde:
     files = (
         files_of(HALTE_PATH, STATIONS_PATH)
         if art == "halte"
         else files_of(LINES_PATH, LINIEN_PATH, TAKT_PATH)
     )
-    return records_for(art, files, gattung, period_start(von, bis), bis, min_n)
+    full = records_for(art, files, gattung, period_start(von, bis), bis, min_n)
+    return full.model_copy(
+        update={"meiste": full.meiste[:limit], "wenigste": full.wenigste[:limit]}
+    )
 
 
 @app.get("/stationen", response_model=list[Station], operation_id="getStationen")

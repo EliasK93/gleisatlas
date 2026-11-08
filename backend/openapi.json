@@ -307,6 +307,19 @@
        "title": "Art"
       },
       "description": "With typ=linien: lines or single trains; ignored for stations."
+     },
+     {
+      "name": "limit",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "integer",
+       "minimum": 1,
+       "description": "How many entries each of the two lists returns.",
+       "default": 10,
+       "title": "Limit"
+      },
+      "description": "How many entries each of the two lists returns."
      }
     ],
     "responses": {
@@ -397,6 +410,19 @@
        ],
        "title": "Bis"
       }
+     },
+     {
+      "name": "limit",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "integer",
+       "minimum": 1,
+       "description": "How many entries each of the two lists returns.",
+       "default": 10,
+       "title": "Limit"
+      },
+      "description": "How many entries each of the two lists returns."
      }
     ],
     "responses": {
@@ -500,6 +526,19 @@
        ],
        "title": "Bis"
       }
+     },
+     {
+      "name": "limit",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "integer",
+       "minimum": 1,
+       "description": "How many entries each of the two lists returns.",
+       "default": 10,
+       "title": "Limit"
+      },
+      "description": "How many entries each of the two lists returns."
      }
     ],
     "responses": {
