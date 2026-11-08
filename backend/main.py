@@ -1047,6 +1047,7 @@ def rankings_abschnitte(
 
 
 SERVICE_HOURS = 16  # the hours the trips of takt.parquet start in: 06:00 to 21:59
+MIN_TRIPS_PER_DAY = 1  # a line below this is a special or a night-only fragment, not a record
 
 
 Record = tuple[float, str, str, int]  # (unrounded value, id, name, n): sorted before it is rounded
@@ -1080,8 +1081,8 @@ def trips_per_hour(
     files: tuple[tuple[str, int], ...], gattung: str, von: str | None, bis: str | None, min_n: int
 ) -> tuple[tuple[str, str, int] | None, list[Record]]:
     """(span, lines with their trips per hour of service over the days of the months they have
-    stops in), over the lines that are no single train and have live data. A line without trips
-    in the service hours is left out."""
+    stops in), over the lines that are no single train and have live data. A line with under one
+    trip a day in the service hours is left out."""
     lines, linien, takt = (p for p, _ in files)
     sel = selection(pl.scan_parquet(lines), gattung, None, von, bis)
     found = span(sel)
@@ -1108,7 +1109,7 @@ def trips_per_hour(
         for linie, n, months, label, count in both.select(
             "linie", "n", "months", "label", "trips"
         ).iter_rows()
-        if n >= min_n
+        if n >= min_n and count >= days_of(months) * MIN_TRIPS_PER_DAY
     ]
 
 

@@ -681,11 +681,11 @@ def test_a_close_tie_in_the_rounded_value_is_ordered_by_the_unrounded_one(
         tmp_path,
         monkeypatch,
         stops=[("BIG", "2026-10", 600), ("SMALL", "2026-10", 20)],
-        # 31 days of 16 hours: 10 trips are 0.0202 an hour, 11 trips 0.0222; both round to 0.02
-        trips=[("BIG", "2026-10", 10), ("SMALL", "2026-10", 11)],
+        # 31 days of 16 hours: 500 trips are 1.008 an hour, 501 trips 1.010; both round to 1.01
+        trips=[("BIG", "2026-10", 500), ("SMALL", "2026-10", 501)],
     )
     r = records(ranked, art="takt")
-    assert [(e["name"], e["wert"]) for e in r["meiste"]] == [("SMALL", 0.02), ("BIG", 0.02)]
+    assert [(e["name"], e["wert"]) for e in r["meiste"]] == [("SMALL", 1.01), ("BIG", 1.01)]
     assert [e["name"] for e in r["wenigste"]] == ["BIG", "SMALL"]
 
 
@@ -701,3 +701,17 @@ def test_a_line_without_trips_in_the_service_hours_is_no_record(
     r = records(ranked, art="takt")
     assert r["anzahl"] == 1
     assert [e["name"] for e in r["wenigste"]] == ["DAY"]
+
+
+def test_a_line_needs_a_daytime_train_a_day_on_average(ranked: TestClient, tmp_path, monkeypatch):
+    write_takt(
+        tmp_path,
+        monkeypatch,
+        stops=[(name, "2026-10", 100) for name in ("BELOW", "EXACT", "ABOVE")],
+        # 31 days: 30 trips are just below one a day, 31 exactly one
+        trips=[("BELOW", "2026-10", 30), ("EXACT", "2026-10", 31), ("ABOVE", "2026-10", 62)],
+    )
+    r = records(ranked, art="takt")
+    assert r["anzahl"] == 2
+    assert [e["name"] for e in r["wenigste"]] == ["EXACT", "ABOVE"]
+    assert [e["name"] for e in r["meiste"]] == ["ABOVE", "EXACT"]
