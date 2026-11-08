@@ -681,6 +681,22 @@ test("the map's attribution starts collapsed and opens from its button", async (
   await expect(text.getByRole("link", { name: "piebro/deutsche-bahn-data" })).toBeVisible();
 });
 
+test("leaving the page while the map resizes raises no error", async ({ page }) => {
+  await mockApi(page);
+  const errors: string[] = [];
+  page.on("pageerror", (e) => errors.push(e.message));
+  for (let i = 0; i < 8; i++) {
+    await page.goto(LINE_PATH);
+    // As soon as the map has loaded: its resize observer fires in the frame the page unmounts in.
+    await expect(lineMap(page).locator("canvas")).toBeVisible();
+    await expect(mapCard(page)).toBeVisible();
+    await section(page, "Letzte 12 Monate").getByRole("link", { name: "Zeitverlauf →" }).click();
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Zeitverlauf");
+    await page.waitForTimeout(100);
+  }
+  expect(errors).toEqual([]);
+});
+
 test("the sparkline links to the time series of the line", async ({ page }) => {
   const requests = await mockApi(page);
   await page.goto(`${LINE_PATH}?k=p90`);

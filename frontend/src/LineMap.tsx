@@ -154,11 +154,12 @@ export function LineMap({
     // Only a change after the map exists; the first style is already the right one.
     if (!map || styled.current === resolved) return;
     styled.current = resolved;
-    box.current!.dataset.ready = "false";
+    const el = box.current!;
+    el.dataset.ready = "false";
     // A full reload, so style.load fires again and re-adds the line.
     map.setStyle(STYLE[resolved], { diff: false });
     map.once("idle", () => {
-      box.current!.dataset.ready = "true";
+      el.dataset.ready = "true";
     });
   }, [map, resolved]);
 
@@ -192,12 +193,15 @@ export function LineMap({
   useEffect(() => {
     if (!map) return;
     const publish = () => {
+      // The map's resize observer can fire once more after the page has left.
+      const el = box.current;
+      if (!el) return;
       const middles = data.segments.features.flatMap((f) => {
         if (!f.properties.pair) return [];
         const [a, b] = f.geometry.coordinates.map((c) => map.project(c as [number, number]));
         return [[f.properties.pair, [(a.x + b.x) / 2, (a.y + b.y) / 2]]];
       });
-      box.current!.dataset.mids = JSON.stringify(Object.fromEntries(middles));
+      el.dataset.mids = JSON.stringify(Object.fromEntries(middles));
     };
     publish();
     map.on("moveend", publish);
