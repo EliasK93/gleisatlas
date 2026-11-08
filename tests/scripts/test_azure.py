@@ -73,7 +73,6 @@ def test_data_uploads_exactly_the_data_files_and_nothing_else(az_calls: list[lis
     assert uploads(az_calls) == [f"{f}.parquet" for f in DATA_FILES]
     for cmd in az_calls:
         assert cmd[0] == azure.AZ
-        assert cmd[1:3] != ["acr", "build"]
         assert cmd[1:4] != ["deployment", "group", "create"]
         assert "staticwebapp" not in cmd
 
@@ -89,10 +88,9 @@ def test_data_leaves_the_collectors_files_alone(az_calls: list[list[str]], tmp_p
 
 
 DB_CLIENT, DB_KEY = "fake-db-client", "fake-db-key-never-shown"
+SHA = "0123456789abcdef0123456789abcdef01234567"
 OUTPUTS = {
     "storageName": "gleisatlasdata",
-    "registryName": "gleisatlasacr",
-    "registryServer": "gleisatlasacr.azurecr.io",
     "webName": "gleisatlas-web",
     "webHostname": "web.example.azurestaticapps.net",
     "apiUrl": ORIGIN,
@@ -113,8 +111,8 @@ def deploy_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
             return json.dumps({"name": "sub", "user": {"name": "user"}})
         if cmd[1:4] == ["deployment", "group", "show"]:
             return json.dumps({k: {"value": v} for k, v in OUTPUTS.items()})
-        if cmd[1:3] == ["rev-parse", "--short"]:
-            return "abc1234"
+        if cmd[1:3] == ["rev-parse", "HEAD"]:
+            return SHA
         if cmd[2:5] == ["frontend", "run", "build"]:
             dist = tmp_path / "frontend" / "dist"
             dist.mkdir(parents=True, exist_ok=True)
@@ -126,6 +124,7 @@ def deploy_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(
         azure, "status", lambda url, method="GET": 404 if "comp=list" in url else 200
     )
+    monkeypatch.setattr(azure, "image_ready", lambda image, tag: True)
     monkeypatch.setattr(azure.shutil, "which", lambda tool: tool)
     monkeypatch.setattr(azure, "ROOT", tmp_path)
     monkeypatch.setenv("GLEISATLAS_BUDGET_EMAIL", "budget@example.org")
@@ -230,6 +229,111 @@ def test_the_budget_e_mail_reaches_az_only_in_a_parameters_file(deploy_run, monk
         assert json.loads(content)["parameters"]["budgetEmail"] == {"value": "budget@example.org"}
     assert not [c for c in calls if any("budget@example.org" in a for a in c)]
     assert "budget@example.org" not in capsys.readouterr().out
+
+
+def test_deploy_stops_before_any_deployment_when_the_image_is_not_on_ghcr(
+    deploy_run, monkeypatch, capsys
+):
+    calls, _ = deploy_run
+    asked: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        azure, "image_ready", lambda image, tag: asked.append((image, tag)) or False
+    )
+    with pytest.raises(SystemExit) as stop:
+        azure.main(["deploy"])
+    assert stop.value.code == 1
+    assert deployments(calls) == []
+    assert asked == [(azure.IMAGE, SHA)]
+    out = capsys.readouterr().out
+    assert f"{azure.IMAGE}:{SHA}" in out and "public" in out and "could not be reached" in out
+
+
+def test_phase_2_deploys_the_commits_image_from_ghcr(deploy_run, monkeypatch):
+    calls, _ = deploy_run
+    monkeypatch.delenv("DB_CLIENT_ID", raising=False)
+    monkeypatch.setattr(azure.getpass, "getpass", lambda prompt: "")
+    assert azure.main(["deploy"]) == 0
+    first, second = deployments(calls)
+    assert f"image=ghcr.io/eliask93/gleisatlas-api:{SHA}" in second
+    assert not [a for a in first if a.startswith("image=")]
+
+
+def test_deploy_uses_no_container_registry(deploy_run, monkeypatch):
+    calls, _ = deploy_run
+    monkeypatch.delenv("DB_CLIENT_ID", raising=False)
+    monkeypatch.setattr(azure.getpass, "getpass", lambda prompt: "")
+    assert azure.main(["deploy"]) == 0
+    for cmd in calls:
+        assert not [
+            a for a in cmd if a == "acr" or "azurecr" in a or "containerregistry" in a.lower()
+        ]
+
+
+class Response:
+    status = 200
+
+    def __enter__(self) -> "Response":
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        pass
+
+    def read(self) -> bytes:
+        return json.dumps({"token": "t0ken"}).encode()
+
+
+def fake_urlopen(monkeypatch: pytest.MonkeyPatch, answers: dict[str, object]) -> list[Any]:
+    """urlopen answered per URL substring: a Response, or an exception to raise; returns the
+    requests made."""
+    seen: list[Any] = []
+
+    def urlopen(req: Any, timeout: float | None = None) -> Response:
+        seen.append(req)
+        url = req if isinstance(req, str) else req.full_url
+        answer = next(a for key, a in answers.items() if key in url)
+        if isinstance(answer, BaseException):
+            raise answer
+        return Response()
+
+    monkeypatch.setattr(azure.urllib.request, "urlopen", urlopen)
+    return seen
+
+
+def http_error(code: int) -> azure.urllib.error.HTTPError:
+    return azure.urllib.error.HTTPError("https://ghcr.io", code, "x", None, None)  # type: ignore[arg-type]
+
+
+def test_image_ready_asks_for_the_tags_manifest_with_an_anonymous_bearer_token(monkeypatch):
+    seen = fake_urlopen(monkeypatch, {"/token": Response(), "/manifests/": Response()})
+    assert azure.image_ready("ghcr.io/eliask93/gleisatlas-api", SHA)
+    token, head = seen
+    token_url = token if isinstance(token, str) else token.full_url
+    assert token_url == "https://ghcr.io/token?scope=repository:eliask93/gleisatlas-api:pull"
+    assert head.full_url == f"https://ghcr.io/v2/eliask93/gleisatlas-api/manifests/{SHA}"
+    assert head.get_method() == "HEAD"
+    assert head.get_header("Authorization") == "Bearer t0ken"
+    assert "application/vnd.oci.image.index.v1+json" in head.get_header("Accept")
+    assert "application/vnd.docker.distribution.manifest.v2+json" in head.get_header("Accept")
+
+
+@pytest.mark.parametrize("code", [401, 403, 404])
+def test_image_ready_is_false_when_the_manifest_is_missing_or_private(monkeypatch, code: int):
+    fake_urlopen(monkeypatch, {"/token": Response(), "/manifests/": http_error(code)})
+    assert not azure.image_ready("ghcr.io/eliask93/gleisatlas-api", SHA)
+
+
+def test_image_ready_is_false_without_a_network_or_a_token(monkeypatch):
+    fake_urlopen(monkeypatch, {"/token": OSError("offline")})
+    assert not azure.image_ready("ghcr.io/eliask93/gleisatlas-api", SHA)
+    fake_urlopen(monkeypatch, {"/token": http_error(403)})
+    assert not azure.image_ready("ghcr.io/eliask93/gleisatlas-api", SHA)
+
+
+@pytest.mark.parametrize("body", [b'{"nope": 1}', b"<html>"])
+def test_image_ready_is_false_when_the_token_answer_has_no_token(monkeypatch, body: bytes):
+    monkeypatch.setattr(Response, "read", lambda self: body)
+    fake_urlopen(monkeypatch, {"/token": Response(), "/manifests/": Response()})
+    assert not azure.image_ready("ghcr.io/eliask93/gleisatlas-api", SHA)
 
 
 def test_the_account_line_names_the_subscription_but_not_the_user(monkeypatch, capsys):

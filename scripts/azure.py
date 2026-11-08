@@ -43,7 +43,6 @@ WORKSPACE = "gleisatlas-logs"
 PROVIDERS = (
     "Microsoft.App",
     "Microsoft.OperationalInsights",
-    "Microsoft.ContainerRegistry",
     "Microsoft.Storage",
     "Microsoft.Web",
     "Microsoft.ManagedIdentity",
@@ -56,7 +55,17 @@ DB_ENV = ("DB_CLIENT_ID", "DB_API_KEY")
 # keeps the wildcard. A custom domain would keep the host stable and the wildcard could go.
 CSP_WILDCARD = "https://*.swedencentral.azurecontainerapps.io"
 SWA_CLI = "@azure/static-web-apps-cli@2.0.10"
-DEPLOY_STEPS = 14
+# ponytail: a fork changes this one line; CI derives the image name from the repository
+IMAGE = "ghcr.io/eliask93/gleisatlas-api"
+MANIFEST_TYPES = ",".join(
+    (
+        "application/vnd.oci.image.index.v1+json",
+        "application/vnd.oci.image.manifest.v1+json",
+        "application/vnd.docker.distribution.manifest.list.v2+json",
+        "application/vnd.docker.distribution.manifest.v2+json",
+    )
+)
+DEPLOY_STEPS = 13
 DATA_STEPS = 3
 TEARDOWN_STEPS = 5
 
@@ -139,6 +148,26 @@ def status(url: str, method: str = "GET") -> int:
         return 0
 
 
+def image_ready(image: str, tag: str) -> bool:
+    """True when `image:tag` is on GHCR and pullable without credentials (so public): an anonymous
+    pull token, then the manifest. Any error, missing token or status but 200 is False."""
+    path = image.removeprefix("ghcr.io/")
+    try:
+        with urllib.request.urlopen(
+            f"https://ghcr.io/token?scope=repository:{path}:pull", timeout=30
+        ) as r:
+            token = json.load(r)["token"]
+        head = urllib.request.Request(
+            f"https://ghcr.io/v2/{path}/manifests/{tag}",
+            method="HEAD",
+            headers={"Authorization": f"Bearer {token}", "Accept": MANIFEST_TYPES},
+        )
+        with urllib.request.urlopen(head, timeout=30) as r:
+            return r.status == 200
+    except (OSError, ValueError, KeyError, TypeError):  # HTTPError is an OSError
+        return False
+
+
 def account() -> None:
     info = json.loads(run([AZ, "account", "show", "--output", "json"], capture=True))
     print(f"subscription: {info['name']}")
@@ -214,7 +243,19 @@ def deploy() -> None:
         die("not signed in: run `az login` (and `az account set --subscription <name>`)")
     account()
     if run(["git", "status", "--porcelain"], capture=True):
-        die("the working tree is not clean: commit first, the image tag must name the commit")
+        die(
+            "the working tree is not clean: commit first. The image is CI's build of the pushed "
+            "commit, while Bicep and the frontend come from the working tree, so all three must "
+            "be the same commit"
+        )
+    tag = run(["git", "rev-parse", "HEAD"], capture=True)
+    if not image_ready(IMAGE, tag):
+        die(
+            f"the image {IMAGE}:{tag} is not on GHCR, not public, or GHCR could not be reached.\n"
+            "Push HEAD and wait for the CI job `image`. If the image exists but is private, set "
+            "the package to public (GitHub, Packages, gleisatlas-api, Package settings, "
+            "Change visibility)."
+        )
     check_data()
     email = personal("GLEISATLAS_BUDGET_EMAIL", "E-mail address for the budget alerts")
     amount = personal("GLEISATLAS_BUDGET_AMOUNT", "Monthly budget, a whole number")
@@ -226,7 +267,6 @@ def deploy() -> None:
         if db
         else "collector job: no DB key given (an existing job keeps its image and key)"
     )
-    tag = run(["git", "rev-parse", "--short", "HEAD"], capture=True)
 
     step(2, total, "Register the resource providers")
     for ns in PROVIDERS:
@@ -236,9 +276,7 @@ def deploy() -> None:
     run([AZ, "group", "create", "--name", GROUP, "--location", LOCATION, "--output", "none"])
 
     step(4, total, "Phase 1: everything except the Container App")
-    print(
-        "COST: from here the container registry is billed per day (a small amount) until teardown"
-    )
+    print("COST: from here storage and logs are billed by use (a few cents) until teardown")
     last = probe(
         [AZ, "deployment", "group", "show", "--resource-group", GROUP, "--name", "main"]
         + ["--query", "properties.parameters.budgetStartDate.value", "--output", "tsv"]
@@ -258,7 +296,7 @@ def deploy() -> None:
     step(5, total, "Read the deployment outputs")
     out = outputs()
     storage = out["storageName"]
-    print(f"registry {out['registryName']}, storage {storage}, web {out['webName']}")
+    print(f"storage {storage}, web {out['webName']}")
 
     step(6, total, "Upload the data files")
     upload_data(storage)
@@ -271,19 +309,13 @@ def deploy() -> None:
         die(f"the container listing answered {code}, expected 404 (it must stay private)")
     print("blob 200, listing 404")
 
-    step(8, total, "Build the API image in the registry")
-    run(
-        [AZ, "acr", "build", "--registry", out["registryName"], "--image", f"api:{tag}", "."],
-        env={"PYTHONIOENCODING": "utf-8"},  # az crashes streaming the build log on Windows without
-    )
-
-    step(9, total, "Phase 2: add the Container App and the collector job")
+    step(8, total, "Phase 2: add the Container App and the collector job")
     print("COST: the Container App is billed only while a replica runs (scales to zero when idle)")
     if db:
         print("COST: the collector job runs every 15 minutes, billed per second of each run")
-    deployment(db, [f"image={out['registryServer']}/api:{tag}"])
+    deployment(db, [f"image={IMAGE}:{tag}"])
 
-    step(10, total, "Wait for the API's cold start")
+    step(9, total, "Wait for the API's cold start")
     api_url = outputs()["apiUrl"]
     started = time.monotonic()
     while status(f"{api_url}/datenstand") != 200:
@@ -292,10 +324,10 @@ def deploy() -> None:
         time.sleep(5)
     print(f"{api_url}/datenstand answered 200 after {time.monotonic() - started:.0f} s")
 
-    step(11, total, "Build the frontend")
+    step(10, total, "Build the frontend")
     run([NPM, "--prefix", "frontend", "run", "build"], env={"VITE_API_URL": api_url})
 
-    step(12, total, "Narrow the CSP in the built copy to the API's host")
+    step(11, total, "Narrow the CSP in the built copy to the API's host")
     config = ROOT / "frontend" / "dist" / "staticwebapp.config.json"
     parts = urlsplit(api_url)
     try:
@@ -307,7 +339,7 @@ def deploy() -> None:
     config.write_text(narrowed, encoding="utf-8", newline="\n")
     print(f"connect-src now names {parts.scheme}://{parts.netloc}")
 
-    step(13, total, "Upload the frontend to Static Web Apps")
+    step(12, total, "Upload the frontend to Static Web Apps")
     token = run(
         [AZ, "staticwebapp", "secrets", "list", "--name", out["webName"]]
         + ["--resource-group", GROUP, "--query", "properties.apiKey", "--output", "tsv"],
@@ -318,7 +350,7 @@ def deploy() -> None:
         env={"SWA_CLI_DEPLOYMENT_TOKEN": token},  # environment only, never on the command line
     )
 
-    step(14, total, "Done")
+    step(13, total, "Done")
     print(f"site: https://{out['webHostname']}\napi:  {api_url}")
 
 
@@ -378,7 +410,7 @@ def main(argv: list[str]) -> int:
     getattr(sys.stdout, "reconfigure", lambda **_: None)(errors="replace")  # cp1252 consoles
     parser = argparse.ArgumentParser(description="Deploy Gleisatlas to Azure, or delete it.")
     sub = parser.add_subparsers(dest="command", required=True)
-    sub.add_parser("deploy", help="deploy everything, 14 steps (starts billing, see COST lines)")
+    sub.add_parser("deploy", help="deploy everything, 13 steps (starts billing, see COST lines)")
     sub.add_parser("data", help="upload only the data files to the deployed storage account")
     sub.add_parser("teardown", help="delete the resource group and everything in it")
     args = parser.parse_args(argv)

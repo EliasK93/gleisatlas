@@ -86,3 +86,33 @@ jobs:
           jq -n --rawfile c "$BADGE" '{files: {"tests.json": {content: $c}}}' \
             | curl -sSf -X PATCH -H "Authorization: Bearer $GIST_TOKEN" -H "Accept: application/vnd.github+json" \
               "https://api.github.com/gists/$GIST_ID" -d @- > /dev/null
+
+  # Publishes the API image for the Azure deploy (scripts/azure.py) once the gate is green, on push
+  # to main only. It is public, so Azure pulls it without credentials; the label links the package
+  # to the repository. Only this job may write packages, and the Push step is the only one that gets the
+  # token in its environment.
+  image:
+    needs: gate
+    if: github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Build
+        run: |
+          docker build --label "org.opencontainers.image.source=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
+            -t "ghcr.io/${GITHUB_REPOSITORY,,}-api:$GITHUB_SHA" .
+
+      - name: Push
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          docker push "ghcr.io/${GITHUB_REPOSITORY,,}-api:$GITHUB_SHA"
+          docker logout ghcr.io

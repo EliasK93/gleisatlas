@@ -1,6 +1,6 @@
 // Gleisatlas on Azure, deployed at resource-group scope in two phases (docs/deployment.md §4):
-// phase 1 without `image` creates everything except the Container App, so the image and the data
-// exist before the app starts; phase 2 passes `image` and adds the app.
+// phase 1 without `image` creates everything except the Container App and the collector job, so the
+// data exists before the app starts; phase 2 passes `image` and adds them.
 
 @description('Receives the budget alerts. Never stored in the repository.')
 param budgetEmail string
@@ -11,14 +11,14 @@ param budgetStartDate string
 @description('Monthly budget of the resource group, in the billing currency. Alerts fire at 50 % and 90 % actual and 100 % forecast.')
 param budgetAmount int
 
-@description('The API image, e.g. <registry>.azurecr.io/api:<tag>. Empty: no Container App (phase 1).')
+@description('The API image, ghcr.io/<owner>/gleisatlas-api:<commit>, public so Azure pulls it without credentials. Empty: no Container App (phase 1).')
 param image string = ''
 
 @description('vCPU of the API container (docs/deployment.md §3).')
-param cpu string = '0.5'
+param cpu string = '1'
 
-@description('Memory of the API container; Container Apps pairs 0.5 vCPU with 1Gi.')
-param memory string = '1Gi'
+@description('Memory of the API container; Container Apps pairs 1 vCPU with 2Gi.')
+param memory string = '2Gi'
 
 @description('Polars threads; matches the vCPU count, since Polars otherwise sees the host\'s cores.')
 param polarsMaxThreads string = '1'
@@ -36,10 +36,6 @@ param dbApiKey string = ''
 
 var location = resourceGroup().location
 var suffix = uniqueString(resourceGroup().id)
-var acrPullRole = subscriptionResourceId(
-  'Microsoft.Authorization/roleDefinitions',
-  '7f951dda-4ed3-4680-a7ca-43fe172d538d'
-)
 var blobContributorRole = subscriptionResourceId(
   'Microsoft.Authorization/roleDefinitions',
   'ba92f5b4-2d11-453d-a403-e96b0029c9fe' // Storage Blob Data Contributor
@@ -81,29 +77,6 @@ resource dataContainer 'Microsoft.Storage/storageAccounts/blobServices/container
   parent: blobs
   name: 'data'
   properties: { publicAccess: 'Blob' } // read by URL, no listing
-}
-
-resource registry 'Microsoft.ContainerRegistry/registries@2025-11-01' = {
-  name: 'gleisatlas${suffix}'
-  location: location
-  sku: { name: 'Basic' }
-  // Legacy mode keeps AcrPull working; the ABAC mode, announced as the future default, ignores it.
-  properties: { adminUserEnabled: false, roleAssignmentMode: 'LegacyRegistryPermissions' }
-}
-
-resource pullIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2024-11-30' = {
-  name: 'gleisatlas-pull'
-  location: location
-}
-
-resource acrPull 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  scope: registry
-  name: guid(registry.id, pullIdentity.id, acrPullRole)
-  properties: {
-    roleDefinitionId: acrPullRole
-    principalId: pullIdentity.properties.principalId
-    principalType: 'ServicePrincipal'
-  }
 }
 
 // Consumption only: no workload profiles, zone redundancy, VNet or private endpoints, which bring
@@ -167,11 +140,6 @@ resource budget 'Microsoft.Consumption/budgets@2026-06-01' = {
 resource api 'Microsoft.App/containerApps@2026-07-01' = if (!empty(image)) {
   name: 'gleisatlas-api'
   location: location
-  identity: {
-    type: 'UserAssigned'
-    userAssignedIdentities: { '${pullIdentity.id}': {} }
-  }
-  dependsOn: [acrPull] // the first revision pulls the image
   properties: {
     environmentId: environment.id
     configuration: {
@@ -181,7 +149,6 @@ resource api 'Microsoft.App/containerApps@2026-07-01' = if (!empty(image)) {
         targetPort: 8000
         allowInsecure: false
       }
-      registries: [{ server: registry.properties.loginServer, identity: pullIdentity.id }]
     }
     template: {
       containers: [
@@ -208,20 +175,10 @@ resource api 'Microsoft.App/containerApps@2026-07-01' = if (!empty(image)) {
 }
 
 // The collector (pipeline/live.py) every 15 minutes: its own identity may write to the data
-// container only, and pull the image (docs/deployment.md §3).
+// container only (docs/deployment.md §3).
 resource jobIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2024-11-30' = if (withJob) {
   name: 'gleisatlas-job'
   location: location
-}
-
-resource jobPull 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (withJob) {
-  scope: registry
-  name: guid(registry.id, jobIdentity.id, acrPullRole)
-  properties: {
-    roleDefinitionId: acrPullRole
-    principalId: jobIdentity!.properties.principalId
-    principalType: 'ServicePrincipal'
-  }
 }
 
 resource jobWrite 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (withJob) {
@@ -241,7 +198,7 @@ resource collector 'Microsoft.App/jobs@2026-07-01' = if (withJob) {
     type: 'UserAssigned'
     userAssignedIdentities: { '${jobIdentity.id}': {} }
   }
-  dependsOn: [jobPull, jobWrite] // the first execution pulls the image and writes blobs
+  dependsOn: [jobWrite] // the first execution writes blobs
   properties: {
     environmentId: environment.id
     configuration: {
@@ -249,7 +206,6 @@ resource collector 'Microsoft.App/jobs@2026-07-01' = if (withJob) {
       scheduleTriggerConfig: { cronExpression: '*/15 * * * *', parallelism: 1, replicaCompletionCount: 1 }
       replicaTimeout: 840 // seconds: the run's 12-minute request deadline plus the blob sync
       replicaRetryLimit: 0 // the next execution 15 minutes later is the retry
-      registries: [{ server: registry.properties.loginServer, identity: jobIdentity.id }]
       secrets: [
         { name: 'db-client-id', value: dbClientId }
         { name: 'db-api-key', value: dbApiKey }
@@ -278,6 +234,4 @@ resource collector 'Microsoft.App/jobs@2026-07-01' = if (withJob) {
 output apiUrl string = empty(image) ? '' : 'https://${api!.properties.configuration.ingress.fqdn}'
 output webName string = web.name
 output webHostname string = web.properties.defaultHostname
-output registryName string = registry.name
-output registryServer string = registry.properties.loginServer
 output storageName string = storage.name
