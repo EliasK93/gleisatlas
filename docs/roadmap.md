@@ -96,6 +96,10 @@ Details in [map.md](map.md) (the station panel) and [lines.md](lines.md) (the se
 - [x] The Karte's station panel lists the station's five busiest lines, each opening its line page, and "Alle {count} Linien" opens the station page at its table of lines (re-check: the milestone in [map.md](map.md) §5 names the tests in `frontend/e2e/map.spec.ts`, `lage.spec.ts` and `station.spec.ts`)
 - [x] A section of the line page has its own URL key `abschnitt`, set in the route card or on the map, and `#strecke`, `#bildfahrplan` and `#linien` scroll to their target once the data has arrived (re-check: the milestone in [lines.md](lines.md) §5 names the tests in `frontend/e2e/line.spec.ts` and `heatmap.spec.ts`)
 
+## Show more in the Rankings
+Details in [patterns.md](patterns.md) §2 and §3.
+- [x] Every Rankings list starts with 10 rows and grows by 100 per click of "Mehr anzeigen" until all are shown, each list on its own, with a count line under it; the `limit` parameter of the three Rankings routes (re-check: the milestone in [patterns.md](patterns.md) §5 names the tests in `tests/api/test_rankings_api.py` and `frontend/e2e/rankings.spec.ts`)
+
 ## Next, in order
 Each step gets its own plan and its own section here once it starts.
 1. [x] A docs-only fast path in the gate (section "Gate fast path")
@@ -106,9 +110,10 @@ Each step gets its own plan and its own section here once it starts.
    - a line filter for the Wochentag × Uhrzeit heatmap, from a per-line weekday × hour table (a larger file to download)
    - Re-check, pipeline and API: `uv run pytest -q tests/pipeline tests/api`, in particular the record-table milestone in [pipeline.md](pipeline.md) §5, `tests/api/test_rankings_api.py` (`test_sections_pool_over_the_lines_and_keep_each_direction`, `test_stops_per_day_count_every_stop_over_the_days_of_the_period`, `test_trips_per_hour_of_service_come_from_the_takt_table`) and `tests/api/test_heatmap_api.py` (`test_a_line_has_its_own_heatmap_and_a_title`); the full list is the milestone in [patterns.md](patterns.md) §5
    - Re-check, UI: `npm --prefix frontend run test:e2e`, `frontend/e2e/rankings.spec.ts` and `frontend/e2e/heatmap.spec.ts`; the rules and decisions are in [patterns.md](patterns.md) §2 and §3, the data files in [pipeline.md](pipeline.md) §2 and the download list in [deployment.md](deployment.md) §4
-4. [ ] The image registry on GitHub Container Registry instead of Azure Container Registry, checked with one test deploy together with the larger data
-5. [ ] The planner, M9+ below
-6. [ ] Talk about the move to a VPS (section above) once the planner's connection source is decided, since the source sets what the server needs
+4. [x] Show more in the Rankings (section "Show more in the Rankings")
+5. [ ] The image registry on GitHub Container Registry instead of Azure Container Registry, checked with one test deploy together with the larger data
+6. [ ] The planner, M9+ below
+7. [ ] Talk about the move to a VPS (section above) once the planner's connection source is decided, since the source sets what the server needs
 
 ## M9+ Planner (v1.0)
 - [ ] Connection-source spike (ADR)
