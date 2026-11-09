@@ -112,7 +112,7 @@ Each step gets its own plan and its own section here once it starts.
    - Re-check, pipeline and API: `uv run pytest -q tests/pipeline tests/api`, in particular the record-table milestone in [pipeline.md](pipeline.md) §5, `tests/api/test_rankings_api.py` (`test_sections_pool_over_the_lines_and_keep_each_direction`, `test_stops_per_day_count_every_stop_over_the_days_of_the_period`, `test_trips_per_hour_of_service_come_from_the_takt_table`) and `tests/api/test_heatmap_api.py` (`test_a_line_has_its_own_heatmap_and_a_title`); the full list is the milestone in [patterns.md](patterns.md) §5
    - Re-check, UI: `npm --prefix frontend run test:e2e`, `frontend/e2e/rankings.spec.ts` and `frontend/e2e/heatmap.spec.ts`; the rules and decisions are in [patterns.md](patterns.md) §2 and §3, the data files in [pipeline.md](pipeline.md) §2 and the download list in [deployment.md](deployment.md) §4
 4. [x] Show more in the Rankings (section "Show more in the Rankings")
-5. [ ] The image registry on GitHub Container Registry instead of Azure Container Registry, checked with one test deploy together with the larger data
+5. [x] The image registry on GitHub Container Registry instead of Azure Container Registry, checked with one test deploy together with the larger data (re-check: the GHCR, deploy and memory checks in [deployment.md](deployment.md) §6; the cold start, the collector and the cost checks there are still open)
 6. [ ] The planner, M9+ below
 7. [ ] Talk about the move to a VPS (section above) once the planner's connection source is decided, since the source sets what the server needs
 
