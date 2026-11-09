@@ -1,5 +1,6 @@
-import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import createClient from "openapi-fetch";
+import { useEffect, useState } from "react";
 import { monthsOf } from "./metrics";
 import type { components, paths } from "./schema";
 
@@ -17,6 +18,63 @@ export function must<T>({ data, response }: { data?: T; response: Response }): T
 
 /** How long a view of the live day stays fresh; the collector runs every 15 minutes. */
 export const LIVE_REFRESH = 5 * 60_000;
+
+/** Refreshes without an interaction after which Live-Lage stops asking, so an idle tab lets the server sleep. */
+const IDLE_POLLS = 2;
+const INTERACTIONS = ["pointerdown", "keydown", "wheel"] as const;
+
+/**
+ * True while Live-Lage's polling may run: until `IDLE_POLLS` refresh periods pass without an
+ * interaction (or the tab becoming visible again). The next interaction resumes it and, when the
+ * data is older than one period, asks for it at once.
+ */
+export function useLiveActive(on: boolean) {
+  const client = useQueryClient();
+  const [active, setActive] = useState(true);
+  useEffect(() => {
+    if (!on) return;
+    let live = true;
+    let timer: ReturnType<typeof setTimeout>;
+    const arm = () => {
+      clearTimeout(timer);
+      // The extra half minute lets the last poll go out first, even a late one.
+      timer = setTimeout(
+        () => {
+          live = false;
+          setActive(false);
+        },
+        IDLE_POLLS * LIVE_REFRESH + 30_000,
+      );
+    };
+    const touch = () => {
+      if (!live) {
+        live = true;
+        setActive(true);
+        for (const queryKey of [["tageskarte"], ["datenstand"]])
+          void client.refetchQueries(
+            {
+              queryKey,
+              type: "active",
+              predicate: (q) => Date.now() - q.state.dataUpdatedAt > LIVE_REFRESH,
+            },
+            { cancelRefetch: false },
+          );
+      }
+      arm();
+    };
+    const seen = () => document.visibilityState === "visible" && touch();
+    for (const e of INTERACTIONS) window.addEventListener(e, touch, { passive: true });
+    document.addEventListener("visibilitychange", seen);
+    arm();
+    return () => {
+      for (const e of INTERACTIONS) window.removeEventListener(e, touch);
+      document.removeEventListener("visibilitychange", seen);
+      clearTimeout(timer);
+      setActive(true);
+    };
+  }, [on, client]);
+  return active;
+}
 
 /**
  * What the data covers. One request shared by the shell, the filter bar and the series. Only a

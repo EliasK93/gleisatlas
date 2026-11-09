@@ -273,6 +273,7 @@ export const en: Record<keyof typeof de, string> = {
   "map.day.freshLive": "Large stations live: {stand}",
   "map.day.freshRest": "Other large stations: {stand}",
   "map.day.freshAll": "Large stations: {stand}",
+  "map.day.paused": "Updates paused; they resume on the next click or key.",
   "map.day.cardToday": "{name} today",
   "map.day.todayNone": "no data for today yet",
   "map.day.todayNoneLong": "No data for this station yet today.",

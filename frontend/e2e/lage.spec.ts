@@ -1594,6 +1594,116 @@ test.describe("today", () => {
     await expect(page.getByRole("alert")).toHaveCount(0);
   });
 
+  test.describe("the refresh pauses while nobody interacts", () => {
+    const PAUSED = "Aktualisierung pausiert, sie geht bei der nächsten Eingabe weiter.";
+    /** The page on today, its poll after one tick (5 min) asked, and the list of asked days. */
+    async function opened(page: Page) {
+      await page.clock.install();
+      const requests = await openToday(page);
+      // A phone's legend opens with a tap, which counts as an interaction: do it up front.
+      await openLegend(page);
+      const asked = () => dayRequests(requests).length;
+      const status = () => requests.filter((u) => u.pathname === "/datenstand").length;
+      // One period and a second: the poll is due, the pause (half a minute later) is not.
+      const tick = async (n: number) => {
+        // The answer lands before the next jump, or the next poll would join the pending request.
+        const answered = page.waitForResponse((r) => new URL(r.url()).pathname === "/tageskarte");
+        await page.clock.fastForward("05:01");
+        await expect.poll(asked).toBe(n);
+        await answered;
+      };
+      // Past the pause's moment, which fastForward fires once with whatever else is due.
+      const idle = () => page.clock.fastForward("00:40");
+      return { asked, status, tick, idle };
+    }
+    /** The poll after another 5 minutes stays away, /datenstand's too; a wrongly armed one has time to send. */
+    async function stays(page: Page, count: () => number[], expected: number[]) {
+      await page.clock.fastForward("05:01");
+      // Absence can only be shown by waiting.
+      await page.waitForTimeout(300);
+      expect(count()).toEqual(expected);
+    }
+
+    test("two polls without an interaction, then none, and the legend says so", async ({
+      page,
+    }) => {
+      const { asked, status, tick, idle } = await opened(page);
+      expect(asked()).toBe(1);
+      await tick(2);
+      await tick(3);
+      await idle();
+      await expect(legend(page)).toContainText(PAUSED);
+      const both = () => [asked(), status()];
+      const paused = both();
+      await stays(page, both, paused);
+      await stays(page, both, paused);
+    });
+
+    test("no paused line while polls still run", async ({ page }) => {
+      const { tick } = await opened(page);
+      await expect(legend(page)).not.toContainText("pausiert");
+      await tick(2);
+      await expect(legend(page)).not.toContainText("pausiert");
+    });
+
+    for (const how of ["a click", "a key press"]) {
+      test(`${how} resumes at once, then polling runs again`, async ({ page }) => {
+        const { asked, tick, idle } = await opened(page);
+        await tick(2);
+        await tick(3);
+        await idle();
+        await stays(page, () => [asked()], [3]);
+        await expect(legend(page)).toContainText(PAUSED);
+        if (how === "a click") await page.mouse.click(1, 1);
+        else await page.keyboard.press("Shift");
+        // The data is older than 5 minutes, so it is asked for now, not at the next poll.
+        await expect.poll(asked).toBe(4);
+        await expect(legend(page)).not.toContainText(PAUSED);
+        await page.clock.fastForward("05:01");
+        await expect.poll(asked).toBe(5);
+      });
+    }
+
+    test("the tab becoming visible again counts as an interaction", async ({ page }) => {
+      const { asked, tick, idle } = await opened(page);
+      await tick(2);
+      await tick(3);
+      await idle();
+      await stays(page, () => [asked()], [3]);
+      await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+      await expect.poll(asked).toBe(4);
+      await expect(legend(page)).not.toContainText(PAUSED);
+    });
+
+    test("an interaction at minute 8 pushes the pause back", async ({ page }) => {
+      const { asked, tick, idle } = await opened(page);
+      await tick(2);
+      await page.clock.fastForward("03:00");
+      await page.keyboard.press("Shift");
+      await tick(3);
+      // The pause would have come at minute 10; now it comes at 18.
+      await expect(legend(page)).not.toContainText(PAUSED);
+      await tick(4);
+      await idle();
+      await stays(page, () => [asked()], [4]);
+      await expect(legend(page)).toContainText(PAUSED);
+    });
+
+    test.describe("English", () => {
+      test.use({ locale: "en-US" });
+
+      test("the paused line reads English", async ({ page }) => {
+        const { tick, idle } = await opened(page);
+        await tick(2);
+        await tick(3);
+        await idle();
+        await expect(page.getByRole("region", { name: "Legend" })).toContainText(
+          "Updates paused; they resume on the next click or key.",
+        );
+      });
+    });
+  });
+
   test("a tab left open across midnight asks /datenstand at once when today's map is gone", async ({
     page,
   }) => {

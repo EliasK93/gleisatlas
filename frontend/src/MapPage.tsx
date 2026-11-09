@@ -24,6 +24,7 @@ import {
   LIVE_REFRESH,
   must,
   useDatenstand,
+  useLiveActive,
   useMonthPeriod,
   useStation,
   useStationLines,
@@ -413,8 +414,10 @@ export default function MapPage({ day = false }: { day?: boolean }) {
   const shown = tag ?? newest;
   const showsToday = day && !!shown && shown === datenstand?.heute;
   // While today is shown, /datenstand is asked again too, so the end of today moves the page on;
-  // no other page polls it.
-  useDatenstand(showsToday ? LIVE_REFRESH : false);
+  // no other page polls it. Both polls stop once nobody interacts for a while.
+  const polling = useLiveActive(showsToday);
+  const poll = showsToday && polling ? LIVE_REFRESH : false;
+  useDatenstand(poll);
   const f: FilterKeys = {
     ...read,
     tag,
@@ -447,7 +450,7 @@ export default function MapPage({ day = false }: { day?: boolean }) {
     enabled: day && !!shown && !!datenstand,
     placeholderData: keepPreviousData,
     // The live day grows while the tab is open.
-    refetchInterval: showsToday ? LIVE_REFRESH : false,
+    refetchInterval: poll,
   });
   const q = day ? dayMap : periodMap;
   const data = q.data;
@@ -597,6 +600,7 @@ export default function MapPage({ day = false }: { day?: boolean }) {
               liveStand && t("map.day.freshLive", { stand: liveStand }),
               restStand && t(live ? "map.day.freshRest" : "map.day.freshAll", { stand: restStand }),
             ].filter((line): line is string => !!line)}
+            paused={showsToday && !polling}
             day={
               day
                 ? {
@@ -1041,12 +1045,15 @@ function Legend({
   metric,
   meta,
   fresh,
+  paused,
   day,
 }: {
   metric: Metric;
   meta: string;
   /** On today one line per source: which stations it covers, its data time and its cut. */
   fresh: string[];
+  /** Today's refresh stopped for want of interaction. */
+  paused: boolean;
   day?: { weekday: string; refs?: number };
 }) {
   const isNarrow = useNarrow();
@@ -1132,6 +1139,7 @@ function Legend({
             {line}
           </p>
         ))}
+        {paused && <p className="mt-1 text-xs text-text-2">{t("map.day.paused")}</p>}
         <p className="mt-2 text-xs text-text-3">{meta}</p>
       </div>
     </section>

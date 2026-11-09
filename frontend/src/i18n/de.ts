@@ -280,6 +280,7 @@ export const de = {
   "map.day.freshLive": "Große Bahnhöfe live: {stand}",
   "map.day.freshRest": "Übrige große Bahnhöfe: {stand}",
   "map.day.freshAll": "Große Bahnhöfe: {stand}",
+  "map.day.paused": "Aktualisierung pausiert, sie geht bei der nächsten Eingabe weiter.",
   "map.day.cardToday": "{name} heute",
   "map.day.todayNone": "noch keine Daten für heute",
   "map.day.todayNoneLong": "Heute liegen noch keine Daten für diesen Bahnhof vor.",
