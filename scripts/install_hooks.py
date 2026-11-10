@@ -1,4 +1,4 @@
-"""Install the pre-commit hook that runs the gate. Overwrites it (graphify uses post-commit)."""
+"""Install the pre-commit hook that runs the gate. Overwrites it."""
 
 import subprocess
 from pathlib import Path
