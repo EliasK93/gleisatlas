@@ -69,10 +69,6 @@ Personal and machine-specific rules live in `CLAUDE.local.md` (gitignored).
 - A deliberate shortcut gets a `ponytail:` comment naming its ceiling and when to revisit, and is listed under "Known shortcuts" in its feature doc.
 - `/ponytail-review` on diffs in the review step, `/ponytail-audit` on the whole repo now and then.
 
-### graphify
-- Orient with `graphify query "<question>"`, then read the code. Absence in the graph is not evidence.
-- `graphify-out/` is gitignored. Docs need `/graphify . --update` after changes.
-
 ### Communication
 - Short and concrete: result first, then what the product owner needs to do.
 - Commands are explained in one line and say which shell they are for.

@@ -61,9 +61,6 @@ Details in [pipeline.md](pipeline.md) (raw days) and [day-history.md](day-histor
 - [x] The source's partial raw day as a fallback for the large stations the collector has not completed yet, written by `pipeline.update` as `heute_rest.parquet` (re-check: `uv run pytest -q`, `tests/pipeline/test_rest.py`)
 - [x] "Heute" in the day view: today so far against the same hours of the reference days, two freshness levels, the time of the data, a fallback to the last complete day (re-check: `uv run pytest -q`, `tests/api/test_heute_api.py`; `npm --prefix frontend run test:e2e`, the "today" tests in `frontend/e2e/lage.spec.ts`; details in [day-history.md](day-history.md))
 
-## Move to a VPS
-- [ ] The stable run on one VPS: the API image, the static frontend with the CSP and TLS, the data on disk, the collector's cron and key. Azure stays for tests and temporary deploys. Until then the collector runs as a job on the Azure deployment (Live-Lage below).
-
 ## Live-Lage
 Details in [day-history.md](day-history.md).
 - [x] Live-Lage as its own page `/lage` for the 131 large stations: today by default, a Rückblick to any day through the date field and three chips (Heute, Gestern, Vorgestern), the Germany card with Fern and Regional, the Karte without a Tag switch and the Karte's Gattung and period kept across the page (re-check: `uv run pytest -q`, `tests/api/test_tageskarte_api.py`, `tests/api/test_heute_api.py`, `tests/core/test_periods.py`; `npm --prefix frontend run test:e2e`, `frontend/e2e/lage.spec.ts`)
@@ -114,7 +111,6 @@ Each step gets its own plan and its own section here once it starts.
 4. [x] Show more in the Rankings (section "Show more in the Rankings")
 5. [x] The image registry on GitHub Container Registry instead of Azure Container Registry, checked with one test deploy together with the larger data (re-check: the GHCR, deploy and memory checks in [deployment.md](deployment.md) §6; the cold start, the collector and the cost checks there are still open)
 6. [ ] The planner, M9+ below
-7. [ ] Talk about the move to a VPS (section above) once the planner's connection source is decided, since the source sets what the server needs
 
 ## M9+ Planner (v1.0)
 - [x] Connection-source spike (ADR) (re-check: [adr/0003-connection-source.md](adr/0003-connection-source.md) is accepted; the planner's doc is [planner.md](planner.md))
@@ -133,5 +129,6 @@ Not planned yet; further ideas and details in SPEC 3.1 and 3.4.
 - A comparison with the official DB punctuality figures.
 - A passenger-rights calculator: how often a station, line or connection reaches 60 or 120 minutes.
 - Lines that cross the border marked as "section in Germany".
+- Later, if the Azure deployment stops being nearly free: the stable run on one VPS (the API image, the static frontend with the CSP and TLS, the data on disk, the collector's cron and key), with Azure kept for tests and temporary deploys.
 - Trim the API's memory so it fits 0.5 vCPU / 1 GiB again. The largest steps are a cold `/karte`, `/rankings?typ=bahnhoefe` and `/rankings/rekorde?art=takt`; measured locally, the peak working set was 1136 MiB with all caches warm.
 - Maybe: how much later a rail replacement bus (SEV) arrives than the train it replaces. Measure first whether the buses stop at the train's station and how much later they are (about 90 % of replacement rows name the replaced train); shown only if the data really shows it.
