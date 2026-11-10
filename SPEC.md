@@ -91,15 +91,9 @@ On the daily time series (v0.3): a calendar view, marked events (weather, holida
 
 **v1 decision:** monthly files are the basis for everything. The raw data is the source for the current month's day views (daily series and Live-Lage), up to the last complete day, usually yesterday; month views stay on whole months. Details: [docs/pipeline.md](docs/pipeline.md) §2, "Raw days".
 
-### 4.2 Connection / timetable source (for v1.0) – **open, spike needed**
+### 4.2 Connection / timetable source (for v1.0) – **decided**
 
-Candidates to evaluate in the spike:
-1. Unofficial bahn.de web API (used by delaybahn) – complete, but unofficial and possibly unstable.
-2. Community wrapper (db-rest / transport.rest) – check current availability and stability.
-3. Official GTFS timetable (DELFI / gtfs.de) + own routing (e.g. RAPTOR) – stable and offline, but considerably more effort.
-4. Simplification: derive connections directly from the historical dataset (direct trains + 1 transfer at a station chosen by the user).
-
-Decision criteria: stability, legal/terms of service, effort, regional + long-distance coverage, cost. Record the result as an ADR (`docs/adr/`).
+The planner takes the list of trains of a date from the gtfs.de GTFS feeds for long-distance and regional rail (up to about 30 days ahead), matches each trip to our own trips by stops and planned times, and gets the statistics from the replay over that train's past runs; a trip without a match shows that it has no history. The candidates weighed (the unofficial bahn.de web API, db-rest and transport.rest, an official GTFS feed with an own router, a timetable derived from our own trips), the measurements and the reasons are in [ADR 0003](docs/adr/0003-connection-source.md).
 
 ### 4.3 Optional (optional features)
 - Weather: DWD Open Data or Meteostat.
@@ -235,7 +229,7 @@ Not part of the v1.0 DoD: CI/CD auto-deploy, monitoring, backtest of prediction 
 
 | # | Point | Approach |
 |---|---|---|
-| O1 | Connection source (4.2) | Spike, ADR |
+| O1 | Connection source (4.2) | Decided: the GTFS timetable for the list of trains, our own data for their history, see [ADR 0003](docs/adr/0003-connection-source.md) |
 | O2 | Rule for a missed connection in the replay: take the next connection or count as failed? | Set in the replay-engine ADR; proposal: next connection of the same relation, max. +120 min |
 | O3 | Current Azure free grants and billing items | Checked, see [docs/deployment.md](docs/deployment.md) §4 |
 | O5 | Project time frame | Not fixed; optional features only after v1.0 |

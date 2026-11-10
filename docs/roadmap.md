@@ -117,7 +117,7 @@ Each step gets its own plan and its own section here once it starts.
 7. [ ] Talk about the move to a VPS (section above) once the planner's connection source is decided, since the source sets what the server needs
 
 ## M9+ Planner (v1.0)
-- [ ] Connection-source spike (ADR)
+- [x] Connection-source spike (ADR) (re-check: [adr/0003-connection-source.md](adr/0003-connection-source.md) is accepted; the planner's doc is [planner.md](planner.md))
 - [ ] Replay engine
 - [ ] Planner and transfer UI
 
