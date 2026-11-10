@@ -95,7 +95,7 @@ uv run python -m pipeline.live
 
 ## Deploy to Azure
 
-The site is set up for Azure Static Web Apps (frontend), Container Apps (API) and Blob Storage (the aggregates), described in Bicep in `infra/main.bicep`.
+The site is set up for Azure Static Web Apps (frontend), Container Apps (the API, and a scheduled job for the live collector) and Blob Storage (the aggregates), described in Bicep in `infra/main.bicep`. CI builds the API image and publishes it to GitHub Container Registry, so a deploy needs no Azure registry.
 
 ## Development
 
