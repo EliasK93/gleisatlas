@@ -566,6 +566,7 @@ test.describe("the states", () => {
   test("a card has the colour of its step, 1 to 5, grey without a comparison and dashed without data", async ({
     page,
   }) => {
+    test.slow(); // one page load per step, six in one test
     for (const [i, cls] of STEPS.entries())
       await test.step(String(cls), async () => {
         await page.unrouteAll();
