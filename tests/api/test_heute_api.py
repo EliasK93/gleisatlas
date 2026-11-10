@@ -619,6 +619,7 @@ def test_large_reads_large_parquet_and_follows_a_new_file(base: TestClient, tmp_
     pl.DataFrame({"eva": ["1"]}, schema={"eva": pl.String}).write_parquet(
         tmp_path / "large.parquet"
     )
+    bump_mtime(tmp_path / "large.parquet")  # the fixture wrote this path within the same tick
     monkeypatch.setattr(main, "LARGE_PATH", str(tmp_path / "large.parquet"))
     assert main.large() == ["1"]
     pl.DataFrame({"eva": ["1", "2"]}, schema={"eva": pl.String}).write_parquet(
