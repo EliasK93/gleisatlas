@@ -112,6 +112,14 @@ A whole-repo audit and a debt ledger of the `shortcut:` comments, with the fixes
 - [x] Splits and merges without a change of behaviour: the response models in `backend/models.py`, `mapBase.ts`, `StationPanel.tsx` and `urlKeys.ts` out of the big web files, one theme-switch hook, one signed-minutes text, the legal pages on the shared page, the unused tokens `--cat2` and `--cat3`, one catalog key for the attribution, the unused exports, `pipeline/download.py` merged into `pipeline/raw.py` (re-check: the existing tests and `uv run python scripts/gate.py` pass unchanged; `uv run python scripts/export_openapi.py` leaves `backend/openapi.json` byte-identical)
 - [x] The debt ledger's corrections: the `Known shortcuts` entries name the right files and figures (`MetricTiles` in `ui.tsx`, `is_train_number`, `runs.parquet` at about 2.8 GB, the main script at about 1.5 MB), the stale 1 GiB and "at most 10" comments are fixed, and three checks that need the deployed job's logs are in [day-history.md](day-history.md) §6 and [deployment.md](deployment.md) §6
 
+## Faster verification
+The gate's run time, measured on the development machine: 787 s before (e2e 502 s, pytest 256 s, everything else under 10 s), 491 s after (e2e 389 s, pytest 100 s); e2e times on that machine vary by a minute or two between runs. The rules are in [CLAUDE.md](../CLAUDE.md) "The gate".
+- [x] The first phase runs at once and every line shows its duration; a failure there skips e2e (re-check: `tests/scripts/test_gate.py`, `test_the_first_phase_runs_its_checks_at_the_same_time` and `test_a_failed_first_phase_skips_the_e2e_run_and_the_licence_file`)
+- [x] pytest runs on all cores with pytest-xdist: 256 s → about 90 s alone, 100-120 s inside the gate (re-check: the `pytest` line of `uv run python scripts/gate.py`)
+- [x] Playwright retries a failed test once and the gate prints the flaky ones, so a timing flake no longer reruns the whole gate (re-check: `tests/scripts/test_gate.py`, `test_flaky_lines_returns_the_summary_block`)
+- [x] Locally the phone project runs only the tests tagged `@phone`, CI runs both projects in full: e2e 817 → 549 runs locally (re-check: `npx playwright test --list --project mobile` in `frontend/` lists 92 tests, with `CI=1` set 479)
+- Measured and dropped: `fullyParallel` (no gain, the suite is bound by CPU, not by long files) and e2e against the production preview (about 15 % faster, but about 20 tests would need rewriting for the CSP).
+
 ## Next, in order
 Each step gets its own plan and its own section here once it starts.
 1. [x] A docs-only fast path in the gate (section "Gate fast path")
@@ -146,6 +154,7 @@ Not planned yet; further ideas and details in SPEC 3.1 and 3.4.
 - Lines that cross the border marked as "section in Germany".
 - Later, if the Azure deployment stops being nearly free: the stable run on one VPS (the API image, the static frontend with the CSP and TLS, the data on disk, the collector's cron and key), with Azure kept for tests and temporary deploys.
 - Trim the API's memory so it fits 0.5 vCPU / 1 GiB again. The largest steps are a cold `/karte`, `/rankings?typ=bahnhoefe` and `/rankings/rekorde?art=takt`; measured locally, the peak working set was 1136 MiB with all caches warm.
+- If the gate is still too slow: e2e first in CI on throwaway branches, with Playwright sharding. Deferred because every run and commit on such a branch stays public.
 - Smaller items from the audit, maybe later:
   - `/suche?q=-` lists the three busiest lines: a query that normalises to nothing is a prefix of every name (`core/search.py`).
   - `scripts/azure.py data` uploads the fifteen files one by one, so a replica that starts in the middle mixes old and new files until its next start.

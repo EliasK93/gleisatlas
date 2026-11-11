@@ -163,7 +163,7 @@ Unknown or invalid values fall back to the default and are removed from the URL 
 - `frontend/src/Icon.tsx`: the icon set. `frontend/src/api.ts`: typed client over `schema.d.ts`; `must()` turns any non-2xx response into a query error; `useStation` is the one lookup of a station by EVA.
 - UI text only via the catalogs `frontend/src/i18n/de.ts` and `en.ts` (`t()`, and `tx()` for placeholders filled with React nodes). Colours only via the tokens in `frontend/src/theme.css`; component classes in `index.css` use tokens only. Both rules are stated in [CLAUDE.md](../CLAUDE.md). `frontend/src/prefs.ts` holds the theme and language preferences; see [theme-and-language.md](theme-and-language.md).
 - `frontend/src/schema.d.ts` is generated from `backend/openapi.json`: `uv run python scripts/export_openapi.py`, then `npm --prefix frontend run gen`. The gate fails when it is stale (`gen:check`).
-- Tests: `frontend/e2e/*.spec.ts` run in Playwright against fixtures served through `page.route` (`frontend/e2e/fixtures.ts`), never a backend. Three projects: desktop Chromium, a Pixel 7 profile (also Chromium), and `csp`, which runs only `csp.spec.ts` against the production build.
+- Tests: `frontend/e2e/*.spec.ts` run in Playwright against fixtures served through `page.route` (`frontend/e2e/fixtures.ts`), never a backend. Three projects: desktop Chromium, a Pixel 7 profile (also Chromium), and `csp`, which runs only `csp.spec.ts` against the production build. Locally the Pixel 7 project runs only the tests tagged `@phone` (phone-only or layout-dependent); CI, and `scripts/gate.py --ci` locally, run it in full.
 
 ## 5 Milestones
 
