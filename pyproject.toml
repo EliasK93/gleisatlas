@@ -14,6 +14,7 @@ dev = [
     "ruff",
     "httpx",
     "pyright>=1.1.414",
+    "pytest-xdist>=3.8.0",
 ]
 pipeline = ["huggingface-hub"]  # the data download only; the API image skips it
 

@@ -1,4 +1,6 @@
+import io
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -198,3 +200,169 @@ def test_a_code_file_renamed_to_markdown_runs_every_check(
     (repo / "a.txt").rename(repo / "notes.md")
     assert gate_main(monkeypatch, "--hook") == 0
     assert runs(repo) == 2
+
+
+def say(text: str, exit_code: int = 0) -> list[str]:
+    # writes utf-8 whatever the console's code page, as Playwright does
+    write = f"import sys; sys.stdout.buffer.write(({text!r} + '\\n').encode('utf-8'))"
+    return [sys.executable, "-c", f"{write}; raise SystemExit({exit_code})"]
+
+
+def test_every_result_line_carries_its_duration_and_the_gate_line_the_total(
+    repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+):
+    assert gate_main(monkeypatch) == 0
+    out = capsys.readouterr().out
+    assert re.search(r"^PASS count \(\d+\.\d s\)$", out, re.M)
+    assert re.search(r"^PASS gitleaks \(\d+\.\d s\)$", out, re.M)
+    assert re.search(r"^gate: all checks passed \(\d+ s\)$", out, re.M)
+
+
+def test_the_first_phase_runs_its_checks_at_the_same_time(
+    repo: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    """Each check waits for the other one's file, so a sequential run times out and fails."""
+
+    def meet(mine: str, other: str) -> list[str]:
+        code = (
+            "import pathlib, sys, time\n"
+            f"pathlib.Path({str(tmp_path / mine)!r}).write_text('x')\n"
+            "for _ in range(100):\n"
+            f"    if pathlib.Path({str(tmp_path / other)!r}).exists(): sys.exit(0)\n"
+            "    time.sleep(0.1)\n"
+            "sys.exit(1)\n"
+        )
+        return [sys.executable, "-c", code]
+
+    monkeypatch.setattr(gate, "CHECKS", [("a", meet("a", "b"), repo), ("b", meet("b", "a"), repo)])
+    assert gate_main(monkeypatch) == 0
+
+
+def test_the_results_print_in_the_order_of_the_check_list(
+    repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+):
+    slow = [sys.executable, "-c", "import time; time.sleep(1)"]
+    monkeypatch.setattr(gate, "CHECKS", [("slow", slow, repo), ("quick", say("hi"), repo)])
+    gate_main(monkeypatch)
+    out = capsys.readouterr().out
+    assert out.index("PASS slow") < out.index("PASS quick") < out.index("PASS gitleaks")
+
+
+def test_a_failed_first_phase_skips_the_e2e_run_and_the_licence_file(
+    repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+):
+    late = [("frontend test:e2e", counter(tmp_path / "runs.txt", 0), repo)]
+    late.append(("licence file", counter(tmp_path / "runs.txt", 0), repo))
+    first = [("bad", say("broken", 1), repo)]
+    monkeypatch.setattr(gate, "CHECKS", [*first, *late])
+    monkeypatch.setattr(gate, "GITLEAKS", counter(tmp_path / "leaks.txt", 0))
+    assert gate_main(monkeypatch) == 1
+    out = capsys.readouterr().out
+    assert "FAIL bad" in out
+    assert "broken" in out
+    assert "SKIP frontend test:e2e (earlier checks failed)" in out
+    assert "SKIP licence file (earlier checks failed)" in out
+    assert runs(repo) == 0
+    assert (tmp_path / "leaks.txt").exists()
+    assert "PASS clean tree" in out
+    assert re.search(r"^gate: FAILED \(bad\) \(\d+ s\)$", out, re.M)
+
+
+def test_the_e2e_run_starts_after_the_first_phase_and_prints_its_flaky_tests(
+    repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+):
+    """The slow first-phase check writes a marker when it ends; e2e fails unless it finds it."""
+    marker = tmp_path / "phase1-done"
+    slow = f"import pathlib, time; time.sleep(0.5); pathlib.Path({str(marker)!r}).write_text('x')"
+    e2e = (
+        f"import pathlib, sys; ok = pathlib.Path({str(marker)!r}).exists()\n"
+        f"sys.stdout.buffer.write({SUMMARY_FLAKY!r}.encode('utf-8'))\n"
+        "raise SystemExit(0 if ok else 1)"
+    )
+    checks = [
+        ("frontend test:e2e", [sys.executable, "-c", e2e], repo),
+        ("slow", [sys.executable, "-c", slow], repo),
+    ]
+    monkeypatch.setattr(gate, "CHECKS", checks)
+    assert gate_main(monkeypatch) == 0
+    out = capsys.readouterr().out
+    assert out.index("PASS slow") < out.index("PASS frontend test:e2e")
+    lines = out.splitlines()
+    at = next(i for i, line in enumerate(lines) if line.startswith("PASS frontend test:e2e"))
+    assert lines[at + 1 : at + 4] == FLAKY_BLOCK
+
+
+def test_a_console_that_cannot_encode_the_output_does_not_stop_the_gate(
+    repo: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    """Playwright's separator and marks (─ ✘) are not in cp1252, the pipe's default on Windows."""
+    raw = io.BytesIO()
+    monkeypatch.setattr(sys, "stdout", io.TextIOWrapper(raw, encoding="cp1252"))
+    monkeypatch.setattr(gate, "CHECKS", [("frontend test:e2e", say("✘ a › b ───", 1), repo)])
+    monkeypatch.setattr(gate, "GITLEAKS", counter(tmp_path / "leaks.txt", 0))
+    assert gate_main(monkeypatch) == 1
+    sys.stdout.flush()
+    assert b"FAIL frontend test:e2e" in raw.getvalue()
+    assert (tmp_path / "leaks.txt").exists()
+
+
+def test_python_checks_write_utf8_even_when_the_console_does_not(
+    repo: Path, monkeypatch: pytest.MonkeyPatch
+):
+    monkeypatch.delenv("PYTHONIOENCODING", raising=False)
+    # a plain print: the child's encoding is decided by PYTHONIOENCODING alone
+    shout = [sys.executable, "-c", "print('Bundesländer')"]
+    assert gate.run(shout, repo) == (0, "Bundesländer")
+
+
+def show_ci(path: Path) -> list[str]:
+    code = f"import os; open({str(path)!r}, 'w').write(os.environ.get('CI', 'unset'))"
+    return [sys.executable, "-c", code]
+
+
+def test_ci_mode_sets_ci_for_the_checks(
+    repo: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    monkeypatch.setenv("CI", "before")  # main() sets it for good: the fixture restores it
+    monkeypatch.setattr(gate, "CHECKS", [("show", show_ci(tmp_path / "ci.txt"), repo)])
+    gate_main(monkeypatch, "--ci")
+    assert (tmp_path / "ci.txt").read_text() == "1"
+
+
+def test_the_other_modes_leave_ci_alone(
+    repo: Path, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    monkeypatch.setenv("CI", "before")
+    monkeypatch.setattr(gate, "CHECKS", [("show", show_ci(tmp_path / "ci.txt"), repo)])
+    gate_main(monkeypatch, "--hook")
+    assert (tmp_path / "ci.txt").read_text() == "before"
+
+
+FLAKY_BLOCK = [
+    "  2 flaky",
+    "    [chromium] › e2e/map.spec.ts:10:5 › the map › opens",
+    "    [mobile] › e2e/line.spec.ts:20:5 › the line › fits",
+]
+# Playwright ends each test line with a space and a rule of ─ up to 100 columns
+SUMMARY_FLAKY = "\n".join(
+    [
+        "Running 5 tests",
+        FLAKY_BLOCK[0],
+        *(f"{line} {'─' * (60 - len(line))}" for line in FLAKY_BLOCK[1:]),
+        "  3 passed (1.0m)",
+    ]
+)
+
+
+def test_flaky_lines_returns_the_summary_block():
+    assert gate.flaky_lines(SUMMARY_FLAKY) == FLAKY_BLOCK
+
+
+def test_flaky_lines_ignores_colour_codes():
+    coloured = SUMMARY_FLAKY.replace("  2 flaky", "\x1b[33m  2 flaky\x1b[39m")
+    coloured = coloured.replace("    [", "\x1b[33m    [").replace("opens", "opens\x1b[39m")
+    assert gate.flaky_lines(coloured) == FLAKY_BLOCK
+
+
+def test_flaky_lines_is_empty_without_flaky_tests():
+    assert gate.flaky_lines("Running 5 tests\n  5 passed (1.0m)") == []

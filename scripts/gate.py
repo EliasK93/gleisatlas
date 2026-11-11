@@ -1,5 +1,8 @@
 """Commit gate: format, lint, types, tests, frontend checks, licence file, Bicep, secret scan.
 
+All checks except the e2e run and the licence file run at the same time (none writes a file
+another reads); those two follow in order and are skipped when an earlier check failed.
+The secret scan comes last, alone.
 Manual mode stages everything first and fails on unstaged or untracked files.
 `--hook` (pre-commit) runs only the checks, and skips them all for a tree that already passed.
 Manual and hook mode run only the secret scan when everything changed since the last green tree
@@ -9,10 +12,13 @@ staged in CI) and fails if a check left changed or untracked files behind.
 """
 
 import os
+import re
 import shutil
 import subprocess
 import sys
 import tempfile
+import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -23,7 +29,7 @@ CHECKS: list[tuple[str, list[str], Path]] = [
     ("ruff format", ["uv", "run", "ruff", "format", "--check", "."], ROOT),
     ("ruff check", ["uv", "run", "ruff", "check", "."], ROOT),
     ("pyright", ["uv", "run", "pyright"], ROOT),
-    ("pytest", ["uv", "run", "pytest", "-q"], ROOT),
+    ("pytest", ["uv", "run", "pytest", "-q", "-n", "auto"], ROOT),
     *(
         (f"frontend {s}", [NPM, "run", s], ROOT / "frontend")
         for s in ("typecheck", "lint", "format:check", "gen:check", "test:e2e")
@@ -41,15 +47,41 @@ CHECKS: list[tuple[str, list[str], Path]] = [
     # offline, no login: compiles and lints the infrastructure
     ("bicep", [AZ, "bicep", "build", "--file", "infra/main.bicep", "--stdout"], ROOT),
 ]
+# run after the rest, alone: e2e needs the machine to itself, the licence file needs its build
+LATE = {"frontend test:e2e", "licence file"}
 GITLEAKS = ["gitleaks", "git", "--redact", "--no-banner"]
 
 
 def run(cmd: list[str], cwd: Path) -> tuple[int, str]:
     if shutil.which(cmd[0]) is None:
         return 127, f"command not found: {cmd[0]}"
-    p = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, errors="replace")
+    # utf-8, not the Windows code page: Playwright's test names carry "›"
+    # PYTHONIOENCODING: Python tools in a pipe write the code page unless told, and we decode utf-8
+    env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
+    p = subprocess.run(
+        cmd, cwd=cwd, env=env, capture_output=True, encoding="utf-8", errors="replace"
+    )
     # rstrip only: `git status --porcelain` lines start with a meaningful space
     return p.returncode, (p.stdout + p.stderr).rstrip()
+
+
+def timed(cmd: list[str], cwd: Path) -> tuple[int, str, float]:
+    start = time.monotonic()
+    code, out = run(cmd, cwd)
+    return code, out, time.monotonic() - start
+
+
+def flaky_lines(output: str) -> list[str]:
+    """Playwright's summary block "  N flaky" with its test lines (none: empty list)."""
+    plain = re.sub(r"\x1b\[[0-9;]*m", "", output)
+    # Playwright pads each summary line with a rule of ─ up to 100 columns
+    lines = [re.sub(r"\s*─*$", "", line) for line in plain.splitlines()]
+    for i, line in enumerate(lines):
+        if re.fullmatch(r"  \d+ flaky", line):
+            tests = lines[i + 1 :]
+            end = next((n for n, t in enumerate(tests) if not t.startswith("    ")), len(tests))
+            return [line, *tests[:end]]
+    return []
 
 
 def git_path(name: str) -> Path | None:
@@ -94,7 +126,11 @@ def is_doc(path: str) -> bool:
 
 
 def main() -> int:
+    # a console that cannot encode a mark (─ ✘) must not stop the report
+    sys.stdout.reconfigure(errors="replace")  # type: ignore[attr-defined]
     hook, ci = "--hook" in sys.argv[1:], "--ci" in sys.argv[1:]
+    if ci:
+        os.environ["CI"] = "1"  # as on GitHub, so the checks run the whole phone project
     if not (hook or ci):
         code, out = run(["git", "add", "-A"], ROOT)
         if code:
@@ -111,12 +147,28 @@ def main() -> int:
         print(f"docs-only change since the last green gate: secret scan{tail}")
     secrets = GITLEAKS if ci else [*GITLEAKS, "--pre-commit", "--staged"]
     failed: list[str] = []
-    for name, cmd, cwd in [*checks, ("gitleaks", secrets, ROOT)]:
-        code, out = run(cmd, cwd)
-        print(f"{'PASS' if code == 0 else 'FAIL'} {name}")
+    start = time.monotonic()
+
+    def report(name: str, code: int, out: str, secs: float) -> None:
+        print(f"{'PASS' if code == 0 else 'FAIL'} {name} ({secs:.1f} s)")
         if code:
             failed.append(name)
             print(out)
+        elif name in LATE:
+            for line in flaky_lines(out):
+                print(line)
+
+    first = [c for c in checks if c[0] not in LATE]
+    with ThreadPoolExecutor(max_workers=max(1, len(first))) as pool:
+        futures = [pool.submit(timed, cmd, cwd) for _, cmd, cwd in first]
+        for (name, _, _), future in zip(first, futures, strict=True):
+            report(name, *future.result())
+    for name, cmd, cwd in [c for c in checks if c[0] in LATE]:
+        if failed:
+            print(f"SKIP {name} (earlier checks failed)")
+        else:
+            report(name, *timed(cmd, cwd))
+    report("gitleaks", *timed(secrets, ROOT))
     if not hook:
         _, status = run(["git", "status", "--porcelain"], ROOT)
         dirty = [line for line in status.splitlines() if line[1:2] != " "]
@@ -126,7 +178,8 @@ def main() -> int:
             print("\n".join(dirty))
     if not failed and tree and marker:
         marker.write_text(tree)
-    print(f"gate: {'FAILED (' + ', '.join(failed) + ')' if failed else 'all checks passed'}")
+    result = f"FAILED ({', '.join(failed)})" if failed else "all checks passed"
+    print(f"gate: {result} ({time.monotonic() - start:.0f} s)")
     return 1 if failed else 0
 
 
