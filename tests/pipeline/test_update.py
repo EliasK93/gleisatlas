@@ -671,6 +671,28 @@ def test_the_trip_table_holds_minutes_since_the_trip_day_and_the_delays(data_dir
     ]
 
 
+def test_a_change_time_far_from_its_plan_reads_as_no_change_and_does_not_stop_the_combine(
+    data_dir, tmp_path
+):
+    first = pl.col("eva") == "1"
+    planned = pl.col("arrival_planned_time")
+    one = daily_trips([date(2026, 9, 30)]).with_columns(
+        departure_planned_time=planned,
+        # the first stop leaves 40000 minutes (more than an Int16 holds) after its plan, the second
+        # one is cancelled with a change time 2 hours before its plan
+        departure_change_time=pl.when(first).then(planned + pl.duration(minutes=40000)),
+        arrival_is_canceled=~first,
+        arrival_change_time=pl.when(first)
+        .then(planned)
+        .otherwise(planned - pl.duration(minutes=120)),
+    )
+    path = tmp_path / "sep.parquet"
+    one.write_parquet(path)
+    update(data_dir, lambda: ["2026-09"], lambda _: path)
+    fahrten = pl.read_parquet(data_dir / "fahrten.parquet")
+    assert fahrten.select("num", "an_delay", "ab_delay").rows() == [(1, 0, None), (2, None, None)]
+
+
 def test_a_stop_without_a_train_type_takes_the_line_name_as_its_train(data_dir, tmp_path):
     path = tmp_path / "sep.parquet"
     one = daily_trips([date(2026, 9, 30)]).with_columns(  # the first stop has no train type

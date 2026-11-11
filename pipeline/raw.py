@@ -219,16 +219,33 @@ def raw_gaps(hours: pl.DataFrame, day_list: list[date]) -> pl.DataFrame:
     return missing_per_day(hour_table(hours, start, end))
 
 
+REPO = "piebro/deutsche-bahn-data"
+
+
+def download(month: str, local_dir: str = "data/raw") -> str:
+    """Download one monthly source file of the public HuggingFace dataset. `month` is 'YYYY-MM', as
+    `pipeline.update.remote_months` lists them.
+    ponytail: no pinned dataset `revision`, so a month re-uploaded upstream and the months processed
+    before can come from different upstream states without notice; record the dataset commit in
+    `meta` and reprocess the months whose commit differs when upstream corrections matter."""
+    from huggingface_hub import hf_hub_download  # see remote_source: not in the API image
+
+    return hf_hub_download(
+        REPO,
+        f"monthly_processed_data/data-{month}.parquet",
+        repo_type="dataset",
+        local_dir=local_dir,
+    )
+
+
 def remote_source() -> RawSource:
     # ponytail: no retry on network errors, a failure stops the update and running it again is the
     # remedy (days that are done are skipped); add retries if failures become common. No pinned
-    # dataset `revision` either, as in `pipeline.download`.
+    # dataset `revision` either, as in `download`.
     # Imported here: the live collector imports this module in the API image, which has no
     # huggingface-hub (the `pipeline` dependency group).
     from huggingface_hub import HfApi, hf_hub_download
     from huggingface_hub.errors import EntryNotFoundError
-
-    from pipeline.download import REPO
 
     api = HfApi()
 

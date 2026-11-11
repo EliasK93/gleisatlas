@@ -38,7 +38,7 @@ from pipeline.raw import FCHG, FCHG_COLUMNS, PLAN, PLAN_COLUMNS, Stops, frame, m
 
 API = "https://apis.deutschebahn.com/db-api-marketplace/apis/timetables/v1"
 TIMEOUT = 30  # seconds per request
-PACE = 1.0  # seconds between requests: about 11 a minute on average, the documented 60 at most
+PACE = 1.0  # seconds between requests: up to 60 a minute in a run, 48 over the 15-minute cycle
 # No request starts later than this after the run's start, so runs every 15 minutes never overlap
 # (and never add up to more than 60 a minute) unless one request hangs for its whole TIMEOUT.
 # ponytail: at most 720 requests a run, 589 slices after the 131 changes. A first run of the day at

@@ -12,6 +12,7 @@ from pathlib import Path
 import polars as pl
 from huggingface_hub import list_repo_files
 
+from core.delay import PLAUSIBLE_MAX, PLAUSIBLE_MIN
 from core.lines import (
     is_train_number,
     line_ids,
@@ -44,12 +45,13 @@ from pipeline.aggregate import (
 )
 from pipeline.coords import OUT as COORDS
 from pipeline.coords import main as fetch_coords
-from pipeline.download import REPO, download
 from pipeline.live import _write, large_evas
 from pipeline.raw import (
+    REPO,
     RawSource,
     day_runs,
     day_tables,
+    download,
     fchg_pass,
     raw_gaps,
     remote_source,
@@ -78,7 +80,8 @@ DAYS_ORDER = ("day", "eva", "gruppe", "bucket")
 DAY_HOURS_ORDER = ("day", "hour", "eva", "gruppe", "bucket")
 # About one day's rows (24.5 M rows over 822 days), so a one-day filter skips the other row groups.
 # ponytail: no test reads the row groups (neither Polars nor an installed library exposes them);
-# the evidence is the /tageskarte memory measurement in docs/day-history.md §5
+# the evidence is the /tageskarte memory measurement in docs/day-history.md §5; if pyarrow becomes
+# a dependency, a test of the row-group metadata is short
 DAYS_ROW_GROUP = 50_000
 
 
@@ -469,6 +472,10 @@ def write_trips(data_dir: Path, folders: list[Path], line_of: pl.DataFrame) -> N
     def minutes(time: str, since: pl.Expr) -> pl.Expr:
         return (pl.col(time) - since).dt.total_minutes().cast(pl.Int16)
 
+    def delay(change: str, planned: str) -> pl.Expr:  # outside the plausible range = no change
+        d = (pl.col(change) - pl.col(planned)).dt.total_minutes()
+        return pl.when(d.is_between(PLAUSIBLE_MIN, PLAUSIBLE_MAX)).then(d).cast(pl.Int16)
+
     # Minutes instead of datetimes: a quarter of the size. Times count from the trip day's midnight
     # (past 1440 for a night trip); a delay is null without a change time (on time).
     midnight = pl.col("day").cast(pl.Datetime("us"))
@@ -480,9 +487,9 @@ def write_trips(data_dir: Path, folders: list[Path], line_of: pl.DataFrame) -> N
         "num",
         "eva",
         minutes("arrival_planned_time", midnight).alias("an_plan"),
-        minutes("arrival_change_time", pl.col("arrival_planned_time")).alias("an_delay"),
+        delay("arrival_change_time", "arrival_planned_time").alias("an_delay"),
         minutes("departure_planned_time", midnight).alias("ab_plan"),
-        minutes("departure_change_time", pl.col("departure_planned_time")).alias("ab_delay"),
+        delay("departure_change_time", "departure_planned_time").alias("ab_delay"),
         "arrival_is_canceled",
         "departure_is_canceled",
     ).sort("linie", "day", "trip", "num")
