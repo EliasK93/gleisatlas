@@ -253,7 +253,7 @@ test.describe("desktop", () => {
   });
 });
 
-test.describe("mobile", () => {
+test.describe("mobile", { tag: "@phone" }, () => {
   test.skip(({ isMobile }) => !isMobile, "mobile layout");
 
   test("the top bar holds the only field; Ctrl+K focuses it; a tap opens a station", async ({
@@ -328,30 +328,35 @@ for (const [locale, placeholder] of [
 
     const field = (page: Page) => page.locator("input[data-global-search]:visible");
 
-    test("the placeholder fits the field and the magnifier is drawn", async ({ page }) => {
-      await page.goto("/muster/heatmap");
-      await expect(field(page)).toHaveAttribute("placeholder", placeholder);
-      // The mobile top bar shifts the icon when Inter swaps in, between the clip and the shot.
-      await fontsReady(page);
-      const [text, room] = await field(page).evaluate((input) => {
-        const style = getComputedStyle(input);
-        const ctx = document.createElement("canvas").getContext("2d")!;
-        ctx.font = style.font;
-        const box = input.getBoundingClientRect();
-        const start = box.left + input.clientLeft + parseFloat(style.paddingLeft);
-        let end = box.left + input.clientLeft + input.clientWidth - parseFloat(style.paddingRight);
-        // The shortcut hint sits over the field's right edge: the text must end before it.
-        const kbd = input.closest("label")?.parentElement?.querySelector("kbd");
-        if (kbd?.checkVisibility()) end = Math.min(end, kbd.getBoundingClientRect().left);
-        return [ctx.measureText((input as HTMLInputElement).placeholder).width, end - start];
-      });
-      expect(text).toBeLessThanOrEqual(room);
-      // The icon sits behind the field's own background unless it is stacked above it.
-      const icon = field(page).locator("xpath=../..").locator("svg");
-      const clip = (await icon.boundingBox())!;
-      const shot = () => page.screenshot({ clip });
-      const shown = await shot();
-      await icon.evaluate((el) => (el.style.visibility = "hidden"));
-      expect(shown.equals(await shot())).toBe(false);
-    });
+    test(
+      "the placeholder fits the field and the magnifier is drawn",
+      { tag: "@phone" },
+      async ({ page }) => {
+        await page.goto("/muster/heatmap");
+        await expect(field(page)).toHaveAttribute("placeholder", placeholder);
+        // The mobile top bar shifts the icon when Inter swaps in, between the clip and the shot.
+        await fontsReady(page);
+        const [text, room] = await field(page).evaluate((input) => {
+          const style = getComputedStyle(input);
+          const ctx = document.createElement("canvas").getContext("2d")!;
+          ctx.font = style.font;
+          const box = input.getBoundingClientRect();
+          const start = box.left + input.clientLeft + parseFloat(style.paddingLeft);
+          let end =
+            box.left + input.clientLeft + input.clientWidth - parseFloat(style.paddingRight);
+          // The shortcut hint sits over the field's right edge: the text must end before it.
+          const kbd = input.closest("label")?.parentElement?.querySelector("kbd");
+          if (kbd?.checkVisibility()) end = Math.min(end, kbd.getBoundingClientRect().left);
+          return [ctx.measureText((input as HTMLInputElement).placeholder).width, end - start];
+        });
+        expect(text).toBeLessThanOrEqual(room);
+        // The icon sits behind the field's own background unless it is stacked above it.
+        const icon = field(page).locator("xpath=../..").locator("svg");
+        const clip = (await icon.boundingBox())!;
+        const shot = () => page.screenshot({ clip });
+        const shown = await shot();
+        await icon.evaluate((el) => (el.style.visibility = "hidden"));
+        expect(shown.equals(await shot())).toBe(false);
+      },
+    );
   });

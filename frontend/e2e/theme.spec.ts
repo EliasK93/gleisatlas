@@ -19,54 +19,70 @@ test.beforeEach(async ({ page }) => {
 test.describe("dark system", () => {
   test.use({ colorScheme: "dark" });
 
-  test("System is the default and follows the OS", async ({ page, isMobile }) => {
-    await open(page, isMobile);
-    await expect(html(page)).toHaveAttribute("data-theme", "dark");
-    expect(await bg(page)).toBe(BG.dark);
-    await expect(group(page).getByRole("button", { name: "System" })).toHaveAttribute(
-      "aria-pressed",
-      "true",
-    );
-  });
+  test(
+    "System is the default and follows the OS",
+    { tag: "@phone" },
+    async ({ page, isMobile }) => {
+      await open(page, isMobile);
+      await expect(html(page)).toHaveAttribute("data-theme", "dark");
+      expect(await bg(page)).toBe(BG.dark);
+      await expect(group(page).getByRole("button", { name: "System" })).toHaveAttribute(
+        "aria-pressed",
+        "true",
+      );
+    },
+  );
 
-  test("Hell wins over the OS and survives a reload", async ({ page, isMobile }) => {
-    await open(page, isMobile);
-    await pick(page, "Hell");
-    await expect(html(page)).toHaveAttribute("data-theme", "light");
-    expect(await bg(page)).toBe(BG.light);
-    await page.reload();
-    await expect(html(page)).toHaveAttribute("data-theme", "light");
-    await expect(group(page).getByRole("button", { name: "Hell" })).toHaveAttribute(
-      "aria-pressed",
-      "true",
-    );
-  });
+  test(
+    "Hell wins over the OS and survives a reload",
+    { tag: "@phone" },
+    async ({ page, isMobile }) => {
+      await open(page, isMobile);
+      await pick(page, "Hell");
+      await expect(html(page)).toHaveAttribute("data-theme", "light");
+      expect(await bg(page)).toBe(BG.light);
+      await page.reload();
+      await expect(html(page)).toHaveAttribute("data-theme", "light");
+      await expect(group(page).getByRole("button", { name: "Hell" })).toHaveAttribute(
+        "aria-pressed",
+        "true",
+      );
+    },
+  );
 
-  test("System after a pick follows the OS again", async ({ page, isMobile }) => {
-    await open(page, isMobile);
-    await pick(page, "Hell");
-    await expect(html(page)).toHaveAttribute("data-theme", "light");
-    await pick(page, "System");
-    await expect(html(page)).toHaveAttribute("data-theme", "dark");
-    await page.emulateMedia({ colorScheme: "light" });
-    await expect(html(page)).toHaveAttribute("data-theme", "light");
-    await page.reload();
-    await expect(html(page)).toHaveAttribute("data-theme", "light");
-  });
+  test(
+    "System after a pick follows the OS again",
+    { tag: "@phone" },
+    async ({ page, isMobile }) => {
+      await open(page, isMobile);
+      await pick(page, "Hell");
+      await expect(html(page)).toHaveAttribute("data-theme", "light");
+      await pick(page, "System");
+      await expect(html(page)).toHaveAttribute("data-theme", "dark");
+      await page.emulateMedia({ colorScheme: "light" });
+      await expect(html(page)).toHaveAttribute("data-theme", "light");
+      await page.reload();
+      await expect(html(page)).toHaveAttribute("data-theme", "light");
+    },
+  );
 });
 
 test.describe("light system", () => {
   test.use({ colorScheme: "light" });
 
-  test("Dunkel wins over the OS and survives a reload", async ({ page, isMobile }) => {
-    await open(page, isMobile);
-    await expect(html(page)).toHaveAttribute("data-theme", "light");
-    await pick(page, "Dunkel");
-    await expect(html(page)).toHaveAttribute("data-theme", "dark");
-    expect(await bg(page)).toBe(BG.dark);
-    await page.reload();
-    await expect(html(page)).toHaveAttribute("data-theme", "dark");
-  });
+  test(
+    "Dunkel wins over the OS and survives a reload",
+    { tag: "@phone" },
+    async ({ page, isMobile }) => {
+      await open(page, isMobile);
+      await expect(html(page)).toHaveAttribute("data-theme", "light");
+      await pick(page, "Dunkel");
+      await expect(html(page)).toHaveAttribute("data-theme", "dark");
+      expect(await bg(page)).toBe(BG.dark);
+      await page.reload();
+      await expect(html(page)).toHaveAttribute("data-theme", "dark");
+    },
+  );
 
   test("a stored value that is not a theme falls back to System", async ({ page }) => {
     await page.addInitScript(() => localStorage.setItem("gleisatlas-theme", "neon"));
@@ -201,54 +217,62 @@ test.describe("map", () => {
       return `rgb(${r}, ${g}, ${b})`;
     }, name);
 
-  test("the base map and the stations follow the theme", async ({ page, isMobile }) => {
-    const styles: string[] = [];
-    page.on("request", (r) => {
-      if (r.url().startsWith(STYLES)) styles.push(r.url());
-    });
-    await page.goto("/karte");
-    await expect(page.getByTestId("map")).toHaveAttribute("data-ready", "true");
-    expect(styles).toEqual([`${STYLES}dark`]);
-    // Frankfurt (93 % punctual) is the best class.
-    const frankfurt = [8.663, 50.107] as const;
-    await expect
-      .poll(
-        async () =>
-          (await stationColour(page, ...frankfurt, isMobile)) === (await token(page, "r1")),
-      )
-      .toBe(true);
-    const darkFill = await token(page, "r1");
+  test(
+    "the base map and the stations follow the theme",
+    { tag: "@phone" },
+    async ({ page, isMobile }) => {
+      const styles: string[] = [];
+      page.on("request", (r) => {
+        if (r.url().startsWith(STYLES)) styles.push(r.url());
+      });
+      await page.goto("/karte");
+      await expect(page.getByTestId("map")).toHaveAttribute("data-ready", "true");
+      expect(styles).toEqual([`${STYLES}dark`]);
+      // Frankfurt (93 % punctual) is the best class.
+      const frankfurt = [8.663, 50.107] as const;
+      await expect
+        .poll(
+          async () =>
+            (await stationColour(page, ...frankfurt, isMobile)) === (await token(page, "r1")),
+        )
+        .toBe(true);
+      const darkFill = await token(page, "r1");
 
-    await page.emulateMedia({ colorScheme: "light" });
-    await expect(html(page)).toHaveAttribute("data-theme", "light");
-    await expect(page.getByTestId("map")).toHaveAttribute("data-ready", "true");
-    expect(styles).toEqual([`${STYLES}dark`, `${STYLES}positron`]);
-    const lightFill = await token(page, "r1");
-    expect(lightFill).not.toBe(darkFill);
-    await expect
-      .poll(async () => (await stationColour(page, ...frankfurt, isMobile)) === lightFill)
-      .toBe(true);
-  });
+      await page.emulateMedia({ colorScheme: "light" });
+      await expect(html(page)).toHaveAttribute("data-theme", "light");
+      await expect(page.getByTestId("map")).toHaveAttribute("data-ready", "true");
+      expect(styles).toEqual([`${STYLES}dark`, `${STYLES}positron`]);
+      const lightFill = await token(page, "r1");
+      expect(lightFill).not.toBe(darkFill);
+      await expect
+        .poll(async () => (await stationColour(page, ...frankfurt, isMobile)) === lightFill)
+        .toBe(true);
+    },
+  );
 
-  test("the open map attribution uses the surface and text tokens", async ({ page }) => {
-    await page.goto("/karte");
-    await expect(page.getByTestId("map")).toHaveAttribute("data-ready", "true");
-    const attribution = page.locator(".maplibregl-ctrl-attrib");
-    // Wide maps open it by default; on a phone the toggle opens it.
-    if (!(await attribution.evaluate((el) => el.classList.contains("maplibregl-compact-show"))))
-      await page.locator("summary.maplibregl-ctrl-attrib-button").click();
-    await expect(attribution).toHaveClass(/maplibregl-compact-show/);
-    const style = (selector: string, property: "backgroundColor" | "color") =>
-      page
-        .locator(selector)
-        .first()
-        .evaluate((el, p) => getComputedStyle(el)[p], property);
-    expect(await style(".maplibregl-ctrl-attrib", "backgroundColor")).toBe(
-      await token(page, "surface"),
-    );
-    expect(await style(".maplibregl-ctrl-attrib", "color")).toBe(await token(page, "text"));
-    expect(await style(".maplibregl-ctrl-attrib a", "color")).toBe(await token(page, "text-2"));
-  });
+  test(
+    "the open map attribution uses the surface and text tokens",
+    { tag: "@phone" },
+    async ({ page }) => {
+      await page.goto("/karte");
+      await expect(page.getByTestId("map")).toHaveAttribute("data-ready", "true");
+      const attribution = page.locator(".maplibregl-ctrl-attrib");
+      // Wide maps open it by default; on a phone the toggle opens it.
+      if (!(await attribution.evaluate((el) => el.classList.contains("maplibregl-compact-show"))))
+        await page.locator("summary.maplibregl-ctrl-attrib-button").click();
+      await expect(attribution).toHaveClass(/maplibregl-compact-show/);
+      const style = (selector: string, property: "backgroundColor" | "color") =>
+        page
+          .locator(selector)
+          .first()
+          .evaluate((el, p) => getComputedStyle(el)[p], property);
+      expect(await style(".maplibregl-ctrl-attrib", "backgroundColor")).toBe(
+        await token(page, "surface"),
+      );
+      expect(await style(".maplibregl-ctrl-attrib", "color")).toBe(await token(page, "text"));
+      expect(await style(".maplibregl-ctrl-attrib a", "color")).toBe(await token(page, "text-2"));
+    },
+  );
 
   test("the zoom buttons take the surface token and invert their icons in the dark theme", async ({
     page,
@@ -265,30 +289,34 @@ test.describe("map", () => {
     await expect(icon).toHaveCSS("filter", "none");
   });
 
-  test("stations with little data are drawn paler, in both themes", async ({ page, isMobile }) => {
-    // Three stations of the same class (93 %): plenty of stops, 30 stops ("~"), 9 stops (no value).
-    const karte = karteFixture();
-    const [, normal, few, some] = karte.stationen;
-    Object.assign(some, { n: 30, puenktlich: 0.93, ausfallquote: 0 });
-    Object.assign(few, { puenktlich: 0.93 });
-    await mockApi(page, undefined, () => karte);
-    await page.goto("/karte");
-    const map = page.getByTestId("map");
-    await expect(map).toHaveAttribute("data-ready", "true");
-    // The strongest pixel's distance from the base map, which the patch's corner shows.
-    const contrast = async (s: { lon: number; lat: number }) => {
-      const px = await stationPixels(page, s.lon, s.lat, isMobile, 10);
-      return Math.max(...px.map((p) => p.reduce((sum, v, i) => sum + Math.abs(v - px[0][i]), 0)));
-    };
-    const measure = async () => {
-      const [a, b, c] = [await contrast(normal), await contrast(some), await contrast(few)];
-      return a > 100 && b <= 0.7 * a && c < b && c > 10;
-    };
-    await expect.poll(measure).toBe(true);
-    await page.emulateMedia({ colorScheme: "light" });
-    await expect(map).toHaveAttribute("data-ready", "true");
-    await expect.poll(measure).toBe(true);
-  });
+  test(
+    "stations with little data are drawn paler, in both themes",
+    { tag: "@phone" },
+    async ({ page, isMobile }) => {
+      // Three stations of the same class (93 %): plenty of stops, 30 stops ("~"), 9 stops (no value).
+      const karte = karteFixture();
+      const [, normal, few, some] = karte.stationen;
+      Object.assign(some, { n: 30, puenktlich: 0.93, ausfallquote: 0 });
+      Object.assign(few, { puenktlich: 0.93 });
+      await mockApi(page, undefined, () => karte);
+      await page.goto("/karte");
+      const map = page.getByTestId("map");
+      await expect(map).toHaveAttribute("data-ready", "true");
+      // The strongest pixel's distance from the base map, which the patch's corner shows.
+      const contrast = async (s: { lon: number; lat: number }) => {
+        const px = await stationPixels(page, s.lon, s.lat, isMobile, 10);
+        return Math.max(...px.map((p) => p.reduce((sum, v, i) => sum + Math.abs(v - px[0][i]), 0)));
+      };
+      const measure = async () => {
+        const [a, b, c] = [await contrast(normal), await contrast(some), await contrast(few)];
+        return a > 100 && b <= 0.7 * a && c < b && c > 10;
+      };
+      await expect.poll(measure).toBe(true);
+      await page.emulateMedia({ colorScheme: "light" });
+      await expect(map).toHaveAttribute("data-ready", "true");
+      await expect.poll(measure).toBe(true);
+    },
+  );
 
   test("a station picked while the new base style loads does not crash the page", async ({
     page,
@@ -319,7 +347,7 @@ test.describe("map", () => {
   });
 });
 
-test.describe("mobile", () => {
+test.describe("mobile", { tag: "@phone" }, () => {
   test.skip(({ isMobile }) => !isMobile, "mobile layout");
 
   test("the switch on Mehr has 44 px hit areas", async ({ page }) => {

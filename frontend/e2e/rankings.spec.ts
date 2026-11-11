@@ -853,43 +853,51 @@ test.describe("desktop", () => {
   });
 });
 
-test("the column header names the value bold and the grey cancellation column", async ({
-  page,
-}) => {
-  await mockApi(page);
-  await page.goto("/muster/rankings");
-  const worst = column(page, WORST);
-  await expect(worst.getByRole("listitem")).toHaveCount(10);
-  const metric = worst.getByText("Pünktlichkeit", { exact: true });
-  await expect(metric).toBeVisible();
-  const weight = await metric.evaluate((el) => Number(getComputedStyle(el).fontWeight));
-  expect(weight).toBeGreaterThanOrEqual(600);
-  const cancelled = worst.getByText("Ausfälle", { exact: true });
-  await expect(cancelled).toBeVisible();
-  await expect(cancelled).toHaveCSS("color", CANCEL);
-  // It sits right above the grey figures: the same right edge as the first row's.
-  const head = (await cancelled.boundingBox())!;
-  const cell = (await worst.getByText("✕ 8,0 %").boundingBox())!;
-  expect(Math.abs(head.x + head.width - (cell.x + cell.width))).toBeLessThanOrEqual(1);
-  expect(head.y).toBeLessThan(cell.y);
-});
+test(
+  "the column header names the value bold and the grey cancellation column",
+  { tag: "@phone" },
+  async ({ page }) => {
+    await mockApi(page);
+    await page.goto("/muster/rankings");
+    const worst = column(page, WORST);
+    await expect(worst.getByRole("listitem")).toHaveCount(10);
+    const metric = worst.getByText("Pünktlichkeit", { exact: true });
+    await expect(metric).toBeVisible();
+    const weight = await metric.evaluate((el) => Number(getComputedStyle(el).fontWeight));
+    expect(weight).toBeGreaterThanOrEqual(600);
+    const cancelled = worst.getByText("Ausfälle", { exact: true });
+    await expect(cancelled).toBeVisible();
+    await expect(cancelled).toHaveCSS("color", CANCEL);
+    // It sits right above the grey figures: the same right edge as the first row's.
+    const head = (await cancelled.boundingBox())!;
+    const cell = (await worst.getByText("✕ 8,0 %").boundingBox())!;
+    expect(Math.abs(head.x + head.width - (cell.x + cell.width))).toBeLessThanOrEqual(1);
+    expect(head.y).toBeLessThan(cell.y);
+  },
+);
 
-test("a cancellation rate of 10 % or more stays on one line", async ({ page }) => {
-  await mockApi(page, undefined, undefined, undefined, (typ, metrik, minN) => {
-    const data = rankingFixture(typ, metrik, minN);
-    const [first, ...rest] = data.schlechteste;
-    return { ...data, schlechteste: [{ ...first, ausfallquote: 0.109 }, ...rest] };
-  });
-  await page.goto("/muster/rankings");
-  const worst = column(page, WORST);
-  const cell = worst.getByText("✕ 10,9 %");
-  await expect(cell).toBeVisible();
-  // One line of 12 px text is 16 px high; a wrapped cell would be twice that.
-  expect((await cell.boundingBox())!.height).toBeLessThan(20);
-  const link = worst.getByRole("link").first();
-  expect(await link.evaluate((a) => a.scrollWidth <= a.clientWidth)).toBe(true);
-  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-});
+test(
+  "a cancellation rate of 10 % or more stays on one line",
+  { tag: "@phone" },
+  async ({ page }) => {
+    await mockApi(page, undefined, undefined, undefined, (typ, metrik, minN) => {
+      const data = rankingFixture(typ, metrik, minN);
+      const [first, ...rest] = data.schlechteste;
+      return { ...data, schlechteste: [{ ...first, ausfallquote: 0.109 }, ...rest] };
+    });
+    await page.goto("/muster/rankings");
+    const worst = column(page, WORST);
+    const cell = worst.getByText("✕ 10,9 %");
+    await expect(cell).toBeVisible();
+    // One line of 12 px text is 16 px high; a wrapped cell would be twice that.
+    expect((await cell.boundingBox())!.height).toBeLessThan(20);
+    const link = worst.getByRole("link").first();
+    expect(await link.evaluate((a) => a.scrollWidth <= a.clientWidth)).toBe(true);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+      true,
+    );
+  },
+);
 
 test("a threshold nobody reaches shows an empty state", async ({ page }) => {
   await mockApi(page, undefined, undefined, undefined, emptyRangliste);
@@ -921,21 +929,27 @@ test("Teilen copies the link", async ({ page, context }) => {
   expect(await page.evaluate(() => navigator.clipboard.readText())).toMatch(/typ=linien$/);
 });
 
-test("the type switch stays where it is on every tab", async ({ page, isMobile }) => {
-  await page.setViewportSize(isMobile ? { width: 375, height: 812 } : { width: 1280, height: 800 });
-  await mockApi(page);
-  const boxes = [];
-  for (const typ of ["linien", "bahnhoefe", "abschnitte", "rekorde"]) {
-    await page.goto(`/muster/rankings?typ=${typ}`);
-    await expect(page.getByRole("listitem").first()).toBeVisible();
-    await fontsReady(page);
-    const b = (await kind(page).boundingBox())!;
-    boxes.push({ x: b.x, y: b.y, width: b.width });
-  }
-  for (const b of boxes) expect(b).toEqual(boxes[0]);
-});
+test(
+  "the type switch stays where it is on every tab",
+  { tag: "@phone" },
+  async ({ page, isMobile }) => {
+    await page.setViewportSize(
+      isMobile ? { width: 375, height: 812 } : { width: 1280, height: 800 },
+    );
+    await mockApi(page);
+    const boxes = [];
+    for (const typ of ["linien", "bahnhoefe", "abschnitte", "rekorde"]) {
+      await page.goto(`/muster/rankings?typ=${typ}`);
+      await expect(page.getByRole("listitem").first()).toBeVisible();
+      await fontsReady(page);
+      const b = (await kind(page).boundingBox())!;
+      boxes.push({ x: b.x, y: b.y, width: b.width });
+    }
+    for (const b of boxes) expect(b).toEqual(boxes[0]);
+  },
+);
 
-test.describe("mobile", () => {
+test.describe("mobile", { tag: "@phone" }, () => {
   test.skip(({ isMobile }) => !isMobile, "mobile layout");
 
   test("the two columns are tabs", async ({ page }) => {
@@ -1117,80 +1131,82 @@ for (const [locale, worst, label, metric, figure] of [
   test.describe(`the cancellation column in ${locale}`, () => {
     test.use({ locale });
 
-    test("its label stays on one line and lines up with the figures at every width", async ({
-      page,
-      isMobile,
-    }) => {
-      await mockApi(page, undefined, undefined, undefined, (typ, metrik, minN) => {
-        const data = rankingFixture(typ, metrik, minN);
-        const [first, ...rest] = data.schlechteste;
-        return { ...data, schlechteste: [{ ...first, ausfallquote: 0.109 }, ...rest] };
-      });
-      // Two cards from 1280 px, stacked below, and the phone project's own size with tabs.
-      for (const width of isMobile ? [0] : [1280, 1024, 900, 768]) {
-        if (width) await page.setViewportSize({ width, height: 800 });
-        await page.goto("/muster/rankings");
-        const card = column(page, worst);
-        const head = card.getByText(label, { exact: true });
-        const cell = card.getByText(figure);
-        await expect(cell).toBeVisible();
-        // The text's own box: an element box would hide text that runs out of a narrow cell.
-        const ink = (l: Locator) =>
-          l.evaluate((el) => {
-            const range = document.createRange();
-            range.selectNodeContents(el);
-            const { x, width, height } = range.getBoundingClientRect();
-            return { x, width, height };
-          });
-        const [h, c, m, box] = await Promise.all([
-          ink(head),
-          ink(cell),
-          ink(card.getByText(metric, { exact: true })),
-          card.boundingBox(),
-        ]);
-        const at = `${locale} ${width || "mobile"}`;
-        expect(h.height, at).toBeLessThan(20);
-        expect(Math.abs(h.x + h.width - (c.x + c.width)), at).toBeLessThanOrEqual(2);
-        expect(m.x + m.width, at).toBeLessThanOrEqual(h.x);
-        expect(h.x + h.width, at).toBeLessThanOrEqual(box!.x + box!.width);
-        const fits = await card
-          .getByRole("link")
-          .evaluateAll((all) => all.every((a) => a.scrollWidth <= a.clientWidth));
-        expect(fits, at).toBe(true);
-      }
-    });
+    test(
+      "its label stays on one line and lines up with the figures at every width",
+      { tag: "@phone" },
+      async ({ page, isMobile }) => {
+        await mockApi(page, undefined, undefined, undefined, (typ, metrik, minN) => {
+          const data = rankingFixture(typ, metrik, minN);
+          const [first, ...rest] = data.schlechteste;
+          return { ...data, schlechteste: [{ ...first, ausfallquote: 0.109 }, ...rest] };
+        });
+        // Two cards from 1280 px, stacked below, and the phone project's own size with tabs.
+        for (const width of isMobile ? [0] : [1280, 1024, 900, 768]) {
+          if (width) await page.setViewportSize({ width, height: 800 });
+          await page.goto("/muster/rankings");
+          const card = column(page, worst);
+          const head = card.getByText(label, { exact: true });
+          const cell = card.getByText(figure);
+          await expect(cell).toBeVisible();
+          // The text's own box: an element box would hide text that runs out of a narrow cell.
+          const ink = (l: Locator) =>
+            l.evaluate((el) => {
+              const range = document.createRange();
+              range.selectNodeContents(el);
+              const { x, width, height } = range.getBoundingClientRect();
+              return { x, width, height };
+            });
+          const [h, c, m, box] = await Promise.all([
+            ink(head),
+            ink(cell),
+            ink(card.getByText(metric, { exact: true })),
+            card.boundingBox(),
+          ]);
+          const at = `${locale} ${width || "mobile"}`;
+          expect(h.height, at).toBeLessThan(20);
+          expect(Math.abs(h.x + h.width - (c.x + c.width)), at).toBeLessThanOrEqual(2);
+          expect(m.x + m.width, at).toBeLessThanOrEqual(h.x);
+          expect(h.x + h.width, at).toBeLessThanOrEqual(box!.x + box!.width);
+          const fits = await card
+            .getByRole("link")
+            .evaluateAll((all) => all.every((a) => a.scrollWidth <= a.clientWidth));
+          expect(fits, at).toBe(true);
+        }
+      },
+    );
   });
 
 test.describe("the new tabs in English", () => {
   test.use({ locale: "en-US" });
 
-  test("sections and records read in English with their own number formats", async ({
-    page,
-    isMobile,
-  }) => {
-    await mockApi(page);
-    // On a phone only one of the two columns is shown.
-    const open = async (name: string) => {
-      if (isMobile) await page.getByRole("tab", { name, exact: true }).click();
-      return column(page, name).getByRole("listitem").first();
-    };
-    await page.goto("/muster/rankings?typ=abschnitte");
-    const lose = await open("Lose the most time");
-    await expect(lose).toContainText("Verlustvon 0 → Verlustnach 0");
-    await expect(lose).toContainText("+14.3 min");
-    await expect(lose).toContainText("73 more");
-    await expect(await open("Make up the most")).toContainText("−20.2 min");
-    await expect(page.getByText(/Mean change of the delay per trip/)).toBeVisible();
-    await expect(page.getByText(/14,211 sections with at least 500 trips/)).toBeVisible();
-    await page.getByRole("button", { name: "Records" }).click();
-    await expect(await open("The most")).toContainText("1,618 stops/day");
-    await page.getByRole("group", { name: "Stops or trains" }).getByText("Trains").click();
-    await expect(await open("The most")).toContainText("29.4 trains/h");
-    await expect(await open("The fewest")).toContainText("0.06 trains/h");
-    await expect(await open("The fewest")).toContainText("≈ 1.0 trains a day");
-    await expect(page.getByText(/at least one train a day/)).toBeVisible();
-    await expect(page.getByText(/divided by 16/)).toBeVisible();
-  });
+  test(
+    "sections and records read in English with their own number formats",
+    { tag: "@phone" },
+    async ({ page, isMobile }) => {
+      await mockApi(page);
+      // On a phone only one of the two columns is shown.
+      const open = async (name: string) => {
+        if (isMobile) await page.getByRole("tab", { name, exact: true }).click();
+        return column(page, name).getByRole("listitem").first();
+      };
+      await page.goto("/muster/rankings?typ=abschnitte");
+      const lose = await open("Lose the most time");
+      await expect(lose).toContainText("Verlustvon 0 → Verlustnach 0");
+      await expect(lose).toContainText("+14.3 min");
+      await expect(lose).toContainText("73 more");
+      await expect(await open("Make up the most")).toContainText("−20.2 min");
+      await expect(page.getByText(/Mean change of the delay per trip/)).toBeVisible();
+      await expect(page.getByText(/14,211 sections with at least 500 trips/)).toBeVisible();
+      await page.getByRole("button", { name: "Records" }).click();
+      await expect(await open("The most")).toContainText("1,618 stops/day");
+      await page.getByRole("group", { name: "Stops or trains" }).getByText("Trains").click();
+      await expect(await open("The most")).toContainText("29.4 trains/h");
+      await expect(await open("The fewest")).toContainText("0.06 trains/h");
+      await expect(await open("The fewest")).toContainText("≈ 1.0 trains a day");
+      await expect(page.getByText(/at least one train a day/)).toBeVisible();
+      await expect(page.getByText(/divided by 16/)).toBeVisible();
+    },
+  );
 });
 
 test("after 5 seconds the skeleton says the server is starting, and counts the seconds", async ({

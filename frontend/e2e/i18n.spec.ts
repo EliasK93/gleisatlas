@@ -13,7 +13,7 @@ test.beforeEach(async ({ page }) => {
 test.describe("English browser", () => {
   test.use({ locale: "en-US" });
 
-  test("the first visit is English", async ({ page, isMobile }) => {
+  test("the first visit is English", { tag: "@phone" }, async ({ page, isMobile }) => {
     await page.goto("/muster/heatmap");
     await expect(html(page)).toHaveAttribute("lang", "en");
     await expect(page.getByRole("heading", { name: "Weekday × hour", level: 1 })).toBeVisible();
@@ -27,24 +27,28 @@ test.describe("English browser", () => {
     await expect(group(page, "Language")).toBeVisible();
   });
 
-  test("Deutsch reloads into German and the pick is remembered", async ({ page, isMobile }) => {
-    await open(page, isMobile);
-    await group(page, "Language").getByRole("button", { name: "Deutsch" }).click();
-    await expect(html(page)).toHaveAttribute("lang", "de");
-    await expect(group(page, "Sprache")).toBeVisible();
-    await expect(page.getByRole("link", { name: "CC BY 4.0" })).toHaveAttribute(
-      "href",
-      "https://creativecommons.org/licenses/by/4.0/deed.de",
-    );
-    await page.reload();
-    await expect(html(page)).toHaveAttribute("lang", "de");
-    await expect(group(page, "Sprache").getByRole("button", { name: "Deutsch" })).toHaveAttribute(
-      "aria-pressed",
-      "true",
-    );
-  });
+  test(
+    "Deutsch reloads into German and the pick is remembered",
+    { tag: "@phone" },
+    async ({ page, isMobile }) => {
+      await open(page, isMobile);
+      await group(page, "Language").getByRole("button", { name: "Deutsch" }).click();
+      await expect(html(page)).toHaveAttribute("lang", "de");
+      await expect(group(page, "Sprache")).toBeVisible();
+      await expect(page.getByRole("link", { name: "CC BY 4.0" })).toHaveAttribute(
+        "href",
+        "https://creativecommons.org/licenses/by/4.0/deed.de",
+      );
+      await page.reload();
+      await expect(html(page)).toHaveAttribute("lang", "de");
+      await expect(group(page, "Sprache").getByRole("button", { name: "Deutsch" })).toHaveAttribute(
+        "aria-pressed",
+        "true",
+      );
+    },
+  );
 
-  test("the filters survive the switch", async ({ page, isMobile }) => {
+  test("the filters survive the switch", { tag: "@phone" }, async ({ page, isMobile }) => {
     await page.goto(isMobile ? "/mehr?g=fern" : "/muster/heatmap?g=fern");
     await group(page, "Language").getByRole("button", { name: "Deutsch" }).click();
     await expect(html(page)).toHaveAttribute("lang", "de");
@@ -86,20 +90,24 @@ test.describe("German browser", () => {
     await expect(page.getByText("n = 203.000 Halte")).toBeVisible();
   });
 
-  test("English wins over the browser and survives a reload", async ({ page, isMobile }) => {
-    await open(page, isMobile);
-    await group(page, "Sprache").getByRole("button", { name: "English" }).click();
-    await expect(html(page)).toHaveAttribute("lang", "en");
-    await page.reload();
-    await expect(html(page)).toHaveAttribute("lang", "en");
-    await expect(page.getByRole("link", { name: "CC BY 4.0" })).toHaveAttribute(
-      "href",
-      "https://creativecommons.org/licenses/by/4.0/deed.en",
-    );
-  });
+  test(
+    "English wins over the browser and survives a reload",
+    { tag: "@phone" },
+    async ({ page, isMobile }) => {
+      await open(page, isMobile);
+      await group(page, "Sprache").getByRole("button", { name: "English" }).click();
+      await expect(html(page)).toHaveAttribute("lang", "en");
+      await page.reload();
+      await expect(html(page)).toHaveAttribute("lang", "en");
+      await expect(page.getByRole("link", { name: "CC BY 4.0" })).toHaveAttribute(
+        "href",
+        "https://creativecommons.org/licenses/by/4.0/deed.en",
+      );
+    },
+  );
 });
 
-test.describe("mobile", () => {
+test.describe("mobile", { tag: "@phone" }, () => {
   test.skip(({ isMobile }) => !isMobile, "mobile layout");
 
   test("the switch on Mehr has 44 px hit areas", async ({ page }) => {

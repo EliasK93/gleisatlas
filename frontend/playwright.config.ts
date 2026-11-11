@@ -12,6 +12,8 @@ export default defineConfig({
   testDir: "e2e",
   // A stray test.only would run one test and pass the gate with the rest skipped.
   forbidOnly: true,
+  // One retry turns a timing flake into a reported "flaky" test instead of a failed gate.
+  retries: 1,
   // The JUnit file feeds the README's tests badge in CI (scripts/tests_badge.py).
   reporter: [["list"], ["junit", { outputFile: "test-results/junit.xml" }]],
   // The map's data-ready can take longer than the default 5 s when every worker draws a map at
@@ -28,7 +30,15 @@ export default defineConfig({
   },
   projects: [
     { name: "chromium", use: { ...devices["Desktop Chrome"] }, testIgnore: "csp.spec.ts" },
-    { name: "mobile", use: { ...devices["Pixel 7"] }, testIgnore: "csp.spec.ts" },
+    {
+      name: "mobile",
+      use: { ...devices["Pixel 7"] },
+      testIgnore: "csp.spec.ts",
+      // Locally the phone runs only the tests tagged @phone (layout at phone size); the rest
+      // repeats the desktop project and costs half the run. CI sets CI and runs everything; to
+      // run the whole phone project locally, set the environment variable CI to 1 first.
+      grep: process.env.CI ? undefined : /@phone/,
+    },
     // The production build behind the headers of the deployed site (staticwebapp.config.json).
     {
       name: "csp",

@@ -263,7 +263,7 @@ test("Zurücksetzen removes von and bis", async ({ page }) => {
   await expect(bis(page)).toHaveValue("2026-09");
 });
 
-test.describe("mobile", () => {
+test.describe("mobile", { tag: "@phone" }, () => {
   test.skip(({ isMobile }) => !isMobile, "mobile layout");
 
   for (const [what, path] of [

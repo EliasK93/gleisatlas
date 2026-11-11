@@ -177,26 +177,28 @@ test("the Karte has no day mode: no Tag switch, and a tag in the URL is dropped"
   expect(dayRequests(requests)).toHaveLength(0);
 });
 
-test("the Live-Lage page has no Gattung and no period, ignores g, von and bis and keeps them in the URL", async ({
-  page,
-}) => {
-  const requests = await mockApi(page);
-  await page.goto(`/lage?g=fern&von=2026-03&bis=2026-09&tag=${DAY}&k=p90`);
-  await expect(page).toHaveURL(
-    new RegExp(`/lage\\?g=fern&von=2026-03&bis=2026-09&tag=${DAY}&k=p90$`),
-  );
-  await expect(map(page)).toHaveAttribute("data-ready", "true");
-  await expect(page.getByLabel("Gattung:")).toHaveCount(0);
-  await expect(page.getByLabel("Zeitraum von")).toHaveCount(0);
-  await expect(page.getByRole("button", { name: /^Bahnhof/ })).toBeVisible();
-  // The kept Gattung does not show: the legend names all trains.
-  await openLegend(page);
-  await expect(legend(page)).toContainText("Alle Gattungen");
-  const asked = dayRequests(requests);
-  expect(asked).toHaveLength(1);
-  expect(asked[0].searchParams.has("gattung")).toBe(false);
-  expect(requests.filter((u) => u.pathname === "/karte")).toHaveLength(0);
-});
+test(
+  "the Live-Lage page has no Gattung and no period, ignores g, von and bis and keeps them in the URL",
+  { tag: "@phone" },
+  async ({ page }) => {
+    const requests = await mockApi(page);
+    await page.goto(`/lage?g=fern&von=2026-03&bis=2026-09&tag=${DAY}&k=p90`);
+    await expect(page).toHaveURL(
+      new RegExp(`/lage\\?g=fern&von=2026-03&bis=2026-09&tag=${DAY}&k=p90$`),
+    );
+    await expect(map(page)).toHaveAttribute("data-ready", "true");
+    await expect(page.getByLabel("Gattung:")).toHaveCount(0);
+    await expect(page.getByLabel("Zeitraum von")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: /^Bahnhof/ })).toBeVisible();
+    // The kept Gattung does not show: the legend names all trains.
+    await openLegend(page);
+    await expect(legend(page)).toContainText("Alle Gattungen");
+    const asked = dayRequests(requests);
+    expect(asked).toHaveLength(1);
+    expect(asked[0].searchParams.has("gattung")).toBe(false);
+    expect(requests.filter((u) => u.pathname === "/karte")).toHaveLength(0);
+  },
+);
 
 test("Karte, Live-Lage and back to the Karte keep the Gattung and the period", async ({ page }) => {
   await mockApi(page);
@@ -592,24 +594,25 @@ test.describe("the states", () => {
     await expect(state(page, "Hessen")).toHaveText("–");
   });
 
-  test("the overview washes out the land outside Germany, on Live-Lage only", async ({
-    page,
-    isMobile,
-  }) => {
-    await open(page);
-    // The North Sea west of Heligoland, inside the start view but outside every state.
-    const sea = await locate(page, [6.4, 54.5], isMobile);
-    const inland = await locate(page, [10.6, 50.5], isMobile);
-    const washed = blend(await token(page, "mask"), BASE, 0.6);
-    await expect
-      .poll(async () => distance(rgb(await colourAt(page, sea)), washed))
-      .toBeLessThanOrEqual(3);
-    expect(distance(rgb(await colourAt(page, inland)), rgb(BASE))).toBeLessThanOrEqual(3);
-    await page.goto("/karte");
-    await expect(map(page)).toHaveAttribute("data-ready", "true");
-    await page.waitForTimeout(300);
-    expect(distance(rgb(await colourAt(page, sea)), rgb(BASE))).toBeLessThanOrEqual(3);
-  });
+  test(
+    "the overview washes out the land outside Germany, on Live-Lage only",
+    { tag: "@phone" },
+    async ({ page, isMobile }) => {
+      await open(page);
+      // The North Sea west of Heligoland, inside the start view but outside every state.
+      const sea = await locate(page, [6.4, 54.5], isMobile);
+      const inland = await locate(page, [10.6, 50.5], isMobile);
+      const washed = blend(await token(page, "mask"), BASE, 0.6);
+      await expect
+        .poll(async () => distance(rgb(await colourAt(page, sea)), washed))
+        .toBeLessThanOrEqual(3);
+      expect(distance(rgb(await colourAt(page, inland)), rgb(BASE))).toBeLessThanOrEqual(3);
+      await page.goto("/karte");
+      await expect(map(page)).toHaveAttribute("data-ready", "true");
+      await page.waitForTimeout(300);
+      expect(distance(rgb(await colourAt(page, sea)), rgb(BASE))).toBeLessThanOrEqual(3);
+    },
+  );
 
   test("hovering a state's area tints it and shows its tooltip, and a click picks it", async ({
     page,
@@ -629,44 +632,49 @@ test.describe("the states", () => {
     await expect(page).toHaveURL(new RegExp(`/lage\\?tag=${DAY}&land=nw$`));
   });
 
-  test("a hovered or focused card tints its state's area", async ({ page, isMobile }) => {
-    await open(page);
-    const at = await locate(page, [7.6, 51.9], isMobile);
-    const tinted = blend(await token(page, "accent"), BASE, 0.14);
-    await state(page, "Nordrhein-Westfalen").focus();
-    await expect
-      .poll(async () => distance(rgb(await colourAt(page, at, true)), tinted))
-      .toBeLessThanOrEqual(3);
-    await state(page, "Nordrhein-Westfalen").blur();
-    await expect
-      .poll(async () => distance(rgb(await colourAt(page, at, true)), rgb(BASE)))
-      .toBeLessThanOrEqual(3);
-  });
+  test(
+    "a hovered or focused card tints its state's area",
+    { tag: "@phone" },
+    async ({ page, isMobile }) => {
+      await open(page);
+      const at = await locate(page, [7.6, 51.9], isMobile);
+      const tinted = blend(await token(page, "accent"), BASE, 0.14);
+      await state(page, "Nordrhein-Westfalen").focus();
+      await expect
+        .poll(async () => distance(rgb(await colourAt(page, at, true)), tinted))
+        .toBeLessThanOrEqual(3);
+      await state(page, "Nordrhein-Westfalen").blur();
+      await expect
+        .poll(async () => distance(rgb(await colourAt(page, at, true)), rgb(BASE)))
+        .toBeLessThanOrEqual(3);
+    },
+  );
 
   test.describe("in the dark theme", () => {
     test.use({ colorScheme: "dark" });
 
-    test("a focused card tints its state's area at 0.3, not at the light theme's 0.14", async ({
-      page,
-      isMobile,
-    }) => {
-      await open(page);
-      await fontsReady(page);
-      const at = await locate(page, [7.6, 51.9], isMobile);
-      const accent = rgb(await token(page, "accent"));
-      // The rendered dark base map is about 7 % darker than its style's background, which scales
-      // the tinted pixel too: the share of the accent is measured against the untinted pixel and
-      // reads 0.3 times that, about 0.28. The light theme's 0.14 or a 0.2 are far outside.
-      const base = rgb(await colourAt(page, at, true));
-      await state(page, "Nordrhein-Westfalen").focus();
-      await expect
-        .poll(async () => {
-          const now = rgb(await colourAt(page, at, true));
-          const shares = now.map((c, i) => (c - base[i]) / (accent[i] - base[i]));
-          return shares.reduce((a, b) => a + b) / shares.length;
-        })
-        .toBeCloseTo(0.28, 1);
-    });
+    test(
+      "a focused card tints its state's area at 0.3, not at the light theme's 0.14",
+      { tag: "@phone" },
+      async ({ page, isMobile }) => {
+        await open(page);
+        await fontsReady(page);
+        const at = await locate(page, [7.6, 51.9], isMobile);
+        const accent = rgb(await token(page, "accent"));
+        // The rendered dark base map is about 7 % darker than its style's background, which scales
+        // the tinted pixel too: the share of the accent is measured against the untinted pixel and
+        // reads 0.3 times that, about 0.28. The light theme's 0.14 or a 0.2 are far outside.
+        const base = rgb(await colourAt(page, at, true));
+        await state(page, "Nordrhein-Westfalen").focus();
+        await expect
+          .poll(async () => {
+            const now = rgb(await colourAt(page, at, true));
+            const shares = now.map((c, i) => (c - base[i]) / (accent[i] - base[i]));
+            return shares.reduce((a, b) => a + b) / shares.length;
+          })
+          .toBeCloseTo(0.28, 1);
+      },
+    );
   });
 
   test("at the overview the dots take no hover and no click, past it they do", async ({
@@ -693,23 +701,27 @@ test.describe("the states", () => {
     await expect(page).toHaveURL(new RegExp(`/lage\\?bhf=8000600&tag=${DAY}$`));
   });
 
-  test("the dots are faded under the cards and full once zoomed in", async ({ page, isMobile }) => {
-    await open(page);
-    const full = await token(page, "r5");
-    const background = rgb(BASE);
-    // 20 % of the dot's colour over the base map.
-    const faded = rgb(full).map((c, i) => Math.round(0.2 * c + 0.8 * background[i]));
-    const koeln = await locate(page, STATIONS.koeln, isMobile);
-    await expect
-      .poll(async () => {
-        const seen = rgb(await colourAt(page, koeln));
-        return Math.max(...seen.map((c, i) => Math.abs(c - faded[i])));
-      })
-      .toBeLessThanOrEqual(3);
-    const at = await focus(page, "8000207", isMobile);
-    await expect.poll(() => colourAt(page, at)).toBe(full);
-    await expect(states(page)).toHaveCount(0);
-  });
+  test(
+    "the dots are faded under the cards and full once zoomed in",
+    { tag: "@phone" },
+    async ({ page, isMobile }) => {
+      await open(page);
+      const full = await token(page, "r5");
+      const background = rgb(BASE);
+      // 20 % of the dot's colour over the base map.
+      const faded = rgb(full).map((c, i) => Math.round(0.2 * c + 0.8 * background[i]));
+      const koeln = await locate(page, STATIONS.koeln, isMobile);
+      await expect
+        .poll(async () => {
+          const seen = rgb(await colourAt(page, koeln));
+          return Math.max(...seen.map((c, i) => Math.abs(c - faded[i])));
+        })
+        .toBeLessThanOrEqual(3);
+      const at = await focus(page, "8000207", isMobile);
+      await expect.poll(() => colourAt(page, at)).toBe(full);
+      await expect(states(page)).toHaveCount(0);
+    },
+  );
 
   test("zooming in past the overview hides the cards, zooming out brings them back", async ({
     page,
@@ -733,30 +745,31 @@ test.describe("the states", () => {
     await expect(map(page).locator("canvas")).toBeFocused();
   });
 
-  test("a zoomed-in Live-Lage, the Karte and back: the overview has its cards and inert dots again", async ({
-    page,
-    isMobile,
-  }) => {
-    // Without a tag, which the Karte would drop (a redirect that rebuilds the page anyway).
-    await open(page, "");
-    await page.getByRole("button", { name: "Vergrößern" }).click();
-    await expect(states(page)).toHaveCount(0);
-    const nav = page.getByRole("navigation", { name: "Hauptnavigation" });
-    await nav.getByRole("link", { name: "Karte" }).click();
-    await expect(page).toHaveURL(/\/karte$/);
-    await expect(map(page)).toHaveAttribute("data-ready", "true");
-    // Zoomed in on the Karte too, so no refit of the start view can reset the zoom state.
-    await page.getByRole("button", { name: "Vergrößern" }).click();
-    await page.waitForTimeout(600);
-    await nav.getByRole("link", { name: "Live-Lage" }).click();
-    await expect(page).toHaveURL(/\/lage$/);
-    await expect(map(page)).toHaveAttribute("data-ready", "true");
-    await expect(states(page)).toHaveCount(16);
-    // Köln's dot lies under Nordrhein-Westfalen's card or area: either picks the state, not the station.
-    const koeln = await locate(page, STATIONS.koeln, isMobile);
-    await page.mouse.click(koeln.x, koeln.y);
-    await expect(page).toHaveURL(/\/lage\?land=nw$/);
-  });
+  test(
+    "a zoomed-in Live-Lage, the Karte and back: the overview has its cards and inert dots again",
+    { tag: "@phone" },
+    async ({ page, isMobile }) => {
+      // Without a tag, which the Karte would drop (a redirect that rebuilds the page anyway).
+      await open(page, "");
+      await page.getByRole("button", { name: "Vergrößern" }).click();
+      await expect(states(page)).toHaveCount(0);
+      const nav = page.getByRole("navigation", { name: "Hauptnavigation" });
+      await nav.getByRole("link", { name: "Karte" }).click();
+      await expect(page).toHaveURL(/\/karte$/);
+      await expect(map(page)).toHaveAttribute("data-ready", "true");
+      // Zoomed in on the Karte too, so no refit of the start view can reset the zoom state.
+      await page.getByRole("button", { name: "Vergrößern" }).click();
+      await page.waitForTimeout(600);
+      await nav.getByRole("link", { name: "Live-Lage" }).click();
+      await expect(page).toHaveURL(/\/lage$/);
+      await expect(map(page)).toHaveAttribute("data-ready", "true");
+      await expect(states(page)).toHaveCount(16);
+      // Köln's dot lies under Nordrhein-Westfalen's card or area: either picks the state, not the station.
+      const koeln = await locate(page, STATIONS.koeln, isMobile);
+      await page.mouse.click(koeln.x, koeln.y);
+      await expect(page).toHaveURL(/\/lage\?land=nw$/);
+    },
+  );
 
   test("hovering and clicking the edge of Berlin's card affects Berlin only", async ({
     page,
@@ -915,20 +928,22 @@ test.describe("the states", () => {
     return [Math.min(...lons), Math.min(...lats), Math.max(...lons), Math.max(...lats)];
   }
 
-  test("the zoom to a state keeps its whole shape in view, with the cards gone", async ({
-    page,
-  }) => {
-    const { bounds } = await pickAndFit(page, "Bayern");
-    const [w, s, e, n] = await shapeBox(page, "by");
-    expect(bounds[0]).toBeLessThanOrEqual(w);
-    expect(bounds[1]).toBeLessThanOrEqual(s);
-    expect(bounds[2]).toBeGreaterThanOrEqual(e);
-    expect(bounds[3]).toBeGreaterThanOrEqual(n);
-    // At the state's fit the cards are gone.
-    await expect(states(page)).toHaveCount(0);
-  });
+  test(
+    "the zoom to a state keeps its whole shape in view, with the cards gone",
+    { tag: "@phone" },
+    async ({ page }) => {
+      const { bounds } = await pickAndFit(page, "Bayern");
+      const [w, s, e, n] = await shapeBox(page, "by");
+      expect(bounds[0]).toBeLessThanOrEqual(w);
+      expect(bounds[1]).toBeLessThanOrEqual(s);
+      expect(bounds[2]).toBeGreaterThanOrEqual(e);
+      expect(bounds[3]).toBeGreaterThanOrEqual(n);
+      // At the state's fit the cards are gone.
+      await expect(states(page)).toHaveCount(0);
+    },
+  );
 
-  test("the zoom to a small state stops at zoom 8", async ({ page }) => {
+  test("the zoom to a small state stops at zoom 8", { tag: "@phone" }, async ({ page }) => {
     const { zoom } = await pickAndFit(page, "Berlin");
     expect(zoom).toBeCloseTo(8, 3);
   });
@@ -1065,65 +1080,70 @@ test.describe("stations are coloured by the class the API gives", () => {
   const order = [1, 2, 3, 4, 5, null];
   const names = Object.keys(STATIONS) as (keyof typeof STATIONS)[];
 
-  test("every class from 1 to 5 and none has its fill, for each metric", async ({
-    page,
-    isMobile,
-  }) => {
-    // One page load per station, to see it zoomed in.
-    test.slow();
-    // Six equal stations; each metric reads the classes shifted by one, so the fill must follow
-    // the field of the selected metric.
-    const day = (tag: string) => {
-      const fixture = tageskarteFixture(tag);
-      const base = fixture.stationen[0];
-      const cls = (i: number) => order[i % order.length];
-      fixture.stationen = names.map((name, i) => ({
-        ...base,
-        eva: String(8100000 + i),
-        name,
-        lon: STATIONS[name][0],
-        lat: STATIONS[name][1],
-        n: 1000,
-        klasse: {
-          puenktlich: cls(i),
-          median: cls(i + 1),
-          p90: cls(i + 2),
-          ausfallquote: cls(i + 3),
-        },
-      }));
-      return fixture;
-    };
-    await mockApi(
-      page,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      day,
-    );
-    for (const [i, name] of names.entries()) {
-      const at = await focus(page, String(8100000 + i), isMobile);
-      for (const [shift, [button]] of metrics.entries()) {
-        await page.getByRole("button", { name: button, exact: true }).click();
-        await expect(map(page)).toHaveAttribute("data-ready", "true");
-        const cls = order[(i + shift) % order.length];
-        const want = await token(page, cls ? `r${cls}` : "c3");
-        await expect.poll(() => colourAt(page, at), `${button} ${name} ${cls}`).toBe(want);
+  test(
+    "every class from 1 to 5 and none has its fill, for each metric",
+    { tag: "@phone" },
+    async ({ page, isMobile }) => {
+      // One page load per station, to see it zoomed in.
+      test.slow();
+      // Six equal stations; each metric reads the classes shifted by one, so the fill must follow
+      // the field of the selected metric.
+      const day = (tag: string) => {
+        const fixture = tageskarteFixture(tag);
+        const base = fixture.stationen[0];
+        const cls = (i: number) => order[i % order.length];
+        fixture.stationen = names.map((name, i) => ({
+          ...base,
+          eva: String(8100000 + i),
+          name,
+          lon: STATIONS[name][0],
+          lat: STATIONS[name][1],
+          n: 1000,
+          klasse: {
+            puenktlich: cls(i),
+            median: cls(i + 1),
+            p90: cls(i + 2),
+            ausfallquote: cls(i + 3),
+          },
+        }));
+        return fixture;
+      };
+      await mockApi(
+        page,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        day,
+      );
+      for (const [i, name] of names.entries()) {
+        const at = await focus(page, String(8100000 + i), isMobile);
+        for (const [shift, [button]] of metrics.entries()) {
+          await page.getByRole("button", { name: button, exact: true }).click();
+          await expect(map(page)).toHaveAttribute("data-ready", "true");
+          const cls = order[(i + shift) % order.length];
+          const want = await token(page, cls ? `r${cls}` : "c3");
+          await expect.poll(() => colourAt(page, at), `${button} ${name} ${cls}`).toBe(want);
+        }
       }
-    }
-  });
+    },
+  );
 
-  test("a day without any normal is grey everywhere", async ({ page, isMobile }) => {
-    await mockApi(page);
-    for (const eva of ["8000207", "8000105"]) {
-      const at = await focus(page, eva, isMobile, "tag=2026-04-04");
-      const grey = await token(page, "c3");
-      await expect.poll(() => colourAt(page, at)).toBe(grey);
-    }
-  });
+  test(
+    "a day without any normal is grey everywhere",
+    { tag: "@phone" },
+    async ({ page, isMobile }) => {
+      await mockApi(page);
+      for (const eva of ["8000207", "8000105"]) {
+        const at = await focus(page, eva, isMobile, "tag=2026-04-04");
+        const grey = await token(page, "c3");
+        await expect.poll(() => colourAt(page, at)).toBe(grey);
+      }
+    },
+  );
 });
 
 test.describe("desktop", () => {
@@ -1154,36 +1174,38 @@ test.describe("desktop", () => {
 });
 
 test.describe("the legend", () => {
-  test("shows five deviation steps, the grey key, the little-data keys and the reference days", async ({
-    page,
-  }) => {
-    await open(page);
-    await openLegend(page);
-    const l = legend(page);
-    for (const text of [
-      "Pünktlichkeit",
-      "viel besser",
-      "besser",
-      "wie üblich",
-      "schlechter",
-      "viel schlechter",
-      "kein Vergleich möglich",
-      "sehr wenig Daten (n < 15)",
-      "wenig Daten (n < 50)",
-      "Größe = Anzahl Halte",
-      "Vergleichstage: 12 × Dienstag aus den 12 Wochen davor",
-      "„Wie üblich“ heißt: innerhalb der gewohnten Schwankung der Station",
-      "Di., 15.09.2026 · Alle Gattungen · Bahnhöfe auf der Karte: 6 · ohne Koordinaten: 2",
-    ])
-      await expect(l).toContainText(text);
-    // The period map's keys are gone.
-    await expect(l).not.toContainText("zuverlässig");
-  });
+  test(
+    "shows five deviation steps, the grey key, the little-data keys and the reference days",
+    { tag: "@phone" },
+    async ({ page }) => {
+      await open(page);
+      await openLegend(page);
+      const l = legend(page);
+      for (const text of [
+        "Pünktlichkeit",
+        "viel besser",
+        "besser",
+        "wie üblich",
+        "schlechter",
+        "viel schlechter",
+        "kein Vergleich möglich",
+        "sehr wenig Daten (n < 15)",
+        "wenig Daten (n < 50)",
+        "Größe = Anzahl Halte",
+        "Vergleichstage: 12 × Dienstag aus den 12 Wochen davor",
+        "„Wie üblich“ heißt: innerhalb der gewohnten Schwankung der Station",
+        "Di., 15.09.2026 · Alle Gattungen · Bahnhöfe auf der Karte: 6 · ohne Koordinaten: 2",
+      ])
+        await expect(l).toContainText(text);
+      // The period map's keys are gone.
+      await expect(l).not.toContainText("zuverlässig");
+    },
+  );
 
   test.describe("English", () => {
     test.use({ locale: "en-US" });
 
-    test("the chips, the steps and the card read English", async ({ page }) => {
+    test("the chips, the steps and the card read English", { tag: "@phone" }, async ({ page }) => {
       await mockApi(page);
       await page.goto(`/lage?tag=${DAY}`);
       await expect(map(page)).toHaveAttribute("data-ready", "true");
@@ -1450,43 +1472,51 @@ test.describe("today", () => {
     expect(dayRequests(requests).map((u) => u.searchParams.get("tag"))).not.toContain("2026-10-01");
   });
 
-  test("the card and the legend name the data time and the cut, the card Germany", async ({
-    page,
-  }) => {
-    await openToday(page);
-    await expect(todayCard(page)).toContainText("Deutschland");
-    await expect(todayCard(page)).toContainText("Heute, Stand 14:37 · bis 14:00");
-    await expect(todayCard(page)).not.toContainText("Di., ");
-    await expect(germany(page)).toHaveCount(0);
-    await openLegend(page);
-    await expect(legend(page)).toContainText("Große Bahnhöfe live: Stand 14:37 · bis 14:00");
-    await expect(legend(page)).toContainText("Heute · Alle Gattungen · Bahnhöfe auf der Karte: 6");
-    await expect(legend(page)).not.toContainText("Übrige");
-    await expect(legend(page)).not.toContainText("Alle Bahnhöfe");
-    await expect(legend(page)).toContainText("12 × Freitag");
-  });
+  test(
+    "the card and the legend name the data time and the cut, the card Germany",
+    { tag: "@phone" },
+    async ({ page }) => {
+      await openToday(page);
+      await expect(todayCard(page)).toContainText("Deutschland");
+      await expect(todayCard(page)).toContainText("Heute, Stand 14:37 · bis 14:00");
+      await expect(todayCard(page)).not.toContainText("Di., ");
+      await expect(germany(page)).toHaveCount(0);
+      await openLegend(page);
+      await expect(legend(page)).toContainText("Große Bahnhöfe live: Stand 14:37 · bis 14:00");
+      await expect(legend(page)).toContainText(
+        "Heute · Alle Gattungen · Bahnhöfe auf der Karte: 6",
+      );
+      await expect(legend(page)).not.toContainText("Übrige");
+      await expect(legend(page)).not.toContainText("Alle Bahnhöfe");
+      await expect(legend(page)).toContainText("12 × Freitag");
+    },
+  );
 
-  test("with both sources the legend has a line for each and the card follows the live one", async ({
-    page,
-  }) => {
-    await openToday(page, "", "both");
-    await openLegend(page);
-    await expect(legend(page)).toContainText("Große Bahnhöfe live: Stand 14:37 · bis 14:00");
-    await expect(legend(page)).toContainText("Übrige große Bahnhöfe: Stand 09:37 · bis 09:00");
-    await expect(todayCard(page)).toContainText("Heute, Stand 14:37 · bis 14:00");
-  });
+  test(
+    "with both sources the legend has a line for each and the card follows the live one",
+    { tag: "@phone" },
+    async ({ page }) => {
+      await openToday(page, "", "both");
+      await openLegend(page);
+      await expect(legend(page)).toContainText("Große Bahnhöfe live: Stand 14:37 · bis 14:00");
+      await expect(legend(page)).toContainText("Übrige große Bahnhöfe: Stand 09:37 · bis 09:00");
+      await expect(todayCard(page)).toContainText("Heute, Stand 14:37 · bis 14:00");
+    },
+  );
 
-  test("with only the rest the legend has one line and the card names Germany with its stand", async ({
-    page,
-  }) => {
-    await openToday(page, "", "rest");
-    await openLegend(page);
-    await expect(legend(page)).toContainText("Große Bahnhöfe: Stand 09:37 · bis 09:00");
-    await expect(legend(page)).not.toContainText("live");
-    await expect(legend(page)).not.toContainText("Übrige");
-    await expect(todayCard(page)).toContainText("Deutschland");
-    await expect(todayCard(page)).toContainText("Heute, Stand 09:37 · bis 09:00");
-  });
+  test(
+    "with only the rest the legend has one line and the card names Germany with its stand",
+    { tag: "@phone" },
+    async ({ page }) => {
+      await openToday(page, "", "rest");
+      await openLegend(page);
+      await expect(legend(page)).toContainText("Große Bahnhöfe: Stand 09:37 · bis 09:00");
+      await expect(legend(page)).not.toContainText("live");
+      await expect(legend(page)).not.toContainText("Übrige");
+      await expect(todayCard(page)).toContainText("Deutschland");
+      await expect(todayCard(page)).toContainText("Heute, Stand 09:37 · bis 09:00");
+    },
+  );
 
   test("only rest data still gives the Heute button, which opens today", async ({ page }) => {
     await openToday(page, `tag=${DAY}`, "rest");
@@ -1542,18 +1572,20 @@ test.describe("today", () => {
     await expectTooltip(page, "8000555", "Problemhausen · noch keine Daten für heute");
   });
 
-  test("the legend has a key for the stations without data today, a past day has none", async ({
-    page,
-  }) => {
-    await openToday(page);
-    await openLegend(page);
-    await expect(legend(page)).toContainText("noch keine Daten für heute");
-    await page.goto(`/lage?tag=${DAY}`);
-    await expect(map(page)).toHaveAttribute("data-ready", "true");
-    await openLegend(page);
-    await expect(legend(page)).toContainText("sehr wenig Daten");
-    await expect(legend(page)).not.toContainText("noch keine Daten für heute");
-  });
+  test(
+    "the legend has a key for the stations without data today, a past day has none",
+    { tag: "@phone" },
+    async ({ page }) => {
+      await openToday(page);
+      await openLegend(page);
+      await expect(legend(page)).toContainText("noch keine Daten für heute");
+      await page.goto(`/lage?tag=${DAY}`);
+      await expect(map(page)).toHaveAttribute("data-ready", "true");
+      await openLegend(page);
+      await expect(legend(page)).toContainText("sehr wenig Daten");
+      await expect(legend(page)).not.toContainText("noch keine Daten für heute");
+    },
+  );
 
   test("a past day keeps its date labels", async ({ page }) => {
     await openToday(page, `tag=${DAY}`);
@@ -1595,7 +1627,7 @@ test.describe("today", () => {
     await expect(page.getByRole("alert")).toHaveCount(0);
   });
 
-  test.describe("the refresh pauses while nobody interacts", () => {
+  test.describe("the refresh pauses while nobody interacts", { tag: "@phone" }, () => {
     const PAUSED = "Aktualisierung pausiert, sie geht bei der nächsten Eingabe weiter.";
     /** The page on today, its poll after one tick (5 min) asked, and the list of asked days. */
     async function opened(page: Page) {
@@ -1830,24 +1862,28 @@ test.describe("today", () => {
       await expect(panel(page)).toContainText("No data for this station yet today.");
     });
 
-    test("the legend lines and the rest-only card read English", async ({ page }) => {
-      await openToday(page, "", "both");
-      await openLegend(page);
-      const l = page.getByRole("region", { name: "Legend" });
-      await expect(l).toContainText("Large stations live: as of 14:37 · up to 14:00");
-      await expect(l).toContainText("Other large stations: as of 09:37 · up to 09:00");
-      await openToday(page, "", "rest");
-      await openLegend(page);
-      await expect(l).toContainText("Large stations: as of 09:37 · up to 09:00");
-      await expect(l).not.toContainText("live");
-      await expect(page.getByRole("region", { name: "Germany today" })).toContainText(
-        "Today, as of 09:37 · up to 09:00",
-      );
-    });
+    test(
+      "the legend lines and the rest-only card read English",
+      { tag: "@phone" },
+      async ({ page }) => {
+        await openToday(page, "", "both");
+        await openLegend(page);
+        const l = page.getByRole("region", { name: "Legend" });
+        await expect(l).toContainText("Large stations live: as of 14:37 · up to 14:00");
+        await expect(l).toContainText("Other large stations: as of 09:37 · up to 09:00");
+        await openToday(page, "", "rest");
+        await openLegend(page);
+        await expect(l).toContainText("Large stations: as of 09:37 · up to 09:00");
+        await expect(l).not.toContainText("live");
+        await expect(page.getByRole("region", { name: "Germany today" })).toContainText(
+          "Today, as of 09:37 · up to 09:00",
+        );
+      },
+    );
   });
 });
 
-test.describe("375 px", () => {
+test.describe("375 px", { tag: "@phone" }, () => {
   test.use({ viewport: { width: 375, height: 700 } });
 
   test("the page has no sideways scroll, with the legend open too", async ({ page }) => {

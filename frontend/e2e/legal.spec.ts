@@ -7,20 +7,21 @@ test.beforeEach(async ({ page }) => {
   await mockApi(page);
 });
 
-test("the map links to the legal pages: in the sidebar, or via Mehr on a phone", async ({
-  page,
-  isMobile,
-}) => {
-  await page.goto("/karte");
-  await expect(page.getByRole("contentinfo")).toHaveCount(0);
-  if (isMobile) await page.getByRole("link", { name: "Mehr" }).click();
-  await page.getByRole("link", { name: "Impressum" }).click();
-  await expect(page).toHaveURL(/\/impressum$/);
-  await expect(h1(page)).toHaveText("Impressum");
-  await page.getByRole("contentinfo").getByRole("link", { name: "Datenschutz" }).click();
-  await expect(page).toHaveURL(/\/datenschutz$/);
-  await expect(h1(page)).toHaveText("Datenschutz");
-});
+test(
+  "the map links to the legal pages: in the sidebar, or via Mehr on a phone",
+  { tag: "@phone" },
+  async ({ page, isMobile }) => {
+    await page.goto("/karte");
+    await expect(page.getByRole("contentinfo")).toHaveCount(0);
+    if (isMobile) await page.getByRole("link", { name: "Mehr" }).click();
+    await page.getByRole("link", { name: "Impressum" }).click();
+    await expect(page).toHaveURL(/\/impressum$/);
+    await expect(h1(page)).toHaveText("Impressum");
+    await page.getByRole("contentinfo").getByRole("link", { name: "Datenschutz" }).click();
+    await expect(page).toHaveURL(/\/datenschutz$/);
+    await expect(h1(page)).toHaveText("Datenschutz");
+  },
+);
 
 test("a page with a footer links to both in the footer", async ({ page }) => {
   await page.goto("/muster/heatmap");

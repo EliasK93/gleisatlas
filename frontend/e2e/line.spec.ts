@@ -403,20 +403,24 @@ test("a click on a solid segment of the map selects its section and fits the map
     .toEqual(before[SECOND].map(Math.round));
 });
 
-test("a link with abschnitt opens with the section selected and in view", async ({ page }) => {
-  await mockApi(page);
-  await page.goto(`${LINE_PATH}?abschnitt=${THIRD}`);
-  await expect(toggleOf(page, 2)).toHaveAttribute("aria-pressed", "true");
-  await expect(lineMap(page)).toHaveAttribute("data-selected", THIRD);
-  // Centred in the window once the sections are in.
-  const centre = async () => {
-    const b = await box(connectors(page).nth(2));
-    return b.y + b.height / 2 - page.viewportSize()!.height / 2;
-  };
-  await expect.poll(async () => Math.abs(await centre())).toBeLessThan(40);
-  // The map is fitted to the two stations of the section.
-  expect(Object.keys(await middles(page))).toContain(THIRD);
-});
+test(
+  "a link with abschnitt opens with the section selected and in view",
+  { tag: "@phone" },
+  async ({ page }) => {
+    await mockApi(page);
+    await page.goto(`${LINE_PATH}?abschnitt=${THIRD}`);
+    await expect(toggleOf(page, 2)).toHaveAttribute("aria-pressed", "true");
+    await expect(lineMap(page)).toHaveAttribute("data-selected", THIRD);
+    // Centred in the window once the sections are in.
+    const centre = async () => {
+      const b = await box(connectors(page).nth(2));
+      return b.y + b.height / 2 - page.viewportSize()!.height / 2;
+    };
+    await expect.poll(async () => Math.abs(await centre())).toBeLessThan(40);
+    // The map is fitted to the two stations of the section.
+    expect(Object.keys(await middles(page))).toContain(THIRD);
+  },
+);
 
 test("an abschnitt that is no section of the shown direction is dropped", async ({ page }) => {
   await mockApi(page);
@@ -445,45 +449,51 @@ test("a change of the direction clears the selected section", async ({ page }) =
 });
 
 for (const anchor of ["strecke", "bildfahrplan"]) {
-  test(`a link with #${anchor} lands there after the data has arrived`, async ({ page }) => {
+  test(
+    `a link with #${anchor} lands there after the data has arrived`,
+    { tag: "@phone" },
+    async ({ page }) => {
+      await mockApi(page);
+      // The sections come late: the route card grows then, and the Bildfahrplan moves down with it.
+      await page.route("**/linie/abschnitte*", async (route) => {
+        await new Promise((done) => setTimeout(done, 700));
+        await route.fallback();
+      });
+      // The cleaning of the foreign key keeps the anchor.
+      await page.goto(`${LINE_PATH}?g=fern#${anchor}`);
+      await expect(connectors(page)).toHaveCount(3);
+      await expect(page).toHaveURL(new RegExp(`/linie/RE57%3A08000080#${anchor}$`));
+      await expect.poll(() => page.evaluate(() => scrollY)).toBeGreaterThan(0);
+      // The route card's top edge stands at the scroll margin (16 px) of the window. The Bildfahrplan
+      // is the last card, still loading when the page scrolls to it, so the page may be too short to
+      // bring it quite to the top; had the scroll come before the sections, it would be far below.
+      const top = anchor === "strecke" ? 40 : 200;
+      await expect
+        .poll(async () => (await box(page.locator(`#${anchor}`))).y, { timeout: 5000 })
+        .toBeLessThan(top);
+      expect((await box(page.locator(`#${anchor}`))).y).toBeGreaterThanOrEqual(0);
+    },
+  );
+}
+
+test(
+  "an anchor survives the drop of a stale abschnitt that comes with the data",
+  { tag: "@phone" },
+  async ({ page }) => {
     await mockApi(page);
-    // The sections come late: the route card grows then, and the Bildfahrplan moves down with it.
     await page.route("**/linie/abschnitte*", async (route) => {
       await new Promise((done) => setTimeout(done, 700));
       await route.fallback();
     });
-    // The cleaning of the foreign key keeps the anchor.
-    await page.goto(`${LINE_PATH}?g=fern#${anchor}`);
+    // The pair is the other direction's: it is dropped in the render in which the page becomes ready.
+    await page.goto(`${LINE_PATH}?abschnitt=08000149-08000080#bildfahrplan`);
     await expect(connectors(page)).toHaveCount(3);
-    await expect(page).toHaveURL(new RegExp(`/linie/RE57%3A08000080#${anchor}$`));
-    await expect.poll(() => page.evaluate(() => scrollY)).toBeGreaterThan(0);
-    // The route card's top edge stands at the scroll margin (16 px) of the window. The Bildfahrplan
-    // is the last card, still loading when the page scrolls to it, so the page may be too short to
-    // bring it quite to the top; had the scroll come before the sections, it would be far below.
-    const top = anchor === "strecke" ? 40 : 200;
+    await expect(page).toHaveURL(/\/linie\/RE57%3A08000080#bildfahrplan$/);
     await expect
-      .poll(async () => (await box(page.locator(`#${anchor}`))).y, { timeout: 5000 })
-      .toBeLessThan(top);
-    expect((await box(page.locator(`#${anchor}`))).y).toBeGreaterThanOrEqual(0);
-  });
-}
-
-test("an anchor survives the drop of a stale abschnitt that comes with the data", async ({
-  page,
-}) => {
-  await mockApi(page);
-  await page.route("**/linie/abschnitte*", async (route) => {
-    await new Promise((done) => setTimeout(done, 700));
-    await route.fallback();
-  });
-  // The pair is the other direction's: it is dropped in the render in which the page becomes ready.
-  await page.goto(`${LINE_PATH}?abschnitt=08000149-08000080#bildfahrplan`);
-  await expect(connectors(page)).toHaveCount(3);
-  await expect(page).toHaveURL(/\/linie\/RE57%3A08000080#bildfahrplan$/);
-  await expect
-    .poll(async () => (await box(page.locator("#bildfahrplan"))).y, { timeout: 5000 })
-    .toBeLessThan(200);
-});
+      .poll(async () => (await box(page.locator("#bildfahrplan"))).y, { timeout: 5000 })
+      .toBeLessThan(200);
+  },
+);
 
 test("a ring that returns to its first station keeps the closing section in the route", async ({
   page,
@@ -654,19 +664,23 @@ test("the legend names the five steps and the pale marker", async ({ page }) => 
   await expect(route(page)).toContainText("blass: weniger als 50 Fahrten");
 });
 
-test("the map is ready, labelled, tall enough and inside the page width", async ({ page }) => {
-  await mockApi(page);
-  await page.goto(LINE_PATH);
-  const map = mapCard(page).getByTestId("line-map");
-  await expect(map).toHaveAttribute("data-ready", "true");
-  const at = await box(map);
-  expect(at.height).toBeGreaterThan(250);
-  expect(at.x + at.width).toBeLessThanOrEqual(page.viewportSize()!.width);
-  await expect(page.getByRole("region", { name: "Karte der Abschnitte" })).toBeVisible();
-  await expect(mapCard(page)).toContainText(
-    "Mittlere Minuten, die Züge zwischen zwei Halten verlieren oder aufholen. Ein Klick wählt einen Abschnitt.",
-  );
-});
+test(
+  "the map is ready, labelled, tall enough and inside the page width",
+  { tag: "@phone" },
+  async ({ page }) => {
+    await mockApi(page);
+    await page.goto(LINE_PATH);
+    const map = mapCard(page).getByTestId("line-map");
+    await expect(map).toHaveAttribute("data-ready", "true");
+    const at = await box(map);
+    expect(at.height).toBeGreaterThan(250);
+    expect(at.x + at.width).toBeLessThanOrEqual(page.viewportSize()!.width);
+    await expect(page.getByRole("region", { name: "Karte der Abschnitte" })).toBeVisible();
+    await expect(mapCard(page)).toContainText(
+      "Mittlere Minuten, die Züge zwischen zwei Halten verlieren oder aufholen. Ein Klick wählt einen Abschnitt.",
+    );
+  },
+);
 
 test("the map's attribution starts collapsed and opens from its button", async ({ page }) => {
   await mockApi(page);
@@ -861,7 +875,7 @@ test.describe("English", () => {
   });
 });
 
-test.describe("mobile", () => {
+test.describe("mobile", { tag: "@phone" }, () => {
   test.skip(({ isMobile }) => !isMobile, "mobile layout");
 
   test("one column, no sideways scroll, the station rows are cards with the sections between", async ({
@@ -952,30 +966,32 @@ test.describe("mobile", () => {
   });
 });
 
-test("the jump chips under the header lead to the route and to the Bildfahrplan", async ({
-  page,
-}) => {
-  await mockApi(page);
-  await page.goto(LINE_PATH);
-  await expect(connectors(page)).toHaveCount(3);
-  await expect(jump(page).getByRole("link")).toHaveText(["Strecke", "Bildfahrplan"]);
-  // under the direction toggle, above the tiles
-  const chips = await box(jump(page));
-  expect(chips.y).toBeGreaterThan((await box(direction(page))).y);
-  expect(chips.y).toBeLessThan((await box(tiles(page))).y);
+test(
+  "the jump chips under the header lead to the route and to the Bildfahrplan",
+  { tag: "@phone" },
+  async ({ page }) => {
+    await mockApi(page);
+    await page.goto(LINE_PATH);
+    await expect(connectors(page)).toHaveCount(3);
+    await expect(jump(page).getByRole("link")).toHaveText(["Strecke", "Bildfahrplan"]);
+    // under the direction toggle, above the tiles
+    const chips = await box(jump(page));
+    expect(chips.y).toBeGreaterThan((await box(direction(page))).y);
+    expect(chips.y).toBeLessThan((await box(tiles(page))).y);
 
-  const heading = (name: string) => section(page, name).getByRole("heading", { level: 2 });
-  await jump(page).getByRole("link", { name: "Bildfahrplan" }).click();
-  await expect(heading("Bildfahrplan")).toBeInViewport();
-  expect((await box(section(page, "Bildfahrplan"))).y).toBeGreaterThanOrEqual(0);
-  await jump(page).getByRole("link", { name: "Strecke" }).click();
-  await expect(heading("Strecke")).toBeInViewport();
-  // The card's top stands a little below the window's edge, not under it.
-  await expect.poll(async () => (await box(route(page))).y).toBeGreaterThanOrEqual(8);
-  expect((await box(route(page))).y).toBeLessThan(40);
-  // The page stays the same: the query is untouched.
-  await expect(page).toHaveURL(new RegExp(`${LINE_PATH}#strecke$`));
-});
+    const heading = (name: string) => section(page, name).getByRole("heading", { level: 2 });
+    await jump(page).getByRole("link", { name: "Bildfahrplan" }).click();
+    await expect(heading("Bildfahrplan")).toBeInViewport();
+    expect((await box(section(page, "Bildfahrplan"))).y).toBeGreaterThanOrEqual(0);
+    await jump(page).getByRole("link", { name: "Strecke" }).click();
+    await expect(heading("Strecke")).toBeInViewport();
+    // The card's top stands a little below the window's edge, not under it.
+    await expect.poll(async () => (await box(route(page))).y).toBeGreaterThanOrEqual(8);
+    expect((await box(route(page))).y).toBeLessThan(40);
+    // The page stays the same: the query is untouched.
+    await expect(page).toHaveURL(new RegExp(`${LINE_PATH}#strecke$`));
+  },
+);
 
 test.describe("layout", () => {
   test.skip(({ isMobile }) => isMobile, "set widths on the desktop browser");
@@ -1179,31 +1195,35 @@ test.describe("Bildfahrplan", () => {
     await expect(bf(page)).toContainText("fällt aus");
   });
 
-  test("the time axis runs past midnight for a night trip and opens at 06:00", async ({ page }) => {
-    await mockApi(page);
-    await page.goto(LINE_PATH);
-    const hours = chart(page).getByTestId("hour");
-    await expect(hours).toHaveCount(26);
-    await expect(hours.first()).toHaveText("00:00");
-    await expect(hours.last()).toHaveText("01:00");
-    const six = hours.nth(6);
-    await expect(six).toHaveText("06:00");
-    const scroller = chart(page).locator("xpath=..");
-    expect(await scroller.evaluate((e) => e.scrollLeft)).toBeGreaterThan(0);
-    const box = (await scroller.boundingBox())!;
-    const at = (await six.boundingBox())!;
-    expect(at.x).toBeGreaterThanOrEqual(box.x);
-    expect(at.x + at.width).toBeLessThan(box.x + 60);
-    // Without the night trip the axis ends at 24:00.
-    await withFahrplan(
-      page,
-      U,
-      only((zug) => zug !== "RE 10199"),
-    );
-    await page.goto(LINE_PATH);
-    await expect(trips(page)).toHaveCount(2);
-    await expect(hours).toHaveCount(25);
-  });
+  test(
+    "the time axis runs past midnight for a night trip and opens at 06:00",
+    { tag: "@phone" },
+    async ({ page }) => {
+      await mockApi(page);
+      await page.goto(LINE_PATH);
+      const hours = chart(page).getByTestId("hour");
+      await expect(hours).toHaveCount(26);
+      await expect(hours.first()).toHaveText("00:00");
+      await expect(hours.last()).toHaveText("01:00");
+      const six = hours.nth(6);
+      await expect(six).toHaveText("06:00");
+      const scroller = chart(page).locator("xpath=..");
+      expect(await scroller.evaluate((e) => e.scrollLeft)).toBeGreaterThan(0);
+      const box = (await scroller.boundingBox())!;
+      const at = (await six.boundingBox())!;
+      expect(at.x).toBeGreaterThanOrEqual(box.x);
+      expect(at.x + at.width).toBeLessThan(box.x + 60);
+      // Without the night trip the axis ends at 24:00.
+      await withFahrplan(
+        page,
+        U,
+        only((zug) => zug !== "RE 10199"),
+      );
+      await page.goto(LINE_PATH);
+      await expect(trips(page)).toHaveCount(2);
+      await expect(hours).toHaveCount(25);
+    },
+  );
 
   test("hovering a trip highlights it and names its stops with planned time and delay", async ({
     page,
@@ -1423,7 +1443,7 @@ test.describe("Bildfahrplan", () => {
     });
   });
 
-  test.describe("mobile", () => {
+  test.describe("mobile", { tag: "@phone" }, () => {
     test.skip(({ isMobile }) => !isMobile, "mobile layout");
 
     test("the plot scrolls inside its card, the station names stay, and a tap shows the trip", async ({

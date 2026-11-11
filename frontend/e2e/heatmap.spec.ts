@@ -98,7 +98,7 @@ test.describe("grid (desktop)", () => {
   });
 });
 
-test.describe("grid (mobile)", () => {
+test.describe("grid (mobile)", { tag: "@phone" }, () => {
   test.skip(({ isMobile }) => !isMobile, "mobile layout");
 
   test.beforeEach(async ({ page }) => {

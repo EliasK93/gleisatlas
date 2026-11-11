@@ -670,7 +670,7 @@ test("Teilen copies the link", async ({ page, context }) => {
   expect(await page.evaluate(() => navigator.clipboard.readText())).toMatch(/g=fern$/);
 });
 
-test.describe("mobile", () => {
+test.describe("mobile", { tag: "@phone" }, () => {
   test.skip(({ isMobile }) => !isMobile, "mobile layout");
 
   test("the charts fit 375 px without sideways scroll and the marker labels do not overlap", async ({

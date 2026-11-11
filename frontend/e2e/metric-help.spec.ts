@@ -62,7 +62,7 @@ test.describe("the explanation line under the metric switch", () => {
   });
 });
 
-test.describe("on a phone", () => {
+test.describe("on a phone", { tag: "@phone" }, () => {
   test.use({ viewport: { width: 375, height: 812 } });
 
   // The floating card of the map pages would grow by about 40 px: it keeps the line to the screen
@@ -85,24 +85,25 @@ test.describe("on a phone", () => {
 });
 
 for (const k of ["ausfall", "p90"])
-  test(`k=${k} survives Karte, Zeitverlauf and back through the navigation`, async ({
-    page,
-    isMobile,
-  }) => {
-    await mockApi(page);
-    await page.goto(`/karte?k=${k}`);
-    const nav = page.getByRole("navigation", { name: "Hauptnavigation" });
-    if (isMobile) {
-      await nav.getByRole("link", { name: "Muster" }).click();
-      await page
-        .getByRole("navigation", { name: "Muster", exact: true })
-        .getByRole("link", { name: "Zeitverlauf" })
-        .click();
-    } else await nav.getByRole("link", { name: "Zeitverlauf" }).click();
-    await expect(page).toHaveURL(new RegExp(`/muster/zeitverlauf\\?k=${k}$`));
-    await expect(
-      page.getByRole("group", { name: "Kennzahl" }).locator('[aria-pressed="true"]'),
-    ).toHaveText(k === "ausfall" ? "Ausfälle" : "Schlechteste 10 %");
-    await nav.getByRole("link", { name: "Karte" }).click();
-    await expect(page).toHaveURL(new RegExp(`/karte\\?k=${k}$`));
-  });
+  test(
+    `k=${k} survives Karte, Zeitverlauf and back through the navigation`,
+    { tag: "@phone" },
+    async ({ page, isMobile }) => {
+      await mockApi(page);
+      await page.goto(`/karte?k=${k}`);
+      const nav = page.getByRole("navigation", { name: "Hauptnavigation" });
+      if (isMobile) {
+        await nav.getByRole("link", { name: "Muster" }).click();
+        await page
+          .getByRole("navigation", { name: "Muster", exact: true })
+          .getByRole("link", { name: "Zeitverlauf" })
+          .click();
+      } else await nav.getByRole("link", { name: "Zeitverlauf" }).click();
+      await expect(page).toHaveURL(new RegExp(`/muster/zeitverlauf\\?k=${k}$`));
+      await expect(
+        page.getByRole("group", { name: "Kennzahl" }).locator('[aria-pressed="true"]'),
+      ).toHaveText(k === "ausfall" ? "Ausfälle" : "Schlechteste 10 %");
+      await nav.getByRole("link", { name: "Karte" }).click();
+      await expect(page).toHaveURL(new RegExp(`/karte\\?k=${k}$`));
+    },
+  );

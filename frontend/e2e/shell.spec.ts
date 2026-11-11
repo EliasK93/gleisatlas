@@ -47,20 +47,22 @@ test("/ and the logo link keep the query string", async ({ page }) => {
   );
 });
 
-test("the logo is the wordmark on desktop and the mark alone on mobile", async ({
-  page,
-  request,
-  isMobile,
-}) => {
-  await page.goto("/muster/heatmap");
-  await expect(page.locator('link[rel="icon"]')).toHaveAttribute("href", "/favicon.svg");
-  const logo = page.getByRole("banner").getByRole("img", { name: "Gleisatlas" });
-  await expect(logo).toBeVisible();
-  const shown = isMobile ? "/favicon.svg" : "/logo.svg";
-  await expect.poll(() => logo.evaluate((img: HTMLImageElement) => img.currentSrc)).toMatch(shown);
-  for (const file of ["/favicon.svg", "/logo.svg"])
-    expect((await request.get(file)).headers()["content-type"]).toContain("image/svg+xml");
-});
+test(
+  "the logo is the wordmark on desktop and the mark alone on mobile",
+  { tag: "@phone" },
+  async ({ page, request, isMobile }) => {
+    await page.goto("/muster/heatmap");
+    await expect(page.locator('link[rel="icon"]')).toHaveAttribute("href", "/favicon.svg");
+    const logo = page.getByRole("banner").getByRole("img", { name: "Gleisatlas" });
+    await expect(logo).toBeVisible();
+    const shown = isMobile ? "/favicon.svg" : "/logo.svg";
+    await expect
+      .poll(() => logo.evaluate((img: HTMLImageElement) => img.currentSrc))
+      .toMatch(shown);
+    for (const file of ["/favicon.svg", "/logo.svg"])
+      expect((await request.get(file)).headers()["content-type"]).toContain("image/svg+xml");
+  },
+);
 
 test("a filter change after another key keeps the heatmap page mounted", async ({ page }) => {
   await page.goto("/muster/heatmap?k=median");
@@ -173,7 +175,7 @@ test.describe("desktop", () => {
   });
 });
 
-test.describe("mobile", () => {
+test.describe("mobile", { tag: "@phone" }, () => {
   test.skip(({ isMobile }) => !isMobile, "mobile layout");
 
   test("tab bar replaces the sidebar, heatmap is transposed, no sideways scroll", async ({

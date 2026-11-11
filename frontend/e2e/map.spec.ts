@@ -455,7 +455,7 @@ test.describe("desktop", () => {
   });
 });
 
-test.describe("mobile", () => {
+test.describe("mobile", { tag: "@phone" }, () => {
   test.skip(({ isMobile }) => !isMobile, "mobile layout");
 
   test("the zoom buttons and the attribution toggle have 44 px tap areas", async ({ page }) => {
@@ -506,7 +506,7 @@ test.describe("mobile", () => {
   });
 });
 
-test("the attribution sits below the zoom buttons", async ({ page }) => {
+test("the attribution sits below the zoom buttons", { tag: "@phone" }, async ({ page }) => {
   await mockApi(page);
   await page.goto("/karte");
   await expect(map(page)).toHaveAttribute("data-ready", "true");
@@ -650,23 +650,26 @@ test.describe("the lines in the station panel", () => {
     expect(period.height).toBeLessThan(24);
   });
 
-  test("on a phone the actions stay in the sheet without scrolling, above the lines", async ({
-    page,
-    isMobile,
-  }) => {
-    test.skip(!isMobile, "mobile layout");
-    await open(page, "g=fern");
-    await expect(lines(page).getByRole("listitem")).toHaveCount(5);
-    const sheet = (await panel(page).boundingBox())!;
-    const details = (await panel(page).getByRole("link", { name: "Alle Details" }).boundingBox())!;
-    expect(details.y).toBeGreaterThanOrEqual(sheet.y);
-    expect(details.y + details.height).toBeLessThanOrEqual(sheet.y + sheet.height);
-    expect(await panel(page).evaluate((el) => el.scrollTop)).toBe(0);
-    const first = (await lines(page).getByRole("link").first().boundingBox())!;
-    expect(first.y).toBeGreaterThan(details.y + details.height);
-  });
+  test(
+    "on a phone the actions stay in the sheet without scrolling, above the lines",
+    { tag: "@phone" },
+    async ({ page, isMobile }) => {
+      test.skip(!isMobile, "mobile layout");
+      await open(page, "g=fern");
+      await expect(lines(page).getByRole("listitem")).toHaveCount(5);
+      const sheet = (await panel(page).boundingBox())!;
+      const details = (await panel(page)
+        .getByRole("link", { name: "Alle Details" })
+        .boundingBox())!;
+      expect(details.y).toBeGreaterThanOrEqual(sheet.y);
+      expect(details.y + details.height).toBeLessThanOrEqual(sheet.y + sheet.height);
+      expect(await panel(page).evaluate((el) => el.scrollTop)).toBe(0);
+      const first = (await lines(page).getByRole("link").first().boundingBox())!;
+      expect(first.y).toBeGreaterThan(details.y + details.height);
+    },
+  );
 
-  test("a row on a phone is at least 44 px high", async ({ page, isMobile }) => {
+  test("a row on a phone is at least 44 px high", { tag: "@phone" }, async ({ page, isMobile }) => {
     test.skip(!isMobile, "mobile layout");
     await open(page, "g=fern");
     const rows = lines(page).getByRole("link");

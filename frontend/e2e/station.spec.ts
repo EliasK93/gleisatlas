@@ -340,27 +340,31 @@ test("the lines table shows the first ten, worst first, and expands in place", a
   await expect(lines(page).last()).toContainText("RE 12 · Köln Hbf");
 });
 
-test("#linien scrolls to the lines card once the lines have loaded", async ({ page }) => {
-  await mockApi(page);
-  // The heatmap above the card and the lines come late, so a scroll at the first paint, or before
-  // the lines, would miss the card's final place.
-  for (const [url, ms] of [
-    ["**/heatmap*", 300],
-    ["**/stationen/8000207/linien*", 900],
-  ] as const)
-    await page.route(url, async (route) => {
-      await new Promise((done) => setTimeout(done, ms));
-      await route.fallback();
-    });
-  await page.goto("/bahnhof/8000207#linien");
-  await expect(lines(page)).toHaveCount(10);
-  // The card's top edge stands at its scroll margin (16 px), not merely somewhere in the window.
-  await expect
-    .poll(async () => (await section(page, "Linien an diesem Bahnhof").boundingBox())!.y)
-    .toBeLessThan(40);
-  expect(await page.evaluate(() => scrollY)).toBeGreaterThan(0);
-  expect(new URL(page.url()).hash).toBe("#linien");
-});
+test(
+  "#linien scrolls to the lines card once the lines have loaded",
+  { tag: "@phone" },
+  async ({ page }) => {
+    await mockApi(page);
+    // The heatmap above the card and the lines come late, so a scroll at the first paint, or before
+    // the lines, would miss the card's final place.
+    for (const [url, ms] of [
+      ["**/heatmap*", 300],
+      ["**/stationen/8000207/linien*", 900],
+    ] as const)
+      await page.route(url, async (route) => {
+        await new Promise((done) => setTimeout(done, ms));
+        await route.fallback();
+      });
+    await page.goto("/bahnhof/8000207#linien");
+    await expect(lines(page)).toHaveCount(10);
+    // The card's top edge stands at its scroll margin (16 px), not merely somewhere in the window.
+    await expect
+      .poll(async () => (await section(page, "Linien an diesem Bahnhof").boundingBox())!.y)
+      .toBeLessThan(40);
+    expect(await page.evaluate(() => scrollY)).toBeGreaterThan(0);
+    expect(new URL(page.url()).hash).toBe("#linien");
+  },
+);
 
 test("a link with #linien keeps the anchor when the page cleans the URL", async ({ page }) => {
   await mockApi(page);
@@ -406,18 +410,20 @@ test("Beste zuerst reverses the lines with a value and keeps the others last", a
   await expect(lines(page).last()).toContainText("RE 12 · Köln Hbf");
 });
 
-test("a cancellation rate of 10 % or more stays on one line in the lines table", async ({
-  page,
-}) => {
-  await mockApi(page, undefined, undefined, undefined, undefined, () =>
-    linienFixture().map((l, i) => (i === 0 ? { ...l, ausfallquote: 0.109 } : l)),
-  );
-  await page.goto("/bahnhof/8000207");
-  await expect(lines(page)).toHaveCount(10);
-  const cell = lines(page).first().getByText("✕ 10,9 %");
-  await expect(cell).toBeVisible();
-  expect((await cell.boundingBox())!.height).toBeLessThan(20);
-});
+test(
+  "a cancellation rate of 10 % or more stays on one line in the lines table",
+  { tag: "@phone" },
+  async ({ page }) => {
+    await mockApi(page, undefined, undefined, undefined, undefined, () =>
+      linienFixture().map((l, i) => (i === 0 ? { ...l, ausfallquote: 0.109 } : l)),
+    );
+    await page.goto("/bahnhof/8000207");
+    await expect(lines(page)).toHaveCount(10);
+    const cell = lines(page).first().getByText("✕ 10,9 %");
+    await expect(cell).toBeVisible();
+    expect((await cell.boundingBox())!.height).toBeLessThan(20);
+  },
+);
 
 for (const [locale, region, labels, figure] of [
   [
@@ -596,7 +602,7 @@ test("the map panel's Alle Details lands on the station page", async ({ page }) 
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Köln Hbf");
 });
 
-test.describe("mobile", () => {
+test.describe("mobile", { tag: "@phone" }, () => {
   test.skip(({ isMobile }) => !isMobile, "mobile layout");
 
   test("one column, tiles 2 × 2, no sideways scroll", async ({ page }) => {
