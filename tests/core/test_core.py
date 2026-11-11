@@ -57,6 +57,12 @@ def test_category_expr():
     assert df.select(category_expr(pl.col("t")))["t"].to_list() == ["fern", "regional"]
 
 
+def test_flixtrain_and_the_other_long_distance_types_are_fern():
+    types = ["FLX", "EUR", "WB", "ES", "D", "UEX", "RB"]
+    df = pl.DataFrame({"t": types})
+    assert df.select(category_expr(pl.col("t")))["t"].to_list() == ["fern"] * 6 + ["regional"]
+
+
 def delays(rows: list[tuple[dt | None, dt | None, bool | None]]) -> list[int | None]:
     df = pl.DataFrame(
         rows, schema={"p": pl.Datetime, "c": pl.Datetime, "x": pl.Boolean}, orient="row"

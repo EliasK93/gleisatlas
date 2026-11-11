@@ -4,7 +4,23 @@
 # (Polars' when/then/otherwise stubs are partially unknown under strict mode.)
 import polars as pl
 
-LONG_DISTANCE = ["ICE", "IC", "EC", "ECE", "TGV", "RJ", "RJX", "NJ", "EN"]
+LONG_DISTANCE = [
+    "ICE",
+    "IC",
+    "EC",
+    "ECE",
+    "TGV",
+    "RJ",
+    "RJX",
+    "NJ",
+    "EN",
+    "FLX",
+    "EUR",
+    "WB",
+    "ES",
+    "D",
+    "UEX",
+]
 # The product covers rail only; the dataset also contains buses and rail replacement.
 EXCLUDED = ["Bus", "bus", "Bsv", "BSv", "SEV"]
 
