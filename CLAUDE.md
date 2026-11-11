@@ -8,7 +8,9 @@ Personal and machine-specific rules live in `CLAUDE.local.md` (gitignored).
 ### Roles
 - The product owner decides what gets built, approves plans, tests in the running app and says "commit". Pushing, publishing and releases are theirs.
 - The main session orchestrates: it plans, writes briefs, dispatches work to subagents, checks results, stages, runs the gate and commits. It keeps its own context free instead of doing large edits itself.
-- Subagents do the work. Sonnet at high effort for routine implementation, docs and mechanical refactors; Opus at high effort for hard design work and the quality reviews; Fable only when the product owner names it for a task. Model and effort are stated in each dispatch.
+- Small changes skip the round trip: up to about 20 changed lines in at most two files, the main session edits directly and runs the check itself.
+- Subagents do the work. Sonnet at high effort for routine implementation, docs and mechanical refactors; Opus at high effort for hard design work; Fable only when the product owner names it for a task. Model and effort are stated in each dispatch.
+- Reviews match the change: Sonnet for mechanical diffs (renames, moves, docs), Opus for logic and design; test-only bumps and one-line fixes get none.
 - Every subagent writes its result to a reply file, and the orchestrator reads that file instead of trusting a summary.
 
 ### Dispatching work
@@ -35,7 +37,10 @@ Personal and machine-specific rules live in `CLAUDE.local.md` (gitignored).
 - Refactors prove themselves: when behaviour must not change, existing tests stay unchanged and the gate passing is the proof. If a test has to change, stop and report.
 
 ### The gate
-- One command runs everything: `uv run python scripts/gate.py`. It stages (`git add -A`), checks formatting and lint, type-checks, runs all tests, compares `THIRD_PARTY_LICENSES.md` with the build's licence file, scans the staged content for secrets and fails if anything is unstaged or untracked afterwards.
+- One command runs everything: `uv run python scripts/gate.py`. It stages (`git add -A`), checks formatting and lint, type-checks, runs the tests (see Phone layout), compares `THIRD_PARTY_LICENSES.md` with the build's licence file, scans the staged content for secrets and fails if anything is unstaged or untracked afterwards.
+- Order: format, lint, types, the frontend's generated-client check, pytest (on all cores) and Bicep run at once; then e2e and the licence file, each skipped once a check before it failed; the secret scan last. Every check line shows its duration. The gate takes minutes: run it in the background and do read-only work meanwhile.
+- Flakes: Playwright retries a failed test once. A test that passes on the retry is flaky: the gate passes and prints it, the orchestrator names it to the product owner and notes it in the session handover, so a second occurrence is recognised, and a test flaky twice gets fixed.
+- Phone layout: locally the `mobile` project runs only tests tagged `@phone` (phone-only, or depending on the phone layout); CI runs both projects in full, and so does `scripts/gate.py --ci` (it sets `CI=1`). A new test that depends on the phone layout gets the tag.
 - `uv run python scripts/format.py` fixes formatting; the gate only checks it.
 - The git pre-commit hook runs the same checks (`scripts/gate.py --hook`, without staging or the clean-tree check). They run on the working tree, so a commit of selected paths is checked together with everything else on disk. The hook skips all checks when the tree is byte-identical to the last green gate run (any mode); `--ci` never skips. Never skip the hook (`--no-verify`). Hooks are not part of a clone: run `uv run python scripts/install_hooks.py` once after cloning.
 - Docs fast path: when everything changed since the last green gate run is a Markdown file (not `THIRD_PARTY_LICENSES.md`) or under `docs/images/`, manual and hook mode run only the secret scan, and manual mode the clean-tree check as well; `--ci` always runs everything.
@@ -55,6 +60,7 @@ Personal and machine-specific rules live in `CLAUDE.local.md` (gitignored).
 ### Batched testing
 - Queue several changes, then hand over one test round with a numbered checklist: what to open, what to do, what to see, and what needs no check.
 - "Commit" approves that batch.
+- While the product owner tests, a read-only subagent prepares the next brief or plan.
 - Checks only possible on the real target (e.g. Azure) go into the feature doc's "Platform checks" and are ticked only after confirmation there.
 - Dev servers are started and stopped visibly, with exact URLs.
 
