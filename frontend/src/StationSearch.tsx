@@ -78,7 +78,7 @@ export function StationSearch({
   const [open, setOpen] = useState(false);
   const term = q.trim();
   const stations = scope === "bahnhoefe";
-  // ponytail: one request per keystroke, cached per term; debounce if the API gets slow
+  // shortcut: one request per keystroke, cached per term; debounce if the API gets slow
   const hits = useQuery({
     queryKey: [stations ? "stationen" : "suche", term],
     queryFn: (): Promise<Suche> =>
@@ -108,7 +108,7 @@ export function StationSearch({
     .filter((g) => g.length > 0);
   // The arrow keys run through the options in their shown order, across the groups.
   const list = groups.flat();
-  // ponytail: the duplicate-name hint only counts the eight results shown; ask the API for the total if namesakes beyond eight confuse
+  // shortcut: the duplicate-name hint only counts the eight results shown; ask the API for the total if namesakes beyond eight confuse
   const same = (name: string) =>
     list.filter((h) => h.group === "bahnhoefe" && h.s.name === name).length;
   const style = STYLE[variant];

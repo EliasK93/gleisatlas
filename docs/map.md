@@ -176,17 +176,17 @@ The filter keys `g`, `von`, `bis` and `k` are the ones of the shell (see [app-sh
 
 ## 8 Known shortcuts
 
-- MapLibre is in the main bundle: the main script is about 1.5 MB (about 400 kB gzip, not re-measured) plus a worker of about 520 kB. Lazy-load the map page if the first load of other pages matters (`ponytail:` in `App.tsx`).
-- A metric switch rebuilds and re-sends all points; move to feature state if it stutters (`ponytail:` in `MapPage.tsx`).
-- The bottom sheet has a fixed height, without drag or snap levels (`ponytail:` in `StationPanel.tsx`).
-- The term explanations on the detail page are native `title` tooltips, which are hover-only; use a popover for touch (`ponytail:` in `MetricTiles`, `ui.tsx`, shared with the line page).
-- The search sends one request per keystroke, cached per term; add a debounce if the API gets slow (`ponytail:` in `StationSearch.tsx`).
-- `/karte` is cached per process, with at most 16 selections; memory and the first computation grow with the number of days in the range (`ponytail:` in `backend/main.py`). The statistics are already vectorised (`cells_of`), which measured no gain on a year of days, since the scan dominates; a slower `/karte` needs a smaller scan.
-- `/karte` with only an early `bis` (no `von`) labels its range from the first day in the file (2024-06-30), a day before `erster_tag`, because the full-coverage default is switched off for it (`ponytail:` in `period_start`). Only hand-made URLs reach it; the date fields never write one.
+- MapLibre is in the main bundle: the main script is about 1.5 MB (about 400 kB gzip, not re-measured) plus a worker of about 520 kB. Lazy-load the map page if the first load of other pages matters (`shortcut:` in `App.tsx`).
+- A metric switch rebuilds and re-sends all points; move to feature state if it stutters (`shortcut:` in `MapPage.tsx`).
+- The bottom sheet has a fixed height, without drag or snap levels (`shortcut:` in `StationPanel.tsx`).
+- The term explanations on the detail page are native `title` tooltips, which are hover-only; use a popover for touch (`shortcut:` in `MetricTiles`, `ui.tsx`, shared with the line page).
+- The search sends one request per keystroke, cached per term; add a debounce if the API gets slow (`shortcut:` in `StationSearch.tsx`).
+- `/karte` is cached per process, with at most 16 selections; memory and the first computation grow with the number of days in the range (`shortcut:` in `backend/main.py`). The statistics are already vectorised (`cells_of`), which measured no gain on a year of days, since the scan dominates; a slower `/karte` needs a smaller scan.
+- `/karte` with only an early `bis` (no `von`) labels its range from the first day in the file (2024-06-30), a day before `erster_tag`, because the full-coverage default is switched off for it (`shortcut:` in `period_start`). Only hand-made URLs reach it; the date fields never write one.
 - Stations without coordinates are not on the map but remain in search and detail. On the months to 2026-09 that was only Trebitz (b Könnern), with one stop and no Wikidata item; a missing station gets its IBNR added to its Wikidata item, so the next `pipeline.coords` run places it. Secondary EVAs placed by the same-name fallback sit under their main station's dot. The federal state is missing for some stations that have coordinates.
 - The table of lines is not sortable by column. Lines with too little data (the hatched ones) come after all others, so the list shows them but never leads with them. The list is not cached (about 0.1 s for Köln Hbf, see [patterns.md](patterns.md)).
 - Only an end station of a line or its label narrows a search ("ic34 dortmund"); a station on the way, or "the lines that stop at X", does not find a line. That needs a per-station line list in the search and is a roadmap item under "Ideas, unsorted".
-- The duplicate-name hint only knows the eight results shown (`ponytail:` in `StationSearch.tsx`).
+- The duplicate-name hint only knows the eight results shown (`shortcut:` in `StationSearch.tsx`).
 - The mini heatmap is a colour grid with one accessible label; the full heatmap is the accessible table. The category bars are scaled to the larger category for all metrics except punctuality.
 - MapLibre's compact attribution starts expanded until the first map move; on mobile it covers a strip above the legend until then.
 - Vite starts on its port strictly and fails if the port is taken, instead of moving to a port CORS would block (the CORS rule is in [patterns.md](patterns.md) §4).

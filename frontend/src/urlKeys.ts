@@ -100,7 +100,7 @@ export function writeFilters({
  * The rankings page's own URL keys: what it lists, the minimum sample, for lines lines or single
  * trains, and for the records stops or trains.
  */
-// ponytail: four minimum-sample values only, though the API accepts any value from 15; a number field when users want other limits
+// shortcut: four minimum-sample values only, though the API accepts any value from 15; a number field when users want other limits
 export const MIN_NS = [100, 500, 1000, 5000] as const;
 export const RANK_TYPES = ["linien", "bahnhoefe", "abschnitte", "rekorde"] as const;
 export type Rank = {

@@ -119,7 +119,7 @@ function segmentsOf(
       tip: tipText(r.name, s),
     });
   }
-  // ponytail: a branch has no "Richtung", so both directions are averaged; revisit if branch directions matter
+  // shortcut: a branch has no "Richtung", so both directions are averaged; revisit if branch directions matter
   const pairs = new Map<string, { sections: Abschnitt[]; first: Abschnitt }>();
   for (const { section } of others) {
     const key = [section.von_eva, section.nach_eva].sort().join(">");

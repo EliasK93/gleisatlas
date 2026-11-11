@@ -122,7 +122,7 @@ log.setLevel(logging.INFO)
 for old in log.handlers[:]:  # a reload (tests) must not double the lines
     log.removeHandler(old)
     old.close()
-# ponytail: stdout lines carry no timestamp (Log Analytics adds TimeGenerated), and the 8-hex id
+# shortcut: stdout lines carry no timestamp (Log Analytics adds TimeGenerated), and the 8-hex id
 # pairs a start with its end but is not unique forever; add both if logs leave Azure.
 log.addHandler(logging.StreamHandler(sys.stdout))
 if log_file := os.environ.get("LOG_FILE"):
@@ -210,7 +210,7 @@ def collect(lf: pl.LazyFrame) -> pl.DataFrame:
     """Run a query with at most MAX_QUERIES in flight, so dozens of routes in FastAPI's thread pool
     cannot run their queries at once and compete for CPU and memory. The only place a query is
     executed."""
-    # ponytail: one cap per process; revisit with async routes or several replicas
+    # shortcut: one cap per process; revisit with async routes or several replicas
     with _queries:
         return lf.collect()
 
@@ -347,7 +347,7 @@ def large() -> list[str]:
 
 def period_start(von: str | None, bis: str | None) -> str | None:
     """The requested start, else the full-coverage start unless `bis` ends before it.
-    ponytail: with only an early `bis` the default is off, so /karte labels its range from the
+    shortcut: with only an early `bis` the default is off, so /karte labels its range from the
     file's first day (a day before `erster_tag`); only hand-made URLs reach it, clamp `von` to
     `erster_tag` if one ever matters."""
     if von:
@@ -450,7 +450,7 @@ def heatmap(
     return found.model_copy(update={"titel": label})
 
 
-# ponytail: per-process cache like karte_for; 16 entries hold the nationwide views and a few
+# shortcut: per-process cache like karte_for; 16 entries hold the nationwide views and a few
 # stations or lines, revisit when the station page's heatmap is used heavily
 @lru_cache(maxsize=16)
 def heatmap_for(
@@ -480,7 +480,7 @@ def karte(gattung: Gattung = "alle", von: Period = None, bis: Period = None) -> 
     return karte_for(DAYS_PATH, mtimes, gattung, von, bis)
 
 
-# ponytail: per-process cache, so a day range is computed once per process; revisit when many
+# shortcut: per-process cache, so a day range is computed once per process; revisit when many
 # different ranges are asked for (memory per entry and the first computation both grow)
 @lru_cache(maxsize=16)
 def karte_for(
@@ -688,7 +688,7 @@ def files_of(*paths: str) -> tuple[tuple[str, int], ...]:
     return tuple((p, os.stat(p).st_mtime_ns) for p in paths)
 
 
-# ponytail: about 10 MB per entry (min_n 500, the whole network) x 16 entries; lower maxsize if
+# shortcut: about 10 MB per entry (min_n 500, the whole network) x 16 entries; lower maxsize if
 # memory on the 2 GiB container gets tight.
 @lru_cache(maxsize=16)
 def sections_for(
@@ -1051,7 +1051,7 @@ def thin(s: CellStats) -> bool:
 def station_linien(
     eva: Eva, gattung: Gattung = "alle", von: Month = None, bis: Month = None
 ) -> list[StationLinie]:
-    # ponytail: not cached, the biggest station takes about 0.1 s; add an lru_cache like the
+    # shortcut: not cached, the biggest station takes about 0.1 s; add an lru_cache like the
     # rankings have if the page calls it often
     known_station(eva)
     sel = selection(pl.scan_parquet(LINES_PATH), gattung, eva, period_start(von, bis), bis)
@@ -1228,7 +1228,7 @@ def zeitverlauf(
     return Zeitverlauf(titel=titel, monate=zeitverlauf_for(path, mtimes, gattung, eva, linie))
 
 
-# ponytail: per-process cache like tage_for; 16 entries of one model per month, revisit when many
+# shortcut: per-process cache like tage_for; 16 entries of one model per month, revisit when many
 # different stations or lines are asked for
 @lru_cache(maxsize=16)
 def zeitverlauf_for(
@@ -1252,7 +1252,7 @@ def zeitverlauf_for(
 def shown(s: CellStats, metric: str) -> bool:
     """True when the UI shows the metric's value: for the cancellation rate the stop count decides,
     for the delay metrics `thin`.
-    ponytail: the UI's `show()` (frontend/src/ui.tsx) is a second implementation of this rule and
+    shortcut: the UI's `show()` (frontend/src/ui.tsx) is a second implementation of this rule and
     nothing checks that they agree; serve the flag in the API if one of them changes."""
     return s.n >= LOW_N if metric == "ausfallquote" else not thin(s)
 
@@ -1265,7 +1265,7 @@ TREND_METRICS = ("puenktlich", "ausfallquote", "median", "p90")
 def trends(feed: pl.DataFrame) -> pl.DataFrame:
     """Centred rolling median of each metric. `feed` has a `day` column and one Float64 column per
     metric, None where a day gives no value.
-    ponytail: around the start of full coverage (2025-11) the nationwide window blends about 135
+    shortcut: around the start of full coverage (2025-11) the nationwide window blends about 135
     stations with all of them for two weeks on each side; reset the window at `vollabdeckung_ab` if
     the step matters more than the marker that explains it."""
     ahead = TREND_DAYS // 2
@@ -1274,7 +1274,7 @@ def trends(feed: pl.DataFrame) -> pl.DataFrame:
     calendar = pl.DataFrame(
         {"day": pl.date_range(feed["day"][0], feed["day"][-1] + timedelta(ahead), eager=True)}
     )
-    # ponytail: at the end the window shrinks to the last 14 days and still needs TREND_MIN values,
+    # shortcut: at the end the window shrinks to the last 14 days and still needs TREND_MIN values,
     # so each gap or thin day there cuts a day off the trend's tail; allow half the minimum in the
     # windows past the last day if the tail should reach the newest day anyway.
     rolled = calendar.join(feed, on="day", how="left").select(
@@ -1289,7 +1289,7 @@ def trends(feed: pl.DataFrame) -> pl.DataFrame:
     return feed.select("day").join(rolled, on="day", how="left")
 
 
-# ponytail: per-process cache like karte_for; 16 entries hold the nationwide series and the busiest
+# shortcut: per-process cache like karte_for; 16 entries hold the nationwide series and the busiest
 # stations, revisit when the station page is used heavily (entry size = one model per day)
 @lru_cache(maxsize=16)
 def tage_for(
@@ -1410,7 +1410,7 @@ DE = "de"  # the area of the whole country next to the states' codes
 CELL = ("day", "eva", "gruppe", "bucket")  # what the day map's counts are grouped by
 
 
-# ponytail: per-process cache like karte_for, one model per large station (about 0.35 MB of Python
+# shortcut: per-process cache like karte_for, one model per large station (about 0.35 MB of Python
 # objects per entry), 16 entries so the seven day chips stay warm. Measured on Windows with one
 # Polars thread and days.parquet in row groups of 50,000 rows: a cold day takes 0.04 to 0.16 s,
 # today 0.11 s; 20 distinct days settle at a working set of about 310 MB (172 MB when idle).
@@ -1426,7 +1426,7 @@ def tageskarte_for(
     rest: Heute | None = None,
 ) -> Tageskarte:
     table = tage()
-    # ponytail: collector days have no gap hours (they are not in the day table), so the 12-hour
+    # shortcut: collector days have no gap hours (they are not in the day table), so the 12-hour
     # rule between runs is their only check and a quiet hour of the source shows as no gap; judge
     # their hours like the raw days' if a gap ever slips through.
     extra = live_tage()
@@ -1668,7 +1668,7 @@ def warm_up() -> None:
     newest day, the Muster heatmap, the station rankings and the daily Zeitverlauf. The arguments
     are the ones the web app sends without URL keys, so they hit the same cache keys. A failure is
     logged and the next page warms anyway.
-    ponytail: a visitor's request for a page still warming computes it again in parallel (the caches
+    shortcut: a visitor's request for a page still warming computes it again in parallel (the caches
     do not merge requests in flight); share a future per cache key if that shows in the log."""
     began = time.perf_counter()
 

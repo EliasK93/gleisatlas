@@ -79,7 +79,7 @@ AGGREGATE_ORDER = ("month", "eva", "weekday", "hour", "gruppe", "bucket")
 DAYS_ORDER = ("day", "eva", "gruppe", "bucket")
 DAY_HOURS_ORDER = ("day", "hour", "eva", "gruppe", "bucket")
 # About one day's rows (24.5 M rows over 822 days), so a one-day filter skips the other row groups.
-# ponytail: no test reads the row groups (neither Polars nor an installed library exposes them);
+# shortcut: no test reads the row groups (neither Polars nor an installed library exposes them);
 # the evidence is the /tageskarte memory measurement in docs/day-history.md §5; if pyarrow becomes
 # a dependency, a test of the row-group metadata is short
 DAYS_ROW_GROUP = 50_000
@@ -102,7 +102,7 @@ FULL_RUN = 0.9
 
 
 def _complete(month_dir: Path) -> bool:
-    # ponytail: looks only at the folder, so a month HuggingFace replaces later is not fetched again
+    # shortcut: looks only at the folder, so a month HuggingFace replaces later is not fetched again
     # and a change to the per-month logic needs data/months/ deleted by hand; record a version per
     # folder if either happens often.
     return all((month_dir / f"{name}.parquet").exists() for name in MONTH_FILES)
@@ -192,9 +192,9 @@ def update_days(data_dir: Path, raw: RawSource) -> None:
     `day_complete`). It reads the raw files of the UTC folders before it, of its own and after it:
     the runs write the early plan hours of a day (00:00 to 03:00) into the folder before, and the
     late changes into the next. Days already done are skipped.
-    ponytail: a day's raw files are downloaded again if its folder is lost or the parse logic
+    shortcut: a day's raw files are downloaded again if its folder is lost or the parse logic
     changes; keeping them would cost about 250 MB per day.
-    ponytail: an empty folder after the day (the source lost a whole UTC day) stalls every later
+    shortcut: an empty folder after the day (the source lost a whole UTC day) stalls every later
     day until it appears or the monthly file arrives; skipping it needs a rule for the day after."""
     days_dir = data_dir / "days"
     months = sorted(d.name for d in (data_dir / "months").glob("????-??") if _complete(d))
@@ -252,7 +252,7 @@ def day_complete(raw: RawSource, keys: list[str], day: date) -> bool:
     midnight; the last run, when it ends within SAME_RUN before a UTC midnight, may still be
     missing its other half and does not count until a later file exists. A run that died partway
     has fewer requests than FULL_RUN of the largest run of the files and does not count either.
-    ponytail: assumes a run splits only at a UTC midnight (one case seen); a split elsewhere needs
+    shortcut: assumes a run splits only at a UTC midnight (one case seen); a split elsewhere needs
     the answered stations compared. Reads two columns of every file of two folders per pending day
     (about 12 small remote reads); cache the spans if updates run often."""
     spans = sorted(s for k in keys if (s := raw.fchg_span(k)))
@@ -280,7 +280,7 @@ def update_rest(data_dir: Path, raw: RawSource, now: datetime, large: list[str])
     hour the pass started, plus that start as `stand` (UTC); like the live collector's run start,
     the stops of the hour the pass started in are not settled. No pass of the day yet gives no
     rows, so an earlier file never stays.
-    ponytail: every update downloads both UTC folders again (about 2 x 160 MB); keep them in a
+    shortcut: every update downloads both UTC folders again (about 2 x 160 MB); keep them in a
     local cache if updates run often."""
     day = local_time(now).date()
     keys = raw.files(day - timedelta(days=1)) + raw.files(day)
@@ -331,7 +331,7 @@ def write_large(data_dir: Path) -> list[str]:
 def combine(data_dir: Path) -> None:
     """Write the files the API reads from all complete month folders; the day tables (`days`,
     `day_hours`, `tage`) also take the raw days after the last month.
-    ponytail: rewrites every file on every run, also when nothing is new; skip unchanged inputs if
+    shortcut: rewrites every file on every run, also when nothing is new; skip unchanged inputs if
     the run time starts to matter."""
     dirs = sorted(d for d in (data_dir / "months").glob("????-??") if _complete(d))
     raw_dirs = _raw_dirs(data_dir)
@@ -505,7 +505,7 @@ def write_line_sections(
     station order of each line, turned to the label's order), both only for the lines of
     `linien.parquet`. `line_of` is (name, eva, linie); a section finds its line by its first
     station, a pattern as well. `line_ends` is (linie, dest list), the label's end stations.
-    ponytail: the axis comes from the newest month in which the line has routes; revisit if a
+    shortcut: the axis comes from the newest month in which the line has routes; revisit if a
     route changes inside a period."""
     known = pl.read_parquet(data_dir / "linien.parquet").select("linie")
 

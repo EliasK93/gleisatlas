@@ -12,7 +12,7 @@ import {
 import { useDatenstand } from "./api";
 import HeatmapPage from "./HeatmapPage";
 import LinePage from "./LinePage";
-// ponytail: MapLibre ships in the main bundle (about 400 kB gzip); lazy-load MapPage if other pages' first load matters
+// shortcut: MapLibre ships in the main bundle (about 400 kB gzip); lazy-load MapPage if other pages' first load matters
 import MapPage from "./MapPage";
 import { LANG, t, tx, type Lang, type MessageKey } from "./i18n";
 import { Icon, type IconName } from "./Icon";

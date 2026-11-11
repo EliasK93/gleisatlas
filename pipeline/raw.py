@@ -174,7 +174,7 @@ def day_tables(
     stops planned on earlier days but recorded after the boundary, mostly the late stops of the
     last monthly day: no monthly file holds them yet."""
     # Like the monthly files, so the first duplicate is the same; the id breaks ties.
-    # ponytail: the monthly release leaves ties open (DuckDB), so about 3 stops a day (one train's
+    # shortcut: the monthly release leaves ties open (DuckDB), so about 3 stops a day (one train's
     # two ids, same time) keep the other duplicate and sit 1-2 minutes off. Ends once the monthly
     # file replaces the raw days; no rule on the id reproduces it.
     lf = rows.sort("time", "id").lazy()
@@ -196,7 +196,7 @@ def day_runs(rows: pl.DataFrame, day: date, boundary: datetime) -> pl.DataFrame:
     """The per-stop trip table (`runs`) of one raw day: the stops of the trips that started on `day`
     and were recorded from `boundary` on; the first raw day also takes the trips of earlier days
     (their late stops), by the same rule as `day_tables`.
-    ponytail: a trip running past midnight keeps the forecast of the run that completed the day,
+    shortcut: a trip running past midnight keeps the forecast of the run that completed the day,
     and the next raw day leaves trips of this day out, so its late stops may read as on time until
     the monthly file replaces the raw days; let the next day take this day's trips and keep the
     newest copy if that matters."""
@@ -210,7 +210,7 @@ def raw_gaps(hours: pl.DataFrame, day_list: list[date]) -> pl.DataFrame:
     level of an hour of day is the lowest, over the weekdays, of the median row count of that
     (weekday, hour), and an hour is missing below GAP_SHARE of it. Only the hours of `day_list` are
     judged, so the rest of the month is never missing, and the level comes from these days alone.
-    ponytail: early in a month there is one value per weekday, so a gap is only found once the
+    shortcut: early in a month there is one value per weekday, so a gap is only found once the
     weekday has come round about three times; a gap in the first two weeks may stay unflagged until
     the monthly file replaces the raw days. Pool the previous month's level if that matters."""
     start, end = (
@@ -225,7 +225,7 @@ REPO = "piebro/deutsche-bahn-data"
 def download(month: str, local_dir: str = "data/raw") -> str:
     """Download one monthly source file of the public HuggingFace dataset. `month` is 'YYYY-MM', as
     `pipeline.update.remote_months` lists them.
-    ponytail: no pinned dataset `revision`, so a month re-uploaded upstream and the months processed
+    shortcut: no pinned dataset `revision`, so a month re-uploaded upstream and the months processed
     before can come from different upstream states without notice; record the dataset commit in
     `meta` and reprocess the months whose commit differs when upstream corrections matter."""
     from huggingface_hub import hf_hub_download  # see remote_source: not in the API image
@@ -239,7 +239,7 @@ def download(month: str, local_dir: str = "data/raw") -> str:
 
 
 def remote_source() -> RawSource:
-    # ponytail: no retry on network errors, a failure stops the update and running it again is the
+    # shortcut: no retry on network errors, a failure stops the update and running it again is the
     # remedy (days that are done are skipped); add retries if failures become common. No pinned
     # dataset `revision` either, as in `download`.
     # Imported here: the live collector imports this module in the API image, which has no

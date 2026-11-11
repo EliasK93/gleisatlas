@@ -44,7 +44,7 @@ type Shown = {
  * Delay metrics only see arrived stops, so they count those; Ausfälle counts all stops.
  */
 export function show(metric: Metric, s: Stats | undefined, slot: string): Shown {
-  // ponytail: the API's `shown(...)` is a second implementation of this rule and nothing checks that they agree; serve the flag in the API if one of them changes
+  // shortcut: the API's `shown(...)` is a second implementation of this rule and nothing checks that they agree; serve the flag in the API if one of them changes
   const n = s?.n ?? 0;
   const label = (key: "hm.low" | "hm.onlyCancelled") => t(key, { slot, n: int(n) });
   if (!s || n < LOW_N) return { text: "–", fill: "hatch", label: label("hm.low"), low: true };
@@ -125,7 +125,7 @@ export function MetricTiles({
                     ✕
                   </span>
                 )}
-                {/* ponytail: a native title is hover-only; use a popover when touch users need the explanation */}
+                {/* shortcut: a native title is hover-only; use a popover when touch users need the explanation */}
                 <span
                   title={t(`metric.${m}.help`)}
                   className="cursor-help underline decoration-text-3 decoration-dotted underline-offset-[3px]"
@@ -600,7 +600,7 @@ export function ShareButton() {
               setCopied(true);
               setTimeout(() => setCopied(false), 1800);
             },
-            // ponytail: no feedback when the browser denies the clipboard; add a fallback text field if users hit it
+            // shortcut: no feedback when the browser denies the clipboard; add a fallback text field if users hit it
             () => {},
           )
         }

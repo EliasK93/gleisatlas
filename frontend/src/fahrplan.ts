@@ -30,7 +30,7 @@ export function distances(axis: Bahnhof[]): number[] {
     const prev = known[k - 1];
     km[i] = k === 0 ? 0 : km[prev] + haversine(axis[prev], axis[i]);
   });
-  // ponytail: a station without coordinates sits evenly between its located neighbours (halfway
+  // shortcut: a station without coordinates sits evenly between its located neighbours (halfway
   // for one), an end without them on its neighbour; revisit if many axis stations lack coordinates
   return axis.map((_, i) => {
     if (km[i] !== undefined) return km[i];
@@ -74,7 +74,7 @@ export function place(evas: string[], halte: Halt[]): Placed[] {
  * starts) a trip that does not start at the seam jumps from one end of the axis to the other there;
  * the path is cut between two consecutive stops more than half the axis apart, as no real section
  * spans half a ring.
- * ponytail: the seam is cut, not crossed; place the seam station at both of its visits if a ring
+ * shortcut: the seam is cut, not crossed; place the seam station at both of its visits if a ring
  * trip should run on through it.
  */
 export function pieces(evas: string[], placed: Placed[]): Placed[][] {

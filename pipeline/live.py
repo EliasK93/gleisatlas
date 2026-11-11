@@ -41,7 +41,7 @@ TIMEOUT = 30  # seconds per request
 PACE = 1.0  # seconds between requests: up to 60 a minute in a run, 48 over the 15-minute cycle
 # No request starts later than this after the run's start, so runs every 15 minutes never overlap
 # (and never add up to more than 60 a minute) unless one request hangs for its whole TIMEOUT.
-# ponytail: at most 720 requests a run, 589 slices after the 131 changes. A first run of the day at
+# shortcut: at most 720 requests a run, 589 slices after the 131 changes. A first run of the day at
 # 14:00 needs 131 x 14 slices before the cut: about 42 stations become ready per run, all of them
 # in the fourth run (14:45), the slices ahead in the fifth. Shorter if DB grants more than 60 a
 # minute (a smaller PACE).
@@ -130,7 +130,7 @@ def _finalize(
     with every plan slice of the day (`_hours`) and changes from this run count. A day is dropped
     when the gap from its local midnight to the first answered run, or between two runs, is longer
     than MAX_RUN_GAP (`fchg` reaches only that far back), or when it had no run of its own.
-    ponytail: a station whose changes failed in this run is lost for the day, even when it
+    shortcut: a station whose changes failed in this run is lost for the day, even when it
     answered in the runs since midnight; the next run could still add it, at the price of keeping
     the day open for hours."""
     times = sorted([local_midnight_utc(day), *_runs(state / "runs.parquet")])
@@ -158,7 +158,7 @@ def run(
     data_dir: Path, get: Get, now: Callable[[], datetime], sleep: Callable[[float], None]
 ) -> str:
     """One run against `get`; `now` gives aware UTC times. Returns a one-line summary.
-    ponytail: the day's state (a few MB) is reread and rewritten whole on every run; append per
+    shortcut: the day's state (a few MB) is reread and rewritten whole on every run; append per
     run if the runs get slow."""
     t0 = now()  # the time of the data: the changes come first
     start = local_time(t0)
@@ -187,7 +187,7 @@ def run(
         )
     # The changes, then the slices before the cut station by station (so a first run of the day
     # makes stations ready one after another), then the hours ahead of all stations.
-    # ponytail: a slice that never succeeds is asked for again on every run and keeps its station
+    # shortcut: a slice that never succeeds is asked for again on every run and keeps its station
     # grey, which the API cannot tell from a station without arrivals; count the misses per slice
     # and give up after a few if the first full runs show such slices.
     jobs: list[tuple[str, int | None]] = [(e, None) for e in evas]
@@ -335,7 +335,7 @@ def sync(base: str, data_dir: Path, collect: Callable[[], str], now: Callable[[]
     run), then push the files the run wrote and delete the container's state folders the run let
     go. Returns the run's summary with the counts. A failed pull stops before the run: without its
     state a run would write live_tage.parquet from nothing. A run that exits pushes nothing.
-    ponytail: the whole state is pulled and pushed on every run (a few MB), and the listing reads
+    shortcut: the whole state is pulled and pushed on every run (a few MB), and the listing reads
     one page (5,000 names, the job keeps about ten); fine at 131 stations, append per run if it
     grows."""
     try:  # first, so a broken identity fails before three minutes of requests

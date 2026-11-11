@@ -220,7 +220,7 @@ const SCALE_TOKENS = ["r", "c"].flatMap((scale) => [1, 2, 3, 4, 5].map((i) => `$
  * API's class (`klasse`) on the `r` scale and draws a station with nothing to compare in the
  * neutral grey `c3`. On today a tooltip also names the stand of the station's source: `stands`
  * for the collector's stations (`live`), the others take the rest.
- * ponytail: a metric switch rebuilds and re-sends all ~5k points; move to feature-state if it stutters
+ * shortcut: a metric switch rebuilds and re-sends all ~5k points; move to feature-state if it stutters
  */
 function toFeatures(
   stations: Entry[],

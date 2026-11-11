@@ -63,7 +63,7 @@ resource storage 'Microsoft.Storage/storageAccounts@2026-06-01' = {
   properties: {
     supportsHttpsTrafficOnly: true
     minimumTlsVersion: 'TLS1_2'
-    // ponytail: public read of CC BY data, so the container needs no secret; a managed-identity token if a policy forbids it
+    // shortcut: public read of CC BY data, so the container needs no secret; a managed-identity token if a policy forbids it
     allowBlobPublicAccess: true
   }
 }

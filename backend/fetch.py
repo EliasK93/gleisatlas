@@ -94,7 +94,7 @@ def refresh_live(paths: Iterable[str]) -> None:
 
 
 def main() -> None:
-    # ponytail: every start downloads all files, checked only by their length (no checksum or ETag),
+    # shortcut: every start downloads all files, checked only by their length (no checksum or ETag),
     # and imports backend.main (FastAPI and Polars, a second or two) for the path list; compare a
     # checksum if a damaged download ever shows.
     from backend import main as api  # here: backend.main imports this module

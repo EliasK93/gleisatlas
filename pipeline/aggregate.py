@@ -257,7 +257,7 @@ def runs(lf: pl.LazyFrame) -> pl.DataFrame:
     ("{type} {number}"), the trip, the stop number, the day the trip started, the station and the
     planned and changed times with the cancel flags, sorted by trip and stop number. The same
     cleaning as the other tables (cancelled stops stay).
-    ponytail: every month keeps all its trips (about 200 MB), although `combine` reads only the last
+    shortcut: every month keeps all its trips (about 200 MB), although `combine` reads only the last
     28 days; revisit if the disk matters."""
     flag = ("arrival_is_canceled", "departure_is_canceled")
     times = (

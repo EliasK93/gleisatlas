@@ -50,12 +50,12 @@ PROVIDERS = (
 )
 DATA_FILES = tuple(Path(p).stem for p in api.DATA_FILES)  # the files the API downloads at start
 DB_ENV = ("DB_CLIENT_ID", "DB_API_KEY")
-# ponytail: the committed CSP allows any Container App in the region, since the API's host differs
+# shortcut: the committed CSP allows any Container App in the region, since the API's host differs
 # on every fresh deploy; `narrow_csp` tightens the built copy, a build uploaded without this script
 # keeps the wildcard. A custom domain would keep the host stable and the wildcard could go.
 CSP_WILDCARD = "https://*.swedencentral.azurecontainerapps.io"
 SWA_CLI = "@azure/static-web-apps-cli@2.0.10"
-# ponytail: a fork changes this one line (CI derives the image name from the repository); derive
+# shortcut: a fork changes this one line (CI derives the image name from the repository); derive
 # it from `git remote` if forks matter
 IMAGE = "ghcr.io/eliask93/gleisatlas-api"
 MANIFEST_TYPES = ",".join(
@@ -232,7 +232,7 @@ def upload_data(storage: str) -> None:
 
 
 def deploy() -> None:
-    # ponytail: no resume, a rerun repeats every step (all are safe to repeat); split into stages
+    # shortcut: no resume, a rerun repeats every step (all are safe to repeat); split into stages
     # if the run time gets in the way. The budget-date lookup treats any failure as "no earlier
     # deployment"; Azure then rejects a wrong date and the deployment fails loudly.
     total = DEPLOY_STEPS

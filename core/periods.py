@@ -44,7 +44,7 @@ def full_coverage_start(stations_per_month: Mapping[str, int]) -> str | None:
 def large_stations(days: pl.LazyFrame, full_start: str) -> pl.LazyFrame:
     """The distinct `eva`, sorted, with stops on a day of the last month before `full_start`
     ('YYYY-MM'): the stations the source covered before it took every station in.
-    ponytail: the set is frozen to that month (131 EVAs from 2025-10), so a station that becomes
+    shortcut: the set is frozen to that month (131 EVAs from 2025-10), so a station that becomes
     large later never joins; it needs a rule beyond the old source when the set should grow."""
     year, month = int(full_start[:4]), int(full_start[5:])
     first = date(year - (month == 1), (month - 2) % 12 + 1, 1)

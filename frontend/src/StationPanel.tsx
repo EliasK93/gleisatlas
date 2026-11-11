@@ -51,7 +51,7 @@ export function StationPanel({
   const tiles = station && METRICS.map((m) => ({ m, ...show(m, station, name) }));
   const [onTime, , bad] = tiles ?? [];
 
-  // ponytail: fixed-height bottom sheet without drag or snap levels (design.md 2.1); add when users ask
+  // shortcut: fixed-height bottom sheet without drag or snap levels (design.md 2.1); add when users ask
   return (
     <aside
       aria-label={name}

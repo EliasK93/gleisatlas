@@ -30,7 +30,7 @@ NO_LIVE_PERCENT = 99  # share of its arrived stops that report exactly 0 minutes
 
 def is_train_number(name: pl.Expr) -> pl.Expr:
     """True for a train-number name ("ICE 679"): no space, a space, digits.
-    ponytail: a regex on the name, so a source line number with a space before its digits matches
+    shortcut: a regex on the name, so a source line number with a space before its digits matches
     too (2 names in the real data); flag train-number names in `line_name_expr` if more show up."""
     return name.str.contains(r"^\S+ \d+$")
 
@@ -48,7 +48,7 @@ def no_live_data(n: pl.Expr, zero: pl.Expr, cancelled: pl.Expr) -> pl.Expr:
 def destination_expr(col: pl.Expr) -> pl.Expr:
     """Spelling fix for an end station: "Schwerte(Ruhr)" -> "Schwerte (Ruhr)", "(Main)Hbf" ->
     "(Main) Hbf", "Langenhagen - Kaltenweide" -> "Langenhagen-Kaltenweide", one space, stripped."""
-    # ponytail: a regex spelling fix; variants like "Bahnhof, Arnsberg" stay separate. Map the
+    # shortcut: a regex spelling fix; variants like "Bahnhof, Arnsberg" stay separate. Map the
     # destinations to station EVAs if such variants show in the labels.
     return (
         col.str.replace_all(r"\s+", " ")
@@ -85,7 +85,7 @@ def networks(members: pl.DataFrame) -> pl.DataFrame:
 
 def line_ids(nets: pl.DataFrame) -> pl.DataFrame:
     """Add `linie` = "{name}:{net}", stable as months are added.
-    ponytail: when a network gains a station with a lower EVA in a later month its id changes and a
+    shortcut: when a network gains a station with a lower EVA in a later month its id changes and a
     saved link to the old id gives 404; fine while a link is cheap to recreate from the rankings,
     keep a map of old ids if saved links start to matter."""
     return nets.with_columns(linie=pl.concat_str("name", pl.lit(":"), "net"))

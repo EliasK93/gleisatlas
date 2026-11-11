@@ -190,10 +190,10 @@ Unknown or invalid values fall back to the default and are removed from the URL 
 ## 8 Known shortcuts
 
 - The Linie chip exists only on the time series and the heatmap. The map and the rankings do not filter by line; they drop a `linie` key.
-- The rankings' minimum sample offers four values although the API accepts any value from 15 (`ponytail:` at `MIN_NS` in `urlKeys.ts`), and the empty state has no one-click "lower the sample" button.
+- The rankings' minimum sample offers four values although the API accepts any value from 15 (`shortcut:` at `MIN_NS` in `urlKeys.ts`), and the empty state has no one-click "lower the sample" button.
 - The time series compares no second series (see [patterns.md](patterns.md) §8).
 - The station search has no debounce; see [map.md](map.md) §8.
-- Teilen gives no feedback when the browser denies the clipboard (`ponytail:` in `ShareButton`).
+- Teilen gives no feedback when the browser denies the clipboard (`shortcut:` in `ShareButton`).
 - An unknown station in `bhf` on the heatmap shows the generic empty state, not "Diesen Bahnhof kennen wir nicht" with a search (design.md §7); the station page has that state (see [map.md](map.md)).
 - The sidebar has no collapse to a rail.
 - The station popover is positioned with CSS anchor positioning, with the centred default as fallback (see Platform checks).

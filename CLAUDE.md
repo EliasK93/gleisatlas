@@ -66,7 +66,7 @@ Personal and machine-specific rules live in `CLAUDE.local.md` (gitignored).
 
 ### ponytail
 - The laziest version that passes the contract and the checks. ponytail decides how much code satisfies the contract, never whether to satisfy it.
-- A deliberate shortcut gets a `ponytail:` comment naming its ceiling and when to revisit, and is listed under "Known shortcuts" in its feature doc.
+- A deliberate shortcut gets a `shortcut:` comment naming its ceiling and when to revisit, and is listed under "Known shortcuts" in its feature doc.
 - `/ponytail-review` on diffs in the review step, `/ponytail-audit` on the whole repo now and then.
 
 ### Communication

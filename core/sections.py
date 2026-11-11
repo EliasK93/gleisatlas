@@ -99,7 +99,7 @@ def orient_axis(axis: pl.DataFrame, names: pl.DataFrame, ends: pl.DataFrame) -> 
     reversed when its last station is the line's first end station or its first station is the
     second one, kept when it already starts at the first. The most travelled pattern may run
     either way, the page wants the label's start at the top.
-    ponytail: the match is by name (end stations are destination strings, not EVAs, spelling fix
+    shortcut: the match is by name (end stations are destination strings, not EVAs, spelling fix
     applied to both); a line whose ends match no station name keeps its axis. Map the destinations
     to EVAs if many lines keep a wrong order."""
     named = (
