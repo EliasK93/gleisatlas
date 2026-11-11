@@ -98,6 +98,20 @@ Details in [map.md](map.md) (the station panel) and [lines.md](lines.md) (the se
 Details in [patterns.md](patterns.md) §2 and §3.
 - [x] Every Rankings list starts with 10 rows and grows by 100 per click of "Mehr anzeigen" until all are shown, each list on its own, with a count line under it; the `limit` parameter of the three Rankings routes (re-check: the milestone in [patterns.md](patterns.md) §5 names the tests in `tests/api/test_rankings_api.py` and `frontend/e2e/rankings.spec.ts`)
 
+## Quality audit
+A whole-repo audit and a debt ledger of the `ponytail:` comments, with the fixes the product owner picked. The details and reasons are in the feature docs named under each item.
+- [ ] FlixTrain, Eurostar, WESTbahn, European Sleeper, D trains and Urlaubs-Express count as long-distance; `data/months/` and `data/days/` are rebuilt (re-check: `uv run pytest -q tests/core/test_core.py`, `test_flixtrain_and_the_other_long_distance_types_are_fern`; details in [pipeline.md](pipeline.md) §3)
+- [ ] Implausible change times are null in the trip table, so the Bildfahrplan draws no early departures and a bad row cannot stop `combine` (re-check: `tests/pipeline/test_update.py`, `test_a_change_time_far_from_its_plan_reads_as_no_change_and_does_not_stop_the_combine`)
+- [ ] `limit` is at most 2,000 and `min_n` at most 1,000,000, the Rankings lists stop at 2,000 rows, `/zeitverlauf` is cached, gzip runs at level 5 (re-check: `tests/api/test_rankings_api.py`, `test_invalid_input_is_422`; `tests/api/test_zeitverlauf_api.py`, `test_the_series_is_computed_once_per_selection`; `frontend/e2e/rankings.spec.ts`, "show more stops at 2,000 rows, the most the API serves"; details in [patterns.md](patterns.md) §3 and [map.md](map.md) §3)
+- [ ] The tests badge is written in its own CI job, so the gist token never shares a runner with npm packages or the tests (re-check: `.github/workflows/gate.yml`, job `badge`; after the next push the badge updates; the reason is in [deployment.md](deployment.md) §3)
+- [ ] Every query is fresh for an hour and a returning tab asks for nothing, so it no longer wakes the sleeping API; Live-Lage keeps its own refresh and asks `/datenstand` again when its tab is shown again (re-check: `frontend/e2e/map.spec.ts`, "a tab that becomes visible again sends no second /karte request"; `frontend/e2e/lage.spec.ts`, "a past day's tab shown again asks /datenstand again" and the block "the refresh pauses while nobody interacts"; details in [app-shell.md](app-shell.md) §3)
+- [ ] Wrong or stale numbers on screen: a typical delay below zero draws an empty bar, the panel's lines never belong to the previous station, the heatmap and the Zeitverlauf show a new station's placeholder instead of the old station's numbers, a rejected day returns to the shown day, the Live-Lage link opens the newest day (re-check: `frontend/e2e/rankings.spec.ts` "a typical delay below zero draws an empty bar", `map.spec.ts` "a second station never shows the first station's lines while its own load", `heatmap.spec.ts` "another station shows the skeleton until its own cells arrive", `zeitverlauf.spec.ts` "day view › another station shows the skeleton until its own series arrives", `period.spec.ts` "a day outside the data typed into von returns to the shown day when the field is left", `shell.spec.ts` "the Live-Lage link from a line page with a Bildfahrplan day opens the newest day")
+- [ ] Tab titles "<page> · Gleisatlas" and the station page's mini heatmap sharing the heatmap's request (re-check: `frontend/e2e/shell.spec.ts`, "each page names itself in the document title"; `frontend/e2e/station.spec.ts`, "opening the full heatmap from the station page sends no second request")
+- [ ] State names through the message catalogs: the API sends the state code and the station page and the search show the translated name (re-check: `tests/api/test_heatmap_api.py`, `test_the_state_is_its_code_and_a_name_without_one_is_left_out`; `frontend/e2e/i18n.spec.ts`, "the station page and a search hit name the state in English"; details in [map.md](map.md) §3)
+- [ ] `forbidOnly` in the Playwright config, so a stray `test.only` fails the gate (re-check: add `test.only` to one e2e test and `npm --prefix frontend run test:e2e` fails; `git grep -n "\.only(" frontend/e2e` finds nothing)
+- [ ] Splits and merges without a change of behaviour: the response models in `backend/models.py`, `mapBase.ts`, `StationPanel.tsx` and `urlKeys.ts` out of the big web files, one theme-switch hook, one signed-minutes text, the legal pages on the shared page, the unused tokens `--cat2` and `--cat3`, one catalog key for the attribution, the unused exports, `pipeline/download.py` merged into `pipeline/raw.py` (re-check: the existing tests and `uv run python scripts/gate.py` pass unchanged; `uv run python scripts/export_openapi.py` leaves `backend/openapi.json` byte-identical)
+- [ ] The debt ledger's corrections: the `Known shortcuts` entries name the right files and figures (`MetricTiles` in `ui.tsx`, `is_train_number`, `runs.parquet` at about 2.8 GB, the main script at about 1.5 MB), the stale 1 GiB and "at most 10" comments are fixed, and three checks that need the deployed job's logs are in [day-history.md](day-history.md) §6 and [deployment.md](deployment.md) §6
+
 ## Next, in order
 Each step gets its own plan and its own section here once it starts.
 1. [x] A docs-only fast path in the gate (section "Gate fast path")
@@ -110,7 +124,8 @@ Each step gets its own plan and its own section here once it starts.
    - Re-check, UI: `npm --prefix frontend run test:e2e`, `frontend/e2e/rankings.spec.ts` and `frontend/e2e/heatmap.spec.ts`; the rules and decisions are in [patterns.md](patterns.md) §2 and §3, the data files in [pipeline.md](pipeline.md) §2 and the download list in [deployment.md](deployment.md) §4
 4. [x] Show more in the Rankings (section "Show more in the Rankings")
 5. [x] The image registry on GitHub Container Registry instead of Azure Container Registry, checked with one test deploy together with the larger data (re-check: the GHCR, deploy and memory checks in [deployment.md](deployment.md) §6; the cold start, the collector and the cost checks there are still open)
-6. [ ] The planner, M9+ below
+6. [ ] The quality audit's fixes, tested and committed (section "Quality audit")
+7. [ ] The planner, M9+ below
 
 ## M9+ Planner (v1.0)
 - [x] Connection-source spike (ADR) (re-check: [adr/0003-connection-source.md](adr/0003-connection-source.md) is accepted; the planner's doc is [planner.md](planner.md))
@@ -131,4 +146,18 @@ Not planned yet; further ideas and details in SPEC 3.1 and 3.4.
 - Lines that cross the border marked as "section in Germany".
 - Later, if the Azure deployment stops being nearly free: the stable run on one VPS (the API image, the static frontend with the CSP and TLS, the data on disk, the collector's cron and key), with Azure kept for tests and temporary deploys.
 - Trim the API's memory so it fits 0.5 vCPU / 1 GiB again. The largest steps are a cold `/karte`, `/rankings?typ=bahnhoefe` and `/rankings/rekorde?art=takt`; measured locally, the peak working set was 1136 MiB with all caches warm.
+- Smaller items from the audit, maybe later:
+  - `/suche?q=-` lists the three busiest lines: a query that normalises to nothing is a prefix of every name (`core/search.py`).
+  - `scripts/azure.py data` uploads the fifteen files one by one, so a replica that starts in the middle mixes old and new files until its next start.
+  - `pipeline/update.py` imports the private `_write` from `pipeline.live`; it wants a shared public helper.
+  - `cancel-in-progress` on `main` in `.github/workflows/gate.yml` can cancel the image job of the first of two quick pushes.
+  - `tests/pipeline/test_live.py` calls `live.main` without unsetting `DATA_URL`, so a developer's environment can leak into the test.
+  - A negative P90 is printed with an ASCII minus in one place where the rest of the app uses "−" (`frontend/src/metrics.ts`).
+  - A hand-made `von=0000-01` gets a 422 on `/karte`.
+  - `ShareButton` (`frontend/src/ui.tsx`) is not guarded against a browser without `navigator.clipboard`.
+  - The map is not refitted after a station click.
+  - The search field's hint reads "Strg K" on macOS too.
+  - Several `role="status"` skeletons can show at once.
+  - A stale comment in `frontend/src/metrics.ts` near the date formats.
+  - The `/ponytail-debt` skill's own search misses markers in Python docstrings and JSDoc lines (23 of 57 here), so its count is too low; the ledger used a plain `git grep` for `ponytail:` and `shortcut:` instead.
 - Maybe: how much later a rail replacement bus (SEV) arrives than the train it replaces. Measure first whether the buses stop at the train's station and how much later they are (about 90 % of replacement rows name the replaced train); shown only if the data really shows it.

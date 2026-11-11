@@ -55,7 +55,7 @@ The viewer chooses the look (System, Hell, Dunkel) and the UI language (Deutsch,
 - `frontend/src/theme.css`: the light tokens under `:root` and the dark set under `:root[data-theme="dark"]`.
 - `frontend/src/i18n/index.ts`: resolves `LANG` once per page load and exports `LANG`, `LOCALE` and `LANG_KEY`; sets `<html lang>`. `de.ts` and `en.ts` are the catalogs.
 - `frontend/src/App.tsx`: `ThemeSwitch` and `LangSwitch` over one `PrefSwitch`.
-- `frontend/src/MapPage.tsx`: `STYLE` per theme, the `style.load` setup and the `setStyle` effect; the station colours are read from the tokens once per theme.
+- `frontend/src/mapBase.ts`: `STYLE` per theme, `baseMap` and `useBaseStyle`, the `style.load` setup and the `setStyle` effect both maps share; `themeColours` reads the station colours from the tokens once per theme (`MapPage.tsx` and `LineMap.tsx` call them).
 - Every localStorage read and write sits in try/catch; a blocked storage keeps the pick until the page closes (theme) or falls back to the browser language (language).
 - Tests: `frontend/e2e/theme.spec.ts` and `frontend/e2e/i18n.spec.ts`. `playwright.config.ts` sets `locale: "de-DE"` for all projects, because Playwright's default would switch every other spec to English.
 
@@ -63,6 +63,7 @@ The viewer chooses the look (System, Hell, Dunkel) and the UI language (Deutsch,
 
 - [x] Dark theme. Re-check: `npm --prefix frontend run test:e2e`, `frontend/e2e/theme.spec.ts` ("System is the default and follows the OS", "Hell wins over the OS and survives a reload", "System after a pick follows the OS again", "Dunkel wins over the OS and survives a reload", "a stored value that is not a theme falls back to System", "text colours reach 4.5:1 on every surface in both themes", "the base map and the stations follow the theme", "a station picked while the new base style loads does not crash the page", "the switch on Mehr has 44 px hit areas").
 - [x] English catalog and language switch. Re-check: `npm --prefix frontend run test:e2e`, `frontend/e2e/i18n.spec.ts` ("the first visit is English", "Deutsch reloads into German and the pick is remembered", "the filters survive the switch", "short months carry an apostrophe, so they cannot read as a day", "a stored value that is not a language falls back to the browser", "the first visit is German", "English wins over the browser and survives a reload", "the switch on Mehr has 44 px hit areas"); `npm --prefix frontend run typecheck` fails when the catalogs' keys differ.
+- [ ] Audit clean-up of tokens and catalogs: `--cat2` and `--cat3` deleted, the attribution sentence one key (`data.attribution`, used by the footer and the map), `hm.crumb` and the value of `unit.pct` gone, the map style code in `mapBase.ts`. Re-check: `npm --prefix frontend run typecheck` and `npm --prefix frontend run lint` pass, `frontend/e2e/theme.spec.ts` ("the base map and the stations follow the theme") and `frontend/e2e/legal.spec.ts` pass unchanged; `grep -rn "cat2" frontend/src` finds nothing.
 
 ## 6 Platform checks
 
@@ -82,5 +83,5 @@ None. The English terms are set (Punctuality, Typical delay, Worst 10%, Cancella
 - `<html lang>` is set when the bundle loads; the HTML says `de` until then.
 - Outside a browser (a spec importing `metrics.ts` under Node) the language is always German.
 - A theme switch reloads the whole base map style, so the map flickers once. The station colours are read from the tokens once per theme.
-- `--cat2` in dark (`#6f7888`) is a series colour and is not checked against the contrast rule; look at it when the charts get a dark review.
+- `--cat1` is the only series colour (dark `#8b88ff`) and is not checked against the contrast rule; look at it when the charts get a dark review. `--cat2` and `--cat3` were deleted unused; add series colours when the comparison of several series is built ([patterns.md](patterns.md) §8).
 - On desktop `/mehr` shows the two switches twice, in the sidebar and in their cards, like the data note.

@@ -59,6 +59,7 @@ What needs the deployed system and the calendar; the rest of the thorough check 
 - **Where the daily download runs,** for example the Azure job or `pipeline.update`, and where the matching results live.
 - **Trips with one stop** (all of WEG and AKN and others) cannot meet the two-stop match rule: left without history, or a relaxed rule.
 - **A weekday or a date as input** (SPEC F3.1). With a GTFS list of about 30 days, which date a weekday means, and what happens for a date beyond the horizon or in the past: the feed has no past dates, and our data has no future ones.
+- **Implausible change times in `runs`.** The monthly `runs.parquet` still holds change times far from their plan; only `fahrten.parquet` is cleaned. The replay applies `PLAUSIBLE_MIN` to `PLAUSIBLE_MAX` (`core/delay.py`) to both delays, or the rule moves into `runs` at the next rebuild.
 - **A closure or a missing train on the chosen date.** A stretch the plan still shows but our data does not (Hagen-side RB91 on 2026-11-09), or a direct train missing in our data (München to Garmisch on 2026-11-03). How the planner tells the user is decided with the UI.
 
 ## 8 Known shortcuts
