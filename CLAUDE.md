@@ -8,7 +8,7 @@ Personal and machine-specific rules live in `CLAUDE.local.md` (gitignored).
 ### Roles
 - The product owner decides what gets built, approves plans, tests in the running app and says "commit". Pushing, publishing and releases are theirs.
 - The main session orchestrates: it plans, writes briefs, dispatches work to subagents, checks results, stages, runs the gate and commits. It keeps its own context free instead of doing large edits itself.
-- Subagents do the work. Sonnet at high effort for routine implementation, docs and mechanical refactors; Opus at high effort for hard design work and quality reviews. Model and effort are stated in each dispatch.
+- Subagents do the work. Sonnet at high effort for routine implementation, docs and mechanical refactors; Opus at high effort for hard design work and the quality reviews; Fable only when the product owner names it for a task. Model and effort are stated in each dispatch.
 - Every subagent writes its result to a reply file, and the orchestrator reads that file instead of trusting a summary.
 
 ### Dispatching work

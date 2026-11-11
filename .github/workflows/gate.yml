@@ -65,18 +65,51 @@ jobs:
         env: # runner.temp is not available in job-level env
           PYTEST_ADDOPTS: --junitxml=${{ runner.temp }}/pytest.xml
 
-      # Pushes the test counts to the public gist behind the README's tests badge. Runs on push to
-      # main only, and also when tests failed, so the badge turns red. The gist is written with
-      # a personal access token with Gists read/write (secret GIST_TOKEN): GITHUB_TOKEN cannot write gists.
-      # The badge is written by repo code in a step without the secret; only curl gets the token.
-      - name: Write tests badge
+      # The JUnit reports go to the badge job below, which holds the gist token: nothing this job
+      # installs or runs (npm packages, the tests) shares a runner with that token.
+      - name: Collect the test reports
         if: always() && github.event_name == 'push'
+        run: |
+          mkdir -p "$RUNNER_TEMP/reports"
+          cp "$RUNNER_TEMP/pytest.xml" "$RUNNER_TEMP/reports/" || true
+          cp frontend/test-results/junit.xml "$RUNNER_TEMP/reports/" || true
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always() && github.event_name == 'push'
+        with:
+          name: test-reports
+          path: ${{ runner.temp }}/reports
+          if-no-files-found: ignore
+
+  # Pushes the test counts to the public gist behind the README's tests badge. Runs on push to
+  # main only, and also when tests failed, so the badge turns red. The gist is written with
+  # a personal access token with Gists read/write (secret GIST_TOKEN): GITHUB_TOKEN cannot write gists.
+  # The job installs nothing: scripts/tests_badge.py uses the standard library of the runner's
+  # Python. The badge is written by repo code in a step without the secret; only curl gets the token.
+  badge:
+    needs: gate
+    if: always() && github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        continue-on-error: true # no artifact when the gate stopped before its last steps
+        with:
+          name: test-reports
+          path: ${{ runner.temp }}/reports
+
+      - name: Write tests badge
         env:
           BADGE: ${{ runner.temp }}/tests.json
-        run: uv run python scripts/tests_badge.py "$BADGE" "$RUNNER_TEMP/pytest.xml" frontend/test-results/junit.xml
+        run: python3 scripts/tests_badge.py "$BADGE" "$RUNNER_TEMP/reports/pytest.xml" "$RUNNER_TEMP/reports/junit.xml"
 
       - name: Update tests badge
-        if: always() && github.event_name == 'push'
         env:
           GIST_ID: 3b48a1a6b1af4d54d8e76c88ed1e72d4
           GIST_TOKEN: ${{ secrets.GIST_TOKEN }}

@@ -55,7 +55,8 @@ DB_ENV = ("DB_CLIENT_ID", "DB_API_KEY")
 # keeps the wildcard. A custom domain would keep the host stable and the wildcard could go.
 CSP_WILDCARD = "https://*.swedencentral.azurecontainerapps.io"
 SWA_CLI = "@azure/static-web-apps-cli@2.0.10"
-# ponytail: a fork changes this one line; CI derives the image name from the repository
+# ponytail: a fork changes this one line (CI derives the image name from the repository); derive
+# it from `git remote` if forks matter
 IMAGE = "ghcr.io/eliask93/gleisatlas-api"
 MANIFEST_TYPES = ",".join(
     (
