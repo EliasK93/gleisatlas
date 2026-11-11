@@ -34,8 +34,6 @@
   --c4: #5d6675;
   --c5: #363c47;
   --cat1: #4b47d6;
-  --cat2: #8a93a3;
-  --cat3: #b54aa8;
   --shadow: 0 4px 16px rgb(16 24 40 / 0.08), 0 1px 3px rgb(16 24 40 / 0.06);
   color-scheme: light;
 }
@@ -73,8 +71,6 @@
   --c4: #a0a8b5;
   --c5: #d5d9e0;
   --cat1: #8b88ff;
-  --cat2: #6f7888;
-  --cat3: #e07ad3;
   --shadow: 0 4px 20px rgb(0 0 0 / 0.45);
   color-scheme: dark;
 }
@@ -109,7 +105,5 @@
   --color-c4: var(--c4);
   --color-c5: var(--c5);
   --color-cat1: var(--cat1);
-  --color-cat2: var(--cat2);
-  --color-cat3: var(--cat3);
   --shadow-card: var(--shadow);
 }

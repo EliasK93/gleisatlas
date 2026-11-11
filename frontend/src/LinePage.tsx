@@ -6,18 +6,7 @@ import { Bildfahrplan } from "./Bildfahrplan";
 import { Filters } from "./Filters";
 import { t } from "./i18n";
 import { LineMap } from "./LineMap";
-import {
-  int,
-  linePageSearch,
-  MAX_LINE_ID,
-  lineSearch,
-  readFilters,
-  withParam,
-  writeFilters,
-  writeRank,
-  type Filters as FilterKeys,
-  type Metric,
-} from "./metrics";
+import { int, MAX_LINE_ID, type Metric } from "./metrics";
 import type { components } from "./schema";
 import {
   axisStations,
@@ -53,6 +42,15 @@ import {
   useHashScroll,
   ZEITVERLAUF,
 } from "./ui";
+import {
+  linePageSearch,
+  lineSearch,
+  readFilters,
+  withParam,
+  writeFilters,
+  writeRank,
+  type Filters as FilterKeys,
+} from "./urlKeys";
 import { clearParams, useSetParams } from "./useSetParams";
 import { Sparkline } from "./ZeitverlaufPage";
 

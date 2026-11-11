@@ -58,6 +58,15 @@ test.describe("English browser", () => {
     ).toBeVisible();
   });
 
+  test("the station page and a search hit name the state in English", async ({ page }) => {
+    await page.goto("/bahnhof/8000207");
+    await expect(page.getByRole("main")).toContainText("EVA 8000207 · North Rhine-Westphalia");
+    await page.getByRole("combobox").first().fill("köln");
+    await expect(page.getByRole("option", { name: /Köln Hbf/ })).toContainText(
+      "North Rhine-Westphalia · EVA 8000207",
+    );
+  });
+
   test("a stored value that is not a language falls back to the browser", async ({ page }) => {
     await page.addInitScript(() => localStorage.setItem("gleisatlas-lang", "klingon"));
     await page.goto("/muster/heatmap");

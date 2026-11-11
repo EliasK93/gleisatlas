@@ -4,9 +4,11 @@ import { useNavigate, useSearchParams } from "react-router";
 import { api, must } from "./api";
 import { t } from "./i18n";
 import { Icon } from "./Icon";
-import { int, readFilters, writeFilters } from "./metrics";
+import { stationLand } from "./laender";
+import { int } from "./metrics";
 import type { components } from "./schema";
 import { Badge, linePath, stationPath } from "./ui";
+import { readFilters, writeFilters } from "./urlKeys";
 
 type Variant = "global" | "inline";
 type Station = components["schemas"]["Station"];
@@ -145,7 +147,11 @@ export function StationSearch({
               )}
             </span>
             <span className="block text-xs text-text-3">
-              {[h.s.land, t("filter.eva", { eva: h.s.eva }), t("search.stops", { n: int(h.s.n) })]
+              {[
+                stationLand(h.s.land),
+                t("filter.eva", { eva: h.s.eva }),
+                t("search.stops", { n: int(h.s.n) }),
+              ]
                 .filter(Boolean)
                 .join(" · ")}
             </span>

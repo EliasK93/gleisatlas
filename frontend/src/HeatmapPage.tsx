@@ -1,24 +1,13 @@
-import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { Navigate, useSearchParams } from "react-router";
 import { clearParams, useSetParams } from "./useSetParams";
 import { api, must, useMonthPeriod } from "./api";
 import { Filters } from "./Filters";
 import { t, tx } from "./i18n";
-import {
-  dayName,
-  DEFS,
-  formatPeriod,
-  int,
-  legend,
-  readFilters,
-  withParam,
-  worse,
-  writeFilters,
-  type Filters as FilterKeys,
-  type Metric,
-} from "./metrics";
+import { dayName, DEFS, formatPeriod, int, legend, worse, type Metric } from "./metrics";
 import type { components } from "./schema";
+import { readFilters, withParam, writeFilters, type Filters as FilterKeys } from "./urlKeys";
 import {
   EmptyCard,
   ErrorBanner,
@@ -72,7 +61,9 @@ export default function HeatmapPage() {
         })
         .then((r) => (r.response.status === 404 ? null : must(r))),
     enabled: m.ready,
-    placeholderData: keepPreviousData,
+    // The old grid stays only for the same station and line, never under another one's name.
+    placeholderData: (previous, query) =>
+      query?.queryKey[2] === f.bhf && query?.queryKey[3] === f.linie ? previous : undefined,
   });
   const data = q.data;
   const period = data?.n ? formatPeriod(data.von, data.bis) : undefined;
@@ -119,7 +110,7 @@ export default function HeatmapPage() {
       <MusterSwitch />
       <div className="mb-4 flex flex-wrap items-end justify-between gap-4">
         <div>
-          <p className="mb-1.5 text-[12.5px] text-text-3">{t("hm.crumb")}</p>
+          <p className="mb-1.5 text-[12.5px] text-text-3">{t("nav.discover")}</p>
           <PageTitle>{t("hm.title")}</PageTitle>
           <p className="mt-1.5 max-w-[68ch] text-text-2">
             {t("hm.lead", { metric: t(`metric.${f.k}`) })}

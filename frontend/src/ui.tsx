@@ -30,7 +30,7 @@ const onNarrowChange = (cb: () => void) => {
 /** True below 768 px; follows window resizes. */
 export const useNarrow = () => useSyncExternalStore(onNarrowChange, () => narrow.matches);
 
-export type Shown = {
+type Shown = {
   text: string;
   fill: string;
   label: string;
@@ -174,19 +174,27 @@ export const Page = ({ children }: { children: ReactNode }) => (
   <div className="mx-auto max-w-[1200px] px-4 pt-4 md:px-8 md:pt-6">{children}</div>
 );
 
-/** A page's h1; `className` adds spacing. */
+/** The browser tab's title, "<page> · Gleisatlas"; React puts it into the head. */
+export const DocTitle = ({ page }: { page: string }) => (
+  <title>{t("app.pageTitle", { page })}</title>
+);
+
+/** A page's h1, which also names the tab; `className` adds spacing. */
 export const PageTitle = ({
   className = "",
   children,
 }: {
   className?: string;
-  children: ReactNode;
+  children: string;
 }) => (
-  <h1
-    className={`${className} text-[21px] leading-tight font-[650] tracking-[-0.015em] md:text-[26px]`}
-  >
-    {children}
-  </h1>
+  <>
+    <DocTitle page={children} />
+    <h1
+      className={`${className} text-[21px] leading-tight font-[650] tracking-[-0.015em] md:text-[26px]`}
+    >
+      {children}
+    </h1>
+  </>
 );
 
 /** The "Als Tabelle" toggle under a chart or heatmap. */
@@ -427,7 +435,7 @@ export function MiniBar({
       <i
         aria-hidden="true"
         className={`block h-full rounded-sm ${shown.fill}`}
-        style={{ width: `${Math.round(width)}%` }}
+        style={{ width: `${Math.min(Math.max(Math.round(width), 0), 100)}%` }}
       />
     </div>
   );

@@ -1,39 +1,24 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import {
-  AttributionControl,
   LngLat,
   LngLatBounds,
-  Map as MapLibre,
-  NavigationControl,
-  setWorkerUrl,
   type ExpressionSpecification,
   type FilterSpecification,
   type GeoJSONSource,
   type GeoJSONSourceSpecification,
+  type Map as MapLibre,
   type MapMouseEvent,
-  type MapOptions,
 } from "maplibre-gl";
-import "maplibre-gl/dist/maplibre-gl.css";
-import workerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url";
-import { useEffect, useEffectEvent, useId, useMemo, useRef, useState, type RefObject } from "react";
-import { Link, Navigate, useLocation, useSearchParams } from "react-router";
+import { useEffect, useEffectEvent, useMemo, useRef, useState, type RefObject } from "react";
+import { Navigate, useSearchParams } from "react-router";
 import { clearParams, useSetParams } from "./useSetParams";
-import {
-  api,
-  lageDays,
-  LIVE_REFRESH,
-  must,
-  useDatenstand,
-  useLiveActive,
-  useMonthPeriod,
-  useStation,
-  useStationLines,
-} from "./api";
+import { api, lageDays, LIVE_REFRESH, must, useDatenstand, useLiveActive } from "./api";
 import { AreaCard, stateTip } from "./AreaCard";
 import { Filters } from "./Filters";
-import { t, tx } from "./i18n";
+import { t } from "./i18n";
 import { Icon } from "./Icon";
 import { ANCHORS, landName } from "./laender";
+import { baseMap, themeColours, token, useBaseStyle } from "./mapBase";
 import {
   classOf,
   DEFS,
@@ -41,112 +26,37 @@ import {
   formatDay,
   formatLive,
   formatDays,
-  formatPeriod,
   formatStand,
   int,
   legend,
-  linePageSearch,
-  localLabel,
   APPROX_N,
   LOW_N,
-  METRICS,
-  readFilters,
   REFERENCE_WEEKS,
-  tenths,
   weekdayOf,
-  withParam,
   within,
-  writeFilters,
-  type Filters as FilterKeys,
   type Metric,
 } from "./metrics";
 import { useTheme, type Theme } from "./prefs";
 import type { components } from "./schema";
 import { StateMarkers } from "./StateMarkers";
+import { StationPanel, type Entry } from "./StationPanel";
 import {
-  Badge,
+  DocTitle,
   EmptyCard,
   ErrorBanner,
   FILL,
-  linePath,
   MetricSwitch,
   narrow,
-  PRIMARY,
-  Pulse,
   show,
-  SoonTag,
-  stationPath,
   useNarrow,
   SlowHint,
   TipBox,
   type Tip,
 } from "./ui";
+import { readFilters, withParam, writeFilters, type Filters as FilterKeys } from "./urlKeys";
 
 type KartenStation = components["schemas"]["KartenStation"];
 type Land = components["schemas"]["Land"];
-/** A station of either map; only the day map knows its normal, its class, its source and its state. */
-type Entry = KartenStation &
-  Partial<Pick<components["schemas"]["TageskartenStation"], "normal" | "klasse" | "live" | "land">>;
-
-// Bundled worker per the MapLibre v6 docs for Vite.
-setWorkerUrl(workerUrl);
-
-export const STYLE: Record<Theme, string> = {
-  light: "https://tiles.openfreemap.org/styles/positron",
-  dark: "https://tiles.openfreemap.org/styles/dark",
-};
-/**
- * A map with the base both map pages share: the style of `theme`, the zoom buttons and the
- * attribution with its licence and dataset links (below the zoom buttons: a bottom corner stacks
- * each new control above the previous one), the control texts from the catalog (`title` names the
- * map for screen readers) and the base map's labels in the page language, for every base style
- * that loads. `view` says where the map looks.
- */
-export function baseMap(
-  container: HTMLElement,
-  title: string,
-  theme: Theme,
-  view: Pick<MapOptions, "bounds" | "fitBoundsOptions" | "center" | "zoom">,
-) {
-  const m = new MapLibre({
-    ...view,
-    container,
-    style: STYLE[theme],
-    attributionControl: false,
-    locale: {
-      "Map.Title": title,
-      "NavigationControl.ZoomIn": t("map.zoomIn"),
-      "NavigationControl.ZoomOut": t("map.zoomOut"),
-      "AttributionControl.ToggleAttribution": t("map.attributionToggle"),
-    },
-  });
-  // The control renders HTML, like the style's own attribution links.
-  const licence = `<a href="${t("data.licenceUrl")}" target="_blank" rel="noopener">${t("data.licence")}</a>`;
-  const dataset = `<a href="${t("data.datasetUrl")}" target="_blank" rel="noopener">${t("data.dataset")}</a>`;
-  m.addControl(
-    new AttributionControl({
-      compact: true,
-      customAttribution: t("map.attribution", { dataset, licence }),
-    }),
-    "bottom-right",
-  );
-  m.addControl(new NavigationControl({ showCompass: false }), "bottom-right");
-  m.on("style.load", () => {
-    for (const l of m.getStyle().layers) {
-      const field = l.type === "symbol" && l.layout?.["text-field"];
-      if (field) m.setLayoutProperty(l.id, "text-field", localLabel(field));
-    }
-  });
-  return m;
-}
-
-const palettes: Partial<Record<Theme, Record<string, string>>> = {};
-/** The colours of the tokens `names` in `theme`, each read once. <html data-theme> already is `theme` when this runs. */
-export function themeColours(theme: Theme, names: string[]) {
-  const have = (palettes[theme] ??= {});
-  for (const n of names) have[n] ??= token(n);
-  return have;
-}
 
 const GERMANY: [[number, number], [number, number]] = [
   [5.9, 47.3],
@@ -171,9 +81,6 @@ const CARD_GAP = 12;
 const PALE = 0.5;
 const VERY_PALE = 0.3;
 const NO_STATIONS = { type: "FeatureCollection" as const, features: [] };
-
-export const token = (name: string) =>
-  getComputedStyle(document.documentElement).getPropertyValue(`--${name}`).trim();
 
 /**
  * Room for the floating cards on top of the map `box`: on desktop the filter card's measured bottom
@@ -414,10 +321,11 @@ export default function MapPage({ day = false }: { day?: boolean }) {
   const shown = tag ?? newest;
   const showsToday = day && !!shown && shown === datenstand?.heute;
   // While today is shown, /datenstand is asked again too, so the end of today moves the page on;
-  // no other page polls it. Both polls stop once nobody interacts for a while.
+  // no other page polls it. Both polls stop once nobody interacts for a while. Live-Lage asks it
+  // again on focus on any day, so a tab shown again the next morning knows the new today.
   const polling = useLiveActive(showsToday);
   const poll = showsToday && polling ? LIVE_REFRESH : false;
-  useDatenstand(poll);
+  useDatenstand(poll, day);
   const f: FilterKeys = {
     ...read,
     tag,
@@ -449,8 +357,11 @@ export default function MapPage({ day = false }: { day?: boolean }) {
     // The day is clamped to the data first, so the request never names a day outside it.
     enabled: day && !!shown && !!datenstand,
     placeholderData: keepPreviousData,
-    // The live day grows while the tab is open.
+    // The live day grows while the tab is open: asked for on every visit, every refresh period
+    // and, while polling, when the tab is shown again.
+    staleTime: 0,
     refetchInterval: poll,
+    refetchOnWindowFocus: poll !== false,
   });
   const q = day ? dayMap : periodMap;
   const data = q.data;
@@ -542,6 +453,7 @@ export default function MapPage({ day = false }: { day?: boolean }) {
           className={`absolute inset-x-2.5 top-2.5 z-10 flex flex-col gap-2.5 overflow-hidden rounded-xl border border-border bg-surface p-2.5 shadow-card md:pointer-events-auto md:static md:shrink-0 md:p-3 ${f.bhf ? "md:max-w-[calc(100%-372px)]" : "md:max-w-full"}`}
         >
           <div className="max-md:-mb-2.5">
+            <DocTitle page={t(day ? "nav.live" : "nav.map")} />
             <h1 className="text-lg leading-tight font-[650] tracking-[-0.015em] max-md:sr-only">
               {t(day ? "nav.live" : "map.title")}
             </h1>
@@ -733,8 +645,7 @@ function StationMap({
     Math.min(home.current.z + DETAIL_STEP, stateZoom.current ?? Infinity),
   );
   const { resolved } = useTheme();
-  // The theme of the base style the map shows or is loading.
-  const styled = useRef(resolved);
+  const styled = useBaseStyle(map);
   const features = useMemo(
     () =>
       stations && toFeatures(stations, metric, resolved, day, { live: liveStand, rest: restStand }),
@@ -916,20 +827,8 @@ function StationMap({
       watch.disconnect();
       m.remove();
     };
-  }, [card, stack]);
-
-  useEffect(() => {
-    // Only a change after the map exists; the first style is already the right one.
-    if (!map || styled.current === resolved) return;
-    styled.current = resolved;
-    const el = box.current!;
-    el.dataset.ready = "false";
-    // A full reload, so style.load fires again and re-adds the station layers.
-    map.setStyle(STYLE[resolved], { diff: false });
-    map.once("idle", () => {
-      el.dataset.ready = "true";
-    });
-  }, [map, resolved]);
+    // `styled` is a ref, the same object on every render.
+  }, [card, stack, styled]);
 
   useEffect(() => {
     // While a new base style loads the layer is missing; style.load sets the latest fade.
@@ -1142,197 +1041,6 @@ function Legend({
         {paused && <p className="mt-1 text-xs text-text-2">{t("map.day.paused")}</p>}
         <p className="mt-2 text-xs text-text-3">{meta}</p>
       </div>
-    </section>
-  );
-}
-
-function StationPanel({
-  eva,
-  station,
-  loaded,
-  day,
-  category,
-  period,
-  f,
-  onClose,
-}: {
-  eva: string;
-  station?: Entry;
-  loaded: boolean;
-  /** True on the day map: each tile also shows its normal. */
-  day: boolean;
-  category: string;
-  period?: string;
-  /** The map's filters: the lines below follow its category, months and metric. */
-  f: FilterKeys;
-  onClose: () => void;
-}) {
-  const { search } = useLocation();
-  // Until the map data is in, the station may still be part of it.
-  const lookup = useStation(eva, loaded && !station);
-  const name = station?.name ?? lookup.data?.name ?? t("filter.eva", { eva });
-  const tiles = station && METRICS.map((m) => ({ m, ...show(m, station, name) }));
-  const [onTime, , bad] = tiles ?? [];
-
-  // ponytail: fixed-height bottom sheet without drag or snap levels (design.md 2.1); add when users ask
-  return (
-    <aside
-      aria-label={name}
-      onKeyDown={(e) => {
-        if (e.key === "Escape") onClose();
-      }}
-      className="absolute inset-x-0 bottom-0 z-20 max-h-[62%] overflow-auto rounded-t-[18px] border border-b-0 border-border bg-surface p-[18px] pt-[22px] shadow-card before:absolute before:top-2 before:left-1/2 before:h-1 before:w-10 before:-translate-x-1/2 before:rounded-sm before:bg-border md:inset-x-auto md:top-3 md:right-3 md:bottom-auto md:max-h-[calc(100%-24px)] md:w-[360px] md:rounded-xl md:border-b md:pt-[18px] md:before:hidden"
-    >
-      <button
-        type="button"
-        aria-label={t("map.close")}
-        onClick={onClose}
-        className="hit absolute top-2.5 right-2.5 grid size-8 cursor-pointer place-items-center rounded-lg text-text-3 hover:bg-surface-2 hover:text-text"
-      >
-        <Icon name="x" />
-      </button>
-      <h2 className="pr-8 text-[19px] leading-tight font-[650]">{name}</h2>
-      <p className="mt-0.5 text-xs text-text-3">
-        {t("map.sub", { eva: t("filter.eva", { eva }), category })}
-      </p>
-
-      {station && day && station.n === 0 ? (
-        <p className="my-3 text-text-2">{t("map.day.todayNoneLong")}</p>
-      ) : station && tiles ? (
-        <>
-          {tiles.some((x) => x.low) && (
-            <p className="mt-3 flex items-center gap-1.5 text-xs font-[550] text-text-2">
-              <span aria-hidden="true">◌</span>
-              {t("map.lowNote", { n: int(station.n) })}
-            </p>
-          )}
-          {onTime.value !== undefined && bad.value !== undefined && (
-            <p className="my-3 text-[15px]">
-              {tx("map.sentence", {
-                share: <b className="font-[650]">{t("map.share", { x: tenths(onTime.value) })}</b>,
-                p90: <b className="font-[650]">{bad.text}</b>,
-              })}
-            </p>
-          )}
-          <div className="mt-3 mb-3.5 grid grid-cols-2 gap-2">
-            {tiles.map((x) => {
-              // The day map: the stripe is the deviation class, and the normal stands below the value.
-              const dev = day ? deviation(x.m, station) : null;
-              let fill = x.fill;
-              if (day) fill = dev ? FILL.r[dev.cls - 1] : x.low ? x.fill : "bg-c3";
-              return (
-                <div
-                  key={x.m}
-                  className="relative overflow-hidden rounded-[10px] bg-surface-2 py-2.5 pr-3 pl-4"
-                >
-                  <i aria-hidden="true" className={`absolute inset-y-0 left-0 w-[3px] ${fill}`} />
-                  <div className="text-[11.5px] text-text-2">
-                    {x.m === "ausfall" && (
-                      <span aria-hidden="true" className="font-semibold text-cancel">
-                        ✕{" "}
-                      </span>
-                    )}
-                    {t(`metric.${x.m}`)}
-                  </div>
-                  <div className="text-[19px] font-[650] tabular-nums">{x.text}</div>
-                  {day && (
-                    <div className="text-[11.5px] text-text-3">
-                      {dev
-                        ? `${t("map.day.usual", { v: dev.normal })} · ${t(`map.day.class.${dev.cls}`)}`
-                        : t("map.day.noCompare")}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-          <p className="mb-3.5 text-xs text-text-3">
-            {t("hm.meta", { n: int(station.n), period: period ?? "" })}
-          </p>
-        </>
-      ) : (
-        loaded && <p className="my-3 text-text-2">{t(day ? "lage.notLarge" : "map.noData")}</p>
-      )}
-
-      <div className="flex flex-wrap items-center gap-2">
-        <Link to={{ pathname: stationPath(eva), search }} className={PRIMARY}>
-          {t("map.details")}
-        </Link>
-        <span className="inline-flex h-[34px] items-center gap-1.5 px-2 font-medium text-text-2 opacity-55">
-          {t("map.fromHere")}
-          <SoonTag />
-        </span>
-      </div>
-
-      {/* After the actions, so they stay in view on a phone. Line values are monthly, and the day
-          map has none per day: the Karte only. */}
-      {!day && (station || lookup.data) && <PanelLines eva={eva} f={f} search={search} />}
-    </aside>
-  );
-}
-
-/** How many lines the panel lists; the station page has the rest. */
-const PANEL_LINES = 5;
-
-/**
- * The station's busiest lines in the map's metric, each a link to its page, and a link to all of
- * them on the station page. It asks what the station page asks, so that page comes from the cache.
- */
-function PanelLines({ eva, f, search }: { eva: string; f: FilterKeys; search: string }) {
-  const id = useId();
-  const q = useStationLines(eva, f);
-  // The months the lines cover: the URL's rounded to the data, else the covered range (the API's
-  // default, as the filter bar shows it).
-  const m = useMonthPeriod(f);
-  const stand = useDatenstand().data;
-  const von = m.von ?? stand?.vollabdeckung_ab;
-  const bis = m.bis ?? stand?.monate.at(-1);
-  const period = von && bis ? formatPeriod(von, bis) : undefined;
-  const busiest = q.data && [...q.data].sort((a, b) => b.n - a.n);
-  let body;
-  if (q.isError) body = <ErrorBanner onRetry={() => q.refetch()} />;
-  else if (!busiest) body = <Pulse className="h-[120px] animate-pulse rounded-lg bg-surface-2" />;
-  else if (busiest.length === 0) body = <p className="text-text-2">{t("station.lines.none")}</p>;
-  else
-    body = (
-      <>
-        <ul>
-          {busiest.slice(0, PANEL_LINES).map((l) => {
-            const shown = show(f.k, l, l.name);
-            return (
-              <li key={l.linie}>
-                <Link
-                  to={{ pathname: linePath(l.linie), search: linePageSearch(f) }}
-                  className="flex items-center gap-2 rounded-lg px-1 py-1.5 hover:bg-surface-2 max-md:min-h-11"
-                >
-                  {l.typ && <Badge>{l.typ}</Badge>}
-                  <b className="min-w-0 flex-1 font-semibold">{l.name}</b>
-                  <b className={`tabular-nums ${shown.low ? "text-text-3" : ""}`}>{shown.text}</b>
-                </Link>
-              </li>
-            );
-          })}
-        </ul>
-        {busiest.length > PANEL_LINES && (
-          <Link
-            to={{ pathname: stationPath(eva), search, hash: "#linien" }}
-            className="flex items-center rounded-lg px-1 py-1.5 text-[13px] font-medium text-text-2 hover:bg-surface-2 hover:text-text max-md:min-h-11"
-          >
-            {t("map.lines.all", { count: int(busiest.length) })}
-          </Link>
-        )}
-      </>
-    );
-  return (
-    <section aria-labelledby={id} className="mt-3.5 border-t border-border pt-3">
-      <div className="mb-1 flex items-baseline justify-between gap-3 px-1">
-        <h3 id={id} className="text-[13px] font-[620]">
-          {t("map.lines")}
-        </h3>
-        <span className="text-xs text-text-3">{t(`metric.${f.k}`)}</span>
-      </div>
-      {period && <p className="mb-1 px-1 text-xs whitespace-nowrap text-text-3">{period}</p>}
-      {body}
     </section>
   );
 }

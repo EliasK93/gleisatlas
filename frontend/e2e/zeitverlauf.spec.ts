@@ -450,6 +450,32 @@ test.describe("day view", () => {
     await expect(page.getByRole("main")).toContainText("Köln Hbf");
   });
 
+  test("another station shows the skeleton until its own series arrives", async ({ page }) => {
+    await mockApi(page);
+    let release = () => {};
+    const held = new Promise<void>((done) => (release = done));
+    await page.route(
+      (url) => url.pathname === "/tagesverlauf" && url.searchParams.get("eva") === "8000105",
+      async (route) => {
+        await held;
+        await route.fallback();
+      },
+    );
+    await page.goto("/muster/zeitverlauf?bhf=8000207");
+    await expect(chart(page, DAY)).toBeVisible();
+    await page.evaluate(() => {
+      history.pushState(null, "", "/muster/zeitverlauf?bhf=8000105");
+      dispatchEvent(new PopStateEvent("popstate"));
+    });
+    await expect(page.getByRole("button", { name: /^Bahnhof/ })).toContainText("Frankfurt");
+    await expect(
+      page.getByRole("status").filter({ hasText: "Daten werden geladen" }),
+    ).toBeVisible();
+    await expect(chart(page, DAY)).toHaveCount(0);
+    release();
+    await expect(chart(page, DAY)).toBeVisible();
+  });
+
   test("the trend is drawn as one bold line, the days as thin segments", async ({ page }) => {
     await mockApi(page);
     await page.goto("/muster/zeitverlauf");

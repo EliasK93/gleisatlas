@@ -81,6 +81,10 @@ function Shell() {
   const onMap = useMatch(MAP) !== null;
   const onLage = useMatch(LAGE) !== null;
   const full = onMap || onLage;
+  // A link to Live-Lage opens live; `tag` elsewhere is another page's day (the Bildfahrplan's).
+  const lage = new URLSearchParams(search);
+  if (!onLage) lage.delete("tag");
+  const lageTo = { pathname: LAGE, search: lage.toString() };
   return (
     <div
       className={`md:grid md:grid-cols-[248px_1fr] ${full ? "flex h-dvh flex-col overflow-hidden" : "min-h-screen"}`}
@@ -106,7 +110,7 @@ function Shell() {
         <nav aria-label={t("nav.label")} className="hidden md:flex md:flex-1 md:flex-col md:gap-1">
           <Group label="nav.discover" />
           <SideLink icon="map" label="nav.map" to={{ pathname: MAP, search }} />
-          <SideLink icon="clock" label="nav.live" to={{ pathname: LAGE, search }} />
+          <SideLink icon="clock" label="nav.live" to={lageTo} />
           <SideLink icon="grid" label="nav.heatmap" to={{ pathname: HEATMAP, search }} />
           <SideLink icon="list" label="nav.rankings" to={{ pathname: RANKINGS, search }} />
           <SideLink icon="trend" label="nav.timeline" to={{ pathname: ZEITVERLAUF, search }} />
@@ -135,7 +139,7 @@ function Shell() {
               {t("footer.disclaimer")} {t("legal.notDb")}
             </b>
             <span>
-              {tx("footer.attribution", { dataset: <DatasetLink />, licence: <LicenceLink /> })}
+              {tx("data.attribution", { dataset: <DatasetLink />, licence: <LicenceLink /> })}
             </span>
             <LegalLinks />
           </footer>
@@ -148,7 +152,7 @@ function Shell() {
         className={`z-10 grid grid-cols-4 border-t border-border bg-surface px-1 pt-1 pb-2 md:hidden ${full ? "shrink-0" : "fixed inset-x-0 bottom-0"}`}
       >
         <Tab icon="map" label="nav.map" to={{ pathname: MAP, search }} />
-        <Tab icon="clock" label="nav.live" to={{ pathname: LAGE, search }} />
+        <Tab icon="clock" label="nav.live" to={lageTo} />
         {/* /muster redirects to the heatmap; the tab stays current on every pattern page. */}
         <Tab icon="grid" label="nav.patterns" to={{ pathname: "/muster", search }} />
         <Tab icon="more" label="nav.more" to={{ pathname: "/mehr", search }} />

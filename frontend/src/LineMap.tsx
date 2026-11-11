@@ -6,12 +6,12 @@ import {
 } from "maplibre-gl";
 import { useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import { t } from "./i18n";
-import { baseMap, STYLE, themeColours, token } from "./MapPage";
+import { baseMap, themeColours, token, useBaseStyle } from "./mapBase";
 import { useTheme, type Theme } from "./prefs";
 import type { MapSegment } from "./sections";
 import { TipBox, type Tip } from "./ui";
 
-export type MapPoint = { eva: string; name: string; lon: number; lat: number };
+type MapPoint = { eva: string; name: string; lon: number; lat: number };
 
 /** The segments as a line collection in the colours of `theme`, and the stations as points. */
 function collections(points: MapPoint[], segments: MapSegment[], theme: Theme) {
@@ -71,8 +71,7 @@ export function LineMap({
   const [map, setMap] = useState<MapLibre>();
   const [tip, setTip] = useState<Tip>(null);
   const { resolved } = useTheme();
-  // The theme of the base style the map shows or is loading.
-  const styled = useRef(resolved);
+  const styled = useBaseStyle(map);
   const data = useMemo(() => collections(points, segments, resolved), [points, segments, resolved]);
   // What a freshly loaded base style needs to draw the line again.
   const current = useEffectEvent(() => ({ ...data, selected }));
@@ -148,20 +147,8 @@ export function LineMap({
       m.on("mouseleave", layer, () => setTip(null));
     }
     return () => m.remove();
-  }, []);
-
-  useEffect(() => {
-    // Only a change after the map exists; the first style is already the right one.
-    if (!map || styled.current === resolved) return;
-    styled.current = resolved;
-    const el = box.current!;
-    el.dataset.ready = "false";
-    // A full reload, so style.load fires again and re-adds the line.
-    map.setStyle(STYLE[resolved], { diff: false });
-    map.once("idle", () => {
-      el.dataset.ready = "true";
-    });
-  }, [map, resolved]);
+    // `styled` is a ref, the same object on every render.
+  }, [styled]);
 
   // The test hook: what the map draws, ready or not.
   useEffect(() => {

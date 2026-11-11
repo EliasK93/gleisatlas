@@ -5,26 +5,7 @@ import { clearParams, useSetParams } from "./useSetParams";
 import { api, must, useMonthPeriod } from "./api";
 import { Filters } from "./Filters";
 import { LOCALE, t, type MessageKey } from "./i18n";
-import {
-  API_FIELD,
-  formatPeriod,
-  int,
-  linePageSearch,
-  LOW_N,
-  MIN_NS,
-  NBSP,
-  oneDecimal,
-  RANK_TYPES,
-  readFilters,
-  readRank,
-  withParam,
-  withRank,
-  writeFilters,
-  writeRank,
-  type Filters as FilterKeys,
-  type Metric,
-  type Rank,
-} from "./metrics";
+import { API_FIELD, formatPeriod, int, LOW_N, NBSP, oneDecimal, type Metric } from "./metrics";
 import type { components } from "./schema";
 import { minutesText, stepOf } from "./sections";
 import {
@@ -47,6 +28,19 @@ import {
   PageTitle,
   Pulse,
 } from "./ui";
+import {
+  linePageSearch,
+  MIN_NS,
+  RANK_TYPES,
+  readFilters,
+  readRank,
+  withParam,
+  withRank,
+  writeFilters,
+  writeRank,
+  type Filters as FilterKeys,
+  type Rank,
+} from "./urlKeys";
 
 type Rangliste = components["schemas"]["Rangliste"];
 type Eintrag = components["schemas"]["RanglistenEintrag"];
@@ -199,9 +193,9 @@ export default function RankingsPage() {
       onMore: (i, shown) => {
         if (q.isPlaceholderData) return;
         const next: Counts = [...counts];
-        next[i] += STEP;
+        next[i] = Math.min(next[i] + STEP, MAX_ROWS);
         // The last click removes the button, so the focus goes to the first row it adds.
-        const focus = next[i] >= total ? { list: i, index: shown } : null;
+        const focus = next[i] >= Math.min(total, MAX_ROWS) ? { list: i, index: shown } : null;
         setGrown({ identity, counts: next, clicked: i, focus });
       },
       onFocused: () => setGrown((g) => ({ ...g, focus: null })),
@@ -307,6 +301,8 @@ export default function RankingsPage() {
 
 const FIRST = 10;
 const STEP = 100;
+/** The most rows a list grows to: the API's largest `limit`. */
+const MAX_ROWS = 2000;
 /** Rows shown in the first and the second list. */
 type Counts = [number, number];
 /** The page's paging state: the counts, the list last clicked and the row to focus once it exists. */
@@ -375,15 +371,18 @@ function Columns({ columns, paging }: { columns: Column[]; paging: Paging }) {
               {list}
               {rows < paging.total && (
                 <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-2">
-                  {/* aria-disabled, not disabled: the button keeps the focus while the rows load. */}
-                  <button
-                    type="button"
-                    className="btn aria-disabled:cursor-wait aria-disabled:opacity-60"
-                    aria-disabled={paging.busy}
-                    onClick={() => paging.onMore(index, rows)}
-                  >
-                    {t("rk.more")}
-                  </button>
+                  {/* aria-disabled, not disabled: the button keeps the focus while the rows load.
+                      At the API's largest limit only the count stays. */}
+                  {rows < MAX_ROWS && (
+                    <button
+                      type="button"
+                      className="btn aria-disabled:cursor-wait aria-disabled:opacity-60"
+                      aria-disabled={paging.busy}
+                      onClick={() => paging.onMore(index, rows)}
+                    >
+                      {t("rk.more")}
+                    </button>
+                  )}
                   <p className="text-xs text-text-3 tabular-nums">
                     {t("rk.shown", { shown: int(rows), count: int(paging.total) })}
                   </p>

@@ -82,6 +82,21 @@ test("leaving the map while its card resizes throws no page error", async ({ pag
   expect(errors).toEqual([]);
 });
 
+test("a tab that becomes visible again sends no second /karte request", async ({ page }) => {
+  const requests = await mockApi(page);
+  await page.goto("/karte");
+  await expect(map(page)).toHaveAttribute("data-ready", "true");
+  const karte = () => requests.filter((u) => u.pathname === "/karte").length;
+  expect(karte()).toBe(1);
+  // As the browser sends it: at the document, bubbling up to the window.
+  await page.evaluate(() =>
+    document.dispatchEvent(new Event("visibilitychange", { bubbles: true })),
+  );
+  // A refetch would go out at once; a second is plenty of time to see it.
+  await page.waitForTimeout(1000);
+  expect(karte()).toBe(1);
+});
+
 test("?bhf= opens the panel; Schließen removes bhf and keeps the rest", async ({ page }) => {
   await mockApi(page);
   await page.goto("/karte?g=fern&bhf=8000207");
@@ -575,6 +590,29 @@ test.describe("the lines in the station panel", () => {
     const card = page.getByRole("region", { name: "Linien an diesem Bahnhof" });
     await expect(card).toBeInViewport();
     expect(await page.evaluate(() => scrollY)).toBeGreaterThan(0);
+  });
+
+  test("a second station never shows the first station's lines while its own load", async ({
+    page,
+  }) => {
+    await mockApi(page);
+    let release = () => {};
+    const held = new Promise<void>((done) => (release = done));
+    await page.route("**/stationen/8000105/linien*", async (route) => {
+      await held;
+      await route.fallback();
+    });
+    await page.goto("/karte?bhf=8000207");
+    await expect(lines(page).getByRole("listitem")).toHaveCount(5);
+    await page.evaluate(() => {
+      history.pushState(null, "", "/karte?bhf=8000105");
+      dispatchEvent(new PopStateEvent("popstate"));
+    });
+    await expect(panel(page).getByRole("heading", { level: 2 })).toHaveText("Frankfurt (Main) Hbf");
+    await expect(lines(page).getByRole("status")).toBeVisible();
+    await expect(lines(page).getByRole("listitem")).toHaveCount(0);
+    release();
+    await expect(lines(page).getByRole("listitem")).toHaveCount(5);
   });
 
   test("a station with up to five lines has no link to all", async ({ page }) => {

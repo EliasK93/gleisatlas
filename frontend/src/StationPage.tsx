@@ -6,20 +6,8 @@ import { api, must, useMonthPeriod, useStationLines } from "./api";
 import { Filters } from "./Filters";
 import { t, type MessageKey } from "./i18n";
 import { Icon, type IconName } from "./Icon";
-import {
-  binLabel,
-  dayName,
-  DEFS,
-  formatPeriod,
-  int,
-  linePageSearch,
-  readFilters,
-  share,
-  withParam,
-  writeFilters,
-  type Filters as FilterKeys,
-  type Metric,
-} from "./metrics";
+import { stationLand } from "./laender";
+import { binLabel, dayName, DEFS, formatPeriod, int, share, type Metric } from "./metrics";
 import type { components } from "./schema";
 import {
   Badge,
@@ -46,6 +34,13 @@ import {
   StatRow,
 } from "./ui";
 import { StationSearch, useOpenStation } from "./StationSearch";
+import {
+  linePageSearch,
+  readFilters,
+  withParam,
+  writeFilters,
+  type Filters as FilterKeys,
+} from "./urlKeys";
 import { Sparkline } from "./ZeitverlaufPage";
 
 type Statistik = components["schemas"]["Statistik"];
@@ -147,7 +142,9 @@ export default function StationPage() {
           </nav>
           <PageTitle>{name}</PageTitle>
           <p className="mt-1 text-xs text-text-3">
-            {[t("filter.eva", { eva }), data?.station.land].filter(Boolean).join(" · ")}
+            {[t("filter.eva", { eva }), stationLand(data?.station.land)]
+              .filter(Boolean)
+              .join(" · ")}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -329,10 +326,10 @@ function MiniHeatmap({
   metric: Metric;
   to: { pathname: string; search: string };
 }) {
-  // The same key shape as the heatmap page, so the cache is shared.
+  // The same key shape as the heatmap page (no line), so the cache is shared.
   const m = useMonthPeriod(f);
   const q = useQuery({
-    queryKey: ["heatmap", f.g, eva, m.von, m.bis],
+    queryKey: ["heatmap", f.g, eva, undefined, m.von, m.bis],
     queryFn: () =>
       api
         .GET("/heatmap", {

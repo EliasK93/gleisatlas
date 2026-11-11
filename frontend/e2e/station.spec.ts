@@ -91,6 +91,16 @@ test("a filter change after another key keeps the page mounted", async ({ page }
   await expect(title).toHaveAttribute("data-mark", "kept");
 });
 
+test("opening the full heatmap from the station page sends no second request", async ({ page }) => {
+  const requests = await mockApi(page);
+  await page.goto("/bahnhof/8000207");
+  const hm = section(page, "Wochentag × Uhrzeit");
+  await expect(hm.getByRole("img")).toBeVisible();
+  await hm.getByRole("link", { name: "Groß ansehen →" }).click();
+  await expect(page.getByRole("table")).toBeVisible();
+  expect(requests.filter((u) => u.pathname === "/heatmap")).toHaveLength(1);
+});
+
 test("every tile's term is a native title with the metric's explanation", async ({ page }) => {
   await mockApi(page);
   await page.goto("/bahnhof/8000207");

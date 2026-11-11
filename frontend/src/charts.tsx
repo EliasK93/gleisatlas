@@ -24,7 +24,7 @@ type Trend = components["schemas"]["Trend"];
  * hours without complete data, `trend` the day's 28-day trend (days only).
  */
 export type Row = Omit<Monat, "monat"> & { key: string; missing: number; trend?: Trend };
-export type Scale = { x: (i: number) => number; y: (v: number) => number; bottom: number };
+type Scale = { x: (i: number) => number; y: (v: number) => number; bottom: number };
 export type Marker = { i: number; label: string; row: number; end: boolean };
 
 export const PAD = { l: 48, r: 22, b: 22 };

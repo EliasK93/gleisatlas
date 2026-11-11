@@ -1757,6 +1757,26 @@ test.describe("today", () => {
     ).toHaveLength(1);
   });
 
+  test("a past day's tab shown again asks /datenstand again", async ({ page }) => {
+    // Opened in the evening on a past day, before the server had a today; shown again the next morning.
+    let today = false;
+    await page.clock.install();
+    const requests = await openToday(page, `tag=${DAY}`, "live", () =>
+      today ? datenstandHeute() : noToday(),
+    );
+    const status = () => requests.filter((u) => u.pathname === "/datenstand").length;
+    const heute = page.getByRole("button", { name: "Heute", exact: true });
+    await expect(heute).toBeDisabled();
+    const before = status();
+    today = true;
+    await page.clock.fastForward("06:00");
+    await page.evaluate(() =>
+      document.dispatchEvent(new Event("visibilitychange", { bubbles: true })),
+    );
+    await expect.poll(status).toBe(before + 1);
+    await expect(heute).toBeEnabled();
+  });
+
   test("no other page polls /datenstand, even while the server has a today", async ({ page }) => {
     await page.clock.install();
     await page.clock.setSystemTime(NOW);

@@ -10,6 +10,8 @@ const DEV = "http://localhost:5318";
 
 export default defineConfig({
   testDir: "e2e",
+  // A stray test.only would run one test and pass the gate with the rest skipped.
+  forbidOnly: true,
   // The JUnit file feeds the README's tests badge in CI (scripts/tests_badge.py).
   reporter: [["list"], ["junit", { outputFile: "test-results/junit.xml" }]],
   // The map's data-ready can take longer than the default 5 s when every worker draws a map at

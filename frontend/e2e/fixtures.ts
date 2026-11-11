@@ -62,13 +62,13 @@ const BASE_STYLE = baseStyle("#eef0f3");
 const DARK_STYLE = baseStyle("#1f242c");
 
 export const STATIONS: Station[] = [
-  { eva: "8000207", name: "Köln Hbf", land: "Nordrhein-Westfalen", n: 90000 },
-  { eva: "8000105", name: "Frankfurt (Main) Hbf", land: "Hessen", n: 80000 },
+  { eva: "8000207", name: "Köln Hbf", land: "nw", n: 90000 },
+  { eva: "8000105", name: "Frankfurt (Main) Hbf", land: "he", n: 80000 },
   // Known station without map data (no coordinates); its EVA has a leading zero, as in the data.
-  { eva: "08002549", name: "Hamburg Hbf", land: "Hamburg", n: 70000 },
+  { eva: "08002549", name: "Hamburg Hbf", land: "hh", n: 70000 },
   // Two stations with the same name, one with no federal state and very little data.
-  { eva: "8000300", name: "Neustadt", land: "Bayern", n: 5000 },
-  { eva: "8000301", name: "Neustadt", land: "Hessen", n: 4000 },
+  { eva: "8000300", name: "Neustadt", land: "by", n: 5000 },
+  { eva: "8000301", name: "Neustadt", land: "he", n: 4000 },
   { eva: "8000999", name: "Kleinstadt", land: null, n: 9 },
 ];
 

@@ -216,6 +216,19 @@ test.describe("desktop", () => {
     await expect.poll(() => lastQuery(requests)).toMatchObject({ typ: "bahnhoefe" });
   });
 
+  test("a typical delay below zero draws an empty bar", async ({ page }) => {
+    await mockApi(page, undefined, undefined, undefined, (typ, metrik, minN) => {
+      const list = rankingFixture(typ, metrik, minN);
+      list.beste[0].median = -1;
+      return list;
+    });
+    await page.goto("/muster/rankings?k=median");
+    const top = column(page, BEST).getByRole("listitem").first();
+    await expect(top).toContainText("< 1 min");
+    // A negative CSS width is dropped, which would fill the whole track.
+    expect(await top.locator("i").evaluate((el) => el.getBoundingClientRect().width)).toBe(0);
+  });
+
   test("invalid values and a bhf key are dropped", async ({ page }) => {
     const requests = await mockApi(page);
     await page.goto("/muster/rankings?typ=x&min=42&bhf=8000207");
@@ -542,7 +555,9 @@ test.describe("desktop", () => {
     // The metric keeps it; Halte writes nothing.
     await art.getByRole("button", { name: "Halte" }).click();
     await expect(page).toHaveURL(/typ=rekorde$/);
-    await expect.poll(() => lastOf(requests, "/rankings/rekorde")).toMatchObject({ art: "halte" });
+    // The stops were asked for first, so they come back from the cache.
+    await expect(most.first()).toContainText("Halte/Tag");
+    expect(requests.filter((u) => u.searchParams.get("art") === "halte")).toHaveLength(1);
   });
 
   test("records take no minimum: no chips, the request carries the floor, min survives a tab change", async ({
@@ -730,6 +745,23 @@ test.describe("desktop", () => {
     // The other list is still at ten and keeps its button.
     await expect(column(page, BEST).getByRole("listitem")).toHaveCount(10);
     await expect(more(column(page, BEST))).toBeVisible();
+  });
+
+  test("show more stops at 2,000 rows, the most the API serves", async ({ page }) => {
+    test.slow();
+    const requests = await mockApi(page);
+    await page.goto("/muster/rankings");
+    const worst = column(page, WORST);
+    // 10, then +100 per click: the 20th click reaches 2,000.
+    for (let shown = 110; shown <= 1910; shown += 100) {
+      await more(worst).click();
+      await expect(worst.getByText(`${shown.toLocaleString("de-DE")} von 2.445`)).toBeVisible();
+    }
+    await more(worst).click();
+    await expect(worst.getByRole("listitem")).toHaveCount(2000);
+    expect(lastQuery(requests)).toMatchObject({ limit: "2000" });
+    await expect(worst.getByText("2.000 von 2.445")).toBeVisible();
+    await expect(more(worst)).toHaveCount(0);
   });
 
   test("show more: a filter, the metric or the tab returns both lists to ten and drops the limit", async ({

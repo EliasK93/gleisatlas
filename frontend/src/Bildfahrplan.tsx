@@ -211,7 +211,7 @@ function Chart({ line, tag, fahrten }: { line: Linie; tag: string; fahrten: Fahr
     [shown, active, x, y],
   );
   const hours = Array.from({ length: end / 60 + 1 }, (_, h) => h * 60);
-  // ponytail: a label too close to the one above is left out; the list and the tooltip name every stop
+  // ponytail: a label too close to the one above is left out; the list and the tooltip name every stop; revisit if users miss labels
   const labels: { i: number; at: number }[] = [];
   axis.forEach((_, i) => {
     const prev = labels.at(-1);

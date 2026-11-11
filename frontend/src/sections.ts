@@ -1,6 +1,6 @@
 /** The sections of a line along its axis: the route's sections, the map's segments, the colour steps. Pure functions, no React. */
 import { LOCALE, t } from "./i18n";
-import { int, NBSP, oneDecimal } from "./metrics";
+import { int, NBSP, oneDecimal, signed } from "./metrics";
 import type { components } from "./schema";
 
 type Abschnitt = components["schemas"]["Abschnitt"];
@@ -14,7 +14,7 @@ type Bahnhof = components["schemas"]["LinienBahnhof"];
 export const STEPS = [-0.5, -0.15, 0.15, 1.0] as const;
 /** Sections with fewer trips are drawn pale, like the map's dots with little data. */
 export const THIN_N = 50;
-export type Step = 1 | 2 | 3 | 4 | 5;
+type Step = 1 | 2 | 3 | 4 | 5;
 
 export function stepOf(minutes: number): Step {
   const i = STEPS.findIndex((limit, j) => (j < 2 ? minutes < limit : minutes <= limit));
@@ -23,11 +23,6 @@ export function stepOf(minutes: number): Step {
 
 const limitFormat = new Intl.NumberFormat(LOCALE, { maximumFractionDigits: 2 });
 
-/** The number of `format` with its sign: "+1,8", "−0,4" (a real minus), "±0,0". */
-function signed(v: number, format: Intl.NumberFormat) {
-  const text = format.format(Math.abs(v));
-  return `${text === format.format(0) ? "±" : v < 0 ? "−" : "+"}${text}`;
-}
 /** Minutes of a section with sign and unit: "+1,8 min". */
 export const minutesText = (v: number) => `${signed(v, oneDecimal)}${NBSP}${t("unit.min")}`;
 /** A step limit with its sign and no unit: "−0,15". */

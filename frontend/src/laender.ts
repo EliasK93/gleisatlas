@@ -27,3 +27,7 @@ export const ANCHORS: Record<string, [number, number]> = {
 
 /** The state's name in the UI language. */
 export const landName = (code: string) => t(`land.${code}` as MessageKey);
+
+/** A station's state for display: its name, or nothing where the API knows no state. */
+export const stationLand = (code: string | null | undefined) =>
+  code && Object.hasOwn(ANCHORS, code) ? landName(code) : undefined;

@@ -1,6 +1,6 @@
 /** The Bildfahrplan of a line: the axis by distance, a trip's place on it, its paths and texts. Pure functions, no React. */
 import { t } from "./i18n";
-import { classOf, int, NBSP, type Class } from "./metrics";
+import { classOf, int, NBSP, signed, type Class } from "./metrics";
 import type { components } from "./schema";
 
 type Bahnhof = components["schemas"]["LinienBahnhof"];
@@ -43,7 +43,7 @@ export function distances(axis: Bahnhof[]): number[] {
 }
 
 /** A stop of a trip on the axis: `i` is its place in `achse`. */
-export type Placed = { i: number; halt: Halt };
+type Placed = { i: number; halt: Halt };
 
 /**
  * The stops of a trip on the axis `evas`, in trip order. A stop off the axis is skipped. A station
@@ -88,7 +88,7 @@ export function pieces(evas: string[], placed: Placed[]): Placed[][] {
 }
 
 /** The colour step of a delay in minutes: the steps of the typical delay ("Typische Verspätung"). */
-export const delayStep = (minutes: number): Class => classOf("median", minutes);
+const delayStep = (minutes: number): Class => classOf("median", minutes);
 
 /** The planned path through the arrival and departure of each placed stop, as [minute, axis place]. */
 export const planPoints = (placed: Placed[]) =>
@@ -96,7 +96,7 @@ export const planPoints = (placed: Placed[]) =>
     [halt.an_plan, halt.ab_plan].flatMap((m) => (m === null ? [] : [[m, i] as const])),
   );
 
-export type Segment = {
+type Segment = {
   from: readonly [number, number];
   to: readonly [number, number];
   step: Class;
@@ -139,8 +139,7 @@ export const clock = (m: number) =>
   `${String(Math.floor(m / 60) % 24).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
 
 /** Whole minutes with a sign: "+3 min", "−1 min", "±0 min". */
-export const delayText = (d: number) =>
-  `${d > 0 ? "+" : d < 0 ? "−" : "±"}${int(Math.abs(d))}${NBSP}${t("unit.min")}`;
+const delayText = (d: number) => `${signed(d)}${NBSP}${t("unit.min")}`;
 
 /** A stop's delay as text: "+3 min", "fällt aus", or "–" without times. */
 export function delayOf(h: Halt) {
@@ -150,7 +149,7 @@ export function delayOf(h: Halt) {
 }
 
 /** The planned time of a stop's main event, or "–". */
-export const planTime = (h: Halt) => {
+const planTime = (h: Halt) => {
   const { plan } = main(h);
   return plan === null ? "–" : clock(plan);
 };

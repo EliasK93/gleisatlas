@@ -4,19 +4,9 @@ import { clearParams, useSetParams } from "./useSetParams";
 import { lageDays, useDatenstand, useStation } from "./api";
 import { t } from "./i18n";
 import { Icon } from "./Icon";
-import {
-  addDays,
-  berlinToday,
-  firstDay,
-  formatPeriod,
-  lastDay,
-  monthOf,
-  readFilters,
-  withParam,
-  withPeriod,
-  within,
-} from "./metrics";
+import { addDays, berlinToday, firstDay, formatPeriod, lastDay, monthOf, within } from "./metrics";
 import { StationSearch } from "./StationSearch";
+import { readFilters, withParam, withPeriod } from "./urlKeys";
 
 const chip = (on: boolean) =>
   `chip ${on ? "border-transparent bg-accent-soft text-accent" : "border-border bg-surface text-text-2"}`;
@@ -264,7 +254,7 @@ export function Filters({
  * when that changes by other means (a clamped link, the other edge moving along). A day for
  * which `holds` is true (it would move the other edge) is not passed on while the field has the
  * focus, since typing passes through such days (a 2 on the way to 25); it is passed on when the
- * field is left.
+ * field is left. A day outside min..max, or an empty field, returns to `value` when the field is left.
  */
 export function DayField({
   label,
@@ -307,6 +297,8 @@ export function DayField({
         onBlur={(e) => {
           const v = e.target.value;
           if (holds && inside(v) && v !== value) onPick(v);
+          // A rejected or emptied day goes back to the shown one; `value` did not change, so nothing else would.
+          else if (!inside(v) && value) e.target.value = value;
         }}
         className={`cursor-pointer bg-transparent px-1 font-semibold ${className}`}
       />

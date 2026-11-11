@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { Link, useLocation } from "react-router";
 import { t, tx } from "./i18n";
+import { Page, PageTitle } from "./ui";
 
 export const IMPRESSUM = "/impressum";
 export const DATENSCHUTZ = "/datenschutz";
@@ -47,14 +48,12 @@ export function LegalLinks({ className }: { className?: string }) {
   );
 }
 
-function Page({ title, children }: { title: string; children: ReactNode }) {
+function LegalPage({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <div className="mx-auto max-w-[1200px] px-4 pt-4 md:px-8 md:pt-6">
-      <h1 className="mb-3 text-[21px] leading-tight font-[650] tracking-[-0.015em] md:text-[26px]">
-        {title}
-      </h1>
+    <Page>
+      <PageTitle className="mb-3">{title}</PageTitle>
       <div className="flex max-w-[68ch] flex-col gap-3 text-text-2">{children}</div>
-    </div>
+    </Page>
   );
 }
 
@@ -65,7 +64,7 @@ export function ImpressumPage() {
   const complete =
     VITE_IMPRESSUM_NAME && VITE_IMPRESSUM_STREET && VITE_IMPRESSUM_CITY && VITE_IMPRESSUM_EMAIL;
   return (
-    <Page title={t("legal.impressum")}>
+    <LegalPage title={t("legal.impressum")}>
       <p>{t("legal.impressum.lead")}</p>
       {complete ? (
         <>
@@ -86,7 +85,7 @@ export function ImpressumPage() {
       ) : (
         <p>{t("legal.impressum.pending")}</p>
       )}
-    </Page>
+    </LegalPage>
   );
 }
 
@@ -115,7 +114,7 @@ export function PrivacyPage() {
     ),
   };
   return (
-    <Page title={t("legal.privacy")}>
+    <LegalPage title={t("legal.privacy")}>
       <p>{t("legal.privacy.note")}</p>
       {SECTIONS.map((s) => (
         <section key={s}>
@@ -123,6 +122,6 @@ export function PrivacyPage() {
           <p>{tx(`legal.p.${s}.text`, vars)}</p>
         </section>
       ))}
-    </Page>
+    </LegalPage>
   );
 }

@@ -37,7 +37,7 @@ export function stepOf(metric: Metric, g: Deutschland) {
 const stationCount = (n: number) => (n === 1 ? t("lage.stations.one") : t("lage.stations", { n }));
 
 /** The value of the metric and its normal as one line: "78,9 % pünktlich · üblich 83,3 %". */
-export function figures(metric: Metric, g: Deutschland) {
+function figures(metric: Metric, g: Deutschland) {
   const field = API_FIELD[metric];
   const value = g[field];
   const normal = g.normal[field];

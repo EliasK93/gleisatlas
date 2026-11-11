@@ -1,5 +1,5 @@
-import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { useState, type ReactNode } from "react";
 import { Link, Navigate, useSearchParams } from "react-router";
 import { api, must, useDatenstand } from "./api";
 import {
@@ -28,19 +28,7 @@ import {
 } from "./charts";
 import { Filters } from "./Filters";
 import { t } from "./i18n";
-import {
-  firstDay,
-  formatMonth,
-  formatPeriod,
-  int,
-  linePageSearch,
-  monthOf,
-  readFilters,
-  withParam,
-  writeFilters,
-  type Filters as FilterKeys,
-  type Metric,
-} from "./metrics";
+import { firstDay, formatMonth, formatPeriod, int, monthOf, type Metric } from "./metrics";
 import type { components } from "./schema";
 import {
   EmptyCard,
@@ -61,6 +49,13 @@ import {
   TableToggle,
   Pulse,
 } from "./ui";
+import {
+  linePageSearch,
+  readFilters,
+  withParam,
+  writeFilters,
+  type Filters as FilterKeys,
+} from "./urlKeys";
 import { clearParams, useSetParams } from "./useSetParams";
 
 type Monat = components["schemas"]["Monat"];
@@ -140,15 +135,17 @@ export default function ZeitverlaufPage() {
   };
   // Days are the default; a line only exists per month.
   const day = !f.linie && f.z !== "monat";
+  // The old series stays only for the same station and line, never under another one's chip.
   const months = useQuery({
     ...zeitverlaufQuery(f.bhf, f.linie, f.g),
     enabled: !day,
-    placeholderData: keepPreviousData,
+    placeholderData: (previous, query) =>
+      query?.queryKey[1] === f.bhf && query?.queryKey[2] === f.linie ? previous : undefined,
   });
   const days = useQuery({
     ...tagesverlaufQuery(f.bhf, f.g),
     enabled: day,
-    placeholderData: keepPreviousData,
+    placeholderData: (previous, query) => (query?.queryKey[1] === f.bhf ? previous : undefined),
   });
   const q = day ? days : months;
   const datenstand = useDatenstand();
@@ -249,7 +246,6 @@ function View({
   onMetric: (m: Metric) => void;
 }) {
   const [asTable, setAsTable] = useState(false);
-  const [tip, setTip] = useTip();
   const day = isDay(rows[0]);
   const names = NAMES[day ? "day" : "month"];
   // Median and P90 share the delay chart; the cancellation rate is a chart of its own, which is
@@ -354,11 +350,7 @@ function View({
   };
 
   return (
-    <div
-      className="flex flex-col gap-4"
-      onPointerMove={(e) => setTip(tipAt(e))}
-      onPointerLeave={(e) => e.pointerType === "mouse" && setTip(null)}
-    >
+    <Hover>
       <section aria-labelledby="zv-main" className="card min-w-0">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
           <div>
@@ -453,6 +445,23 @@ function View({
           {cancelChart(false)}
         </section>
       )}
+    </Hover>
+  );
+}
+
+/**
+ * The charts with their tooltip. The tooltip state lives here, so a pointer move re-renders only
+ * the box: `children` are the same elements as before and React skips them.
+ */
+function Hover({ children }: { children: ReactNode }) {
+  const [tip, setTip] = useTip();
+  return (
+    <div
+      className="flex flex-col gap-4"
+      onPointerMove={(e) => setTip(tipAt(e))}
+      onPointerLeave={(e) => e.pointerType === "mouse" && setTip(null)}
+    >
+      {children}
       <TipBox tip={tip} />
     </div>
   );

@@ -2,8 +2,9 @@ import type { de } from "./de";
 
 export const en: Record<keyof typeof de, string> = {
   "app.title": "Gleisatlas",
+  "app.pageTitle": "{page} · Gleisatlas",
   "footer.disclaimer": "Historical statistics, not a forecast or a guarantee.",
-  "footer.attribution":
+  "data.attribution":
     "Data: Deutsche Bahn (via {dataset} and DB Timetables API), {licence}, aggregated",
 
   "nav.label": "Main navigation",
@@ -77,14 +78,12 @@ export const en: Record<keyof typeof de, string> = {
   "metric.p90.help": "The latest 10% of arrivals are at least this late (90th percentile, P90).",
   "metric.ausfall.help": "Share of stops that are cancelled. They never count as delay.",
   "unit.min": "min",
-  "unit.pct": "%",
   "unit.pp": "pp",
   "unit.stopsPerDay": "stops/day",
   "unit.trainsPerHour": "trains/h",
   "format.pct": "{v}%",
   "format.monthShort": "{month} '{yy}",
 
-  "hm.crumb": "Discover",
   "hm.title": "When is it at its worst?",
   "hm.lead": "{metric} by weekday and hour of arrival. Cells with too few journeys stay hatched.",
   "hm.caption": "{metric} by weekday and hour",
@@ -191,8 +190,6 @@ export const en: Record<keyof typeof de, string> = {
   "map.title": "How reliable is the railway?",
   "map.lead": "Every dot is a station. Click one.",
   "map.region": "Map of Germany with stations",
-  "map.attribution":
-    "Data: Deutsche Bahn (via {dataset} and DB Timetables API), {licence}, aggregated",
   "map.attributionToggle": "Show or hide attributions",
   "map.zoomIn": "Zoom in",
   "map.zoomOut": "Zoom out",

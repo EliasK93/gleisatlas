@@ -178,6 +178,30 @@ test("Bahnhof sets bhf and the chip keeps the name after a reload", async ({ pag
   expect(requests.some((u) => u.searchParams.get("eva") === "8000207")).toBe(true);
 });
 
+test("another station shows the skeleton until its own cells arrive", async ({ page }) => {
+  await mockApi(page);
+  let release = () => {};
+  const held = new Promise<void>((done) => (release = done));
+  await page.route(
+    (url) => url.pathname === "/heatmap" && url.searchParams.get("eva") === "8000105",
+    async (route) => {
+      await held;
+      await route.fallback();
+    },
+  );
+  await page.goto("/muster/heatmap?bhf=8000207");
+  await expect(page.getByRole("table")).toBeVisible();
+  await page.evaluate(() => {
+    history.pushState(null, "", "/muster/heatmap?bhf=8000105");
+    dispatchEvent(new PopStateEvent("popstate"));
+  });
+  await expect(page.getByRole("button", { name: /^Bahnhof/ })).toContainText("Frankfurt");
+  await expect(page.getByRole("status").filter({ hasText: "Daten werden geladen" })).toBeVisible();
+  await expect(page.getByRole("table")).toHaveCount(0);
+  release();
+  await expect(page.getByRole("table")).toBeVisible();
+});
+
 test("the station popover closes when focus tabs out of it", async ({ page }) => {
   await mockApi(page);
   await page.goto("/muster/heatmap");

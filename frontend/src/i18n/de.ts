@@ -1,7 +1,8 @@
 export const de = {
   "app.title": "Gleisatlas",
+  "app.pageTitle": "{page} · Gleisatlas",
   "footer.disclaimer": "Historische Statistik, keine Prognose oder Garantie.",
-  "footer.attribution":
+  "data.attribution":
     "Daten: Deutsche Bahn (via {dataset} und DB Timetables API), {licence}, aggregiert",
 
   "nav.label": "Hauptnavigation",
@@ -77,14 +78,12 @@ export const de = {
     "Die verspätetsten 10 % der Ankünfte sind mindestens so spät (90. Perzentil, P90).",
   "metric.ausfall.help": "Anteil der Halte, die ausfallen. Sie zählen nie als Verspätung.",
   "unit.min": "min",
-  "unit.pct": "%",
   "unit.pp": "%-Pkt.",
   "unit.stopsPerDay": "Halte/Tag",
   "unit.trainsPerHour": "Züge/h",
   "format.pct": "{v} %",
   "format.monthShort": "{month} {yy}",
 
-  "hm.crumb": "Entdecken",
   "hm.title": "Wann ist es am schlimmsten?",
   "hm.lead":
     "{metric} nach Wochentag und Uhrzeit der Ankunft. Felder mit zu wenigen Fahrten bleiben schraffiert.",
@@ -196,8 +195,6 @@ export const de = {
   "map.title": "Wie zuverlässig ist die Bahn?",
   "map.lead": "Jeder Punkt ist ein Bahnhof – ein Klick zeigt die Details.",
   "map.region": "Deutschlandkarte mit Bahnhöfen",
-  "map.attribution":
-    "Daten: Deutsche Bahn (via {dataset} und DB Timetables API), {licence}, aggregiert",
   "map.attributionToggle": "Quellenangaben ein- oder ausblenden",
   "map.zoomIn": "Vergrößern",
   "map.zoomOut": "Verkleinern",

@@ -79,14 +79,20 @@ export function useLiveActive(on: boolean) {
 /**
  * What the data covers. One request shared by the shell, the filter bar and the series. Only a
  * caller that passes `refetchInterval` polls it: Live-Lage while it shows today, so an open tab
- * notices the end of "today"; any other open tab lets the server scale to zero.
+ * notices the end of "today"; any other open tab lets the server scale to zero. Live-Lage also asks
+ * (`onFocus`) when its tab is shown again, as long as the data is stale, since its day chips come
+ * from the client's clock and /datenstand says which days exist.
  */
-export const useDatenstand = (refetchInterval: number | false = false) =>
+export const useDatenstand = (
+  refetchInterval: number | false = false,
+  onFocus = refetchInterval !== false,
+) =>
   useQuery({
     queryKey: ["datenstand"],
     queryFn: () => api.GET("/datenstand").then(must),
     staleTime: LIVE_REFRESH,
     refetchInterval,
+    refetchOnWindowFocus: onFocus,
   });
 
 /** One station by EVA, for the name and the state; it never changes, so it is fetched once per session. */

@@ -140,6 +140,22 @@ test("on the map a von after bis moves bis, a bis before von moves von", async (
   await expect(bis(page)).toHaveValue("2026-01-15");
 });
 
+test("a day outside the data typed into von returns to the shown day when the field is left", async ({
+  page,
+}) => {
+  await mockApi(page);
+  await page.goto("/karte?von=2026-03-10");
+  await expect(von(page)).toHaveAttribute("min", "2024-07-01");
+  await von(page).fill("2020-01-01");
+  await leave(page);
+  await expect(von(page)).toHaveValue("2026-03-10");
+  // An emptied field returns too.
+  await von(page).fill("");
+  await leave(page);
+  await expect(von(page)).toHaveValue("2026-03-10");
+  await expect(page).toHaveURL(/\/karte\?von=2026-03-10$/);
+});
+
 test("a month in the URL shows its first and last day on the map and goes to the API as it is", async ({
   page,
 }) => {
