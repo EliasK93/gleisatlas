@@ -455,7 +455,7 @@ export default function MapPage({ day = false }: { day?: boolean }) {
           <div className="max-md:-mb-2.5">
             <DocTitle page={t(day ? "nav.live" : "nav.map")} />
             <h1 className="text-lg leading-tight font-[650] tracking-[-0.015em] max-md:sr-only">
-              {t(day ? "nav.live" : "map.title")}
+              {t(day ? "nav.live" : "nav.map")}
             </h1>
             <p className="mt-0.5 hidden text-[13px] text-text-2 md:block">
               {t(day ? "lage.lead" : "map.lead")}

@@ -84,7 +84,6 @@ export const de = {
   "format.pct": "{v} %",
   "format.monthShort": "{month} {yy}",
 
-  "hm.title": "Wann ist es am schlimmsten?",
   "hm.lead":
     "{metric} nach Wochentag und Uhrzeit der Ankunft. Felder mit zu wenigen Fahrten bleiben schraffiert.",
   "hm.caption": "{metric} nach Wochentag und Uhrzeit",
@@ -192,7 +191,6 @@ export const de = {
   "zv.empty.day": "Noch keine Tagesdaten",
   "zv.emptyHint.day": "Für diese Auswahl gibt es zu wenige Tage.",
 
-  "map.title": "Wie zuverlässig ist die Bahn?",
   "map.lead": "Jeder Punkt ist ein Bahnhof – ein Klick zeigt die Details.",
   "map.region": "Deutschlandkarte mit Bahnhöfen",
   "map.attributionToggle": "Quellenangaben ein- oder ausblenden",

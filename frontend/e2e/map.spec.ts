@@ -23,7 +23,7 @@ test("/ and unknown paths land on the map with the query kept", async ({ page })
   await mockApi(page);
   await page.goto("/?g=fern");
   await expect(page).toHaveURL(/\/karte\?g=fern$/);
-  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Wie zuverlässig ist die Bahn?");
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Karte");
   await page.goto("/gibt-es-nicht?k=p90");
   await expect(page).toHaveURL(/\/karte\?k=p90$/);
 });
@@ -74,9 +74,7 @@ test("leaving the map while its card resizes throws no page error", async ({ pag
       history.pushState(null, "", "/muster/heatmap");
       dispatchEvent(new PopStateEvent("popstate"));
     }, width);
-    await expect(page.getByRole("heading", { level: 1 })).not.toHaveText(
-      "Wie zuverlässig ist die Bahn?",
-    );
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("Wochentag × Uhrzeit");
     await page.evaluate(() => new Promise((done) => requestAnimationFrame(() => done(null))));
   }
   expect(errors).toEqual([]);

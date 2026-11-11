@@ -10,7 +10,7 @@ test.beforeEach(async ({ page }) => {
 test("the shell shows title, disclaimer and attribution", async ({ page }) => {
   await page.goto("/muster/heatmap");
   await expect(page.getByRole("banner").getByRole("heading", { name: "Gleisatlas" })).toBeVisible();
-  await expect(page).toHaveTitle("Wann ist es am schlimmsten? · Gleisatlas");
+  await expect(page).toHaveTitle("Wochentag × Uhrzeit · Gleisatlas");
   const footer = page.getByRole("contentinfo");
   await expect(footer).toContainText("Historische Statistik, keine Prognose oder Garantie");
   await expect(footer).toContainText("Kein Angebot der Deutschen Bahn");
@@ -33,7 +33,7 @@ test("the shell shows title, disclaimer and attribution", async ({ page }) => {
 test("/ redirects to the map, unknown paths too", async ({ page }) => {
   await page.goto("/");
   await expect(page).toHaveURL(/\/karte$/);
-  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Wie zuverlässig ist die Bahn?");
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Karte");
   await page.goto("/gibt-es-nicht");
   await expect(page).toHaveURL(/\/karte$/);
 });
@@ -96,7 +96,7 @@ test("each page names itself in the document title", async ({ page }) => {
     ["/lage", "Live-Lage"],
     ["/bahnhof/8000207", "Köln Hbf"],
     ["/linie/RE57%3A08000080", "RE57 Dortmund Hbf – Warburg (Westf)"],
-    ["/muster/heatmap", "Wann ist es am schlimmsten?"],
+    ["/muster/heatmap", "Wochentag × Uhrzeit"],
     ["/muster/rankings", "Rankings"],
     ["/muster/zeitverlauf", "Zeitverlauf"],
     ["/impressum", "Impressum"],

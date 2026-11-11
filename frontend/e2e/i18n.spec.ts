@@ -16,7 +16,7 @@ test.describe("English browser", () => {
   test("the first visit is English", async ({ page, isMobile }) => {
     await page.goto("/muster/heatmap");
     await expect(html(page)).toHaveAttribute("lang", "en");
-    await expect(page.getByRole("heading", { name: "When is it at its worst?" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Weekday × hour", level: 1 })).toBeVisible();
     await expect(page.getByText("n = 203,000 stops")).toBeVisible();
     await expect(page.getByRole("navigation", { name: "Main navigation" })).toBeVisible();
     await open(page, isMobile);
@@ -80,7 +80,9 @@ test.describe("German browser", () => {
   test("the first visit is German", async ({ page }) => {
     await page.goto("/muster/heatmap");
     await expect(html(page)).toHaveAttribute("lang", "de");
-    await expect(page.getByRole("heading", { name: "Wann ist es am schlimmsten?" })).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Wochentag × Uhrzeit", level: 1 }),
+    ).toBeVisible();
     await expect(page.getByText("n = 203.000 Halte")).toBeVisible();
   });
 

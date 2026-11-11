@@ -111,7 +111,7 @@ export default function HeatmapPage() {
       <div className="mb-4 flex flex-wrap items-end justify-between gap-4">
         <div>
           <p className="mb-1.5 text-[12.5px] text-text-3">{t("nav.discover")}</p>
-          <PageTitle>{t("hm.title")}</PageTitle>
+          <PageTitle>{t("nav.heatmap")}</PageTitle>
           <p className="mt-1.5 max-w-[68ch] text-text-2">
             {t("hm.lead", { metric: t(`metric.${f.k}`) })}
           </p>

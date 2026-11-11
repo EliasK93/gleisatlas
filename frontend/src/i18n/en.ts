@@ -84,7 +84,6 @@ export const en: Record<keyof typeof de, string> = {
   "format.pct": "{v}%",
   "format.monthShort": "{month} '{yy}",
 
-  "hm.title": "When is it at its worst?",
   "hm.lead": "{metric} by weekday and hour of arrival. Cells with too few journeys stay hatched.",
   "hm.caption": "{metric} by weekday and hour",
   "hm.meta": "n = {n} stops · {period}",
@@ -187,7 +186,6 @@ export const en: Record<keyof typeof de, string> = {
   "zv.empty.day": "No daily data yet",
   "zv.emptyHint.day": "There are too few days for this selection.",
 
-  "map.title": "How reliable is the railway?",
   "map.lead": "Every dot is a station. Click one.",
   "map.region": "Map of Germany with stations",
   "map.attributionToggle": "Show or hide attributions",
