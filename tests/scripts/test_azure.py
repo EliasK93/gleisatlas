@@ -125,6 +125,7 @@ def deploy_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         azure, "status", lambda url, method="GET": 404 if "comp=list" in url else 200
     )
     monkeypatch.setattr(azure, "image_ready", lambda image, tag: True)
+    monkeypatch.setattr(azure, "db_key_status", lambda client_id, key: 200)
     monkeypatch.setattr(azure.shutil, "which", lambda tool: tool)
     monkeypatch.setattr(azure, "ROOT", tmp_path)
     monkeypatch.setenv("GLEISATLAS_BUDGET_EMAIL", "budget@example.org")
@@ -180,6 +181,59 @@ def test_deploy_asks_for_the_db_key_hidden_and_skips_the_job_without_it(
     assert len(asked) == 1  # no client id: the key is not asked for
     assert not [f for f in files if "dbClientId" in f or "dbApiKey" in f]
     assert "collector job: no DB key given" in capsys.readouterr().out
+
+
+def test_deploy_shows_the_end_and_length_of_each_db_value_but_never_the_key(
+    deploy_run, monkeypatch, capsys
+):
+    monkeypatch.delenv("DB_CLIENT_ID", raising=False)
+    monkeypatch.setenv("DB_API_KEY", DB_KEY)
+    monkeypatch.setattr(azure.getpass, "getpass", lambda prompt: DB_CLIENT)
+    assert azure.main(["deploy"]) == 0
+    out = capsys.readouterr().out
+    assert "DB_CLIENT_ID: ...ient (14 characters, typed)" in out
+    assert "DB_API_KEY: ...hown (23 characters, from DB_API_KEY)" in out
+    assert "the DB API accepted the key (HTTP 200)" in out
+    assert DB_KEY not in out
+
+
+@pytest.mark.parametrize("code", [401, 403])
+def test_deploy_stops_before_any_deployment_when_the_db_api_refuses_the_key(
+    deploy_run, monkeypatch, capsys, code: int
+):
+    calls, _ = deploy_run
+    monkeypatch.setenv("DB_CLIENT_ID", DB_CLIENT)
+    monkeypatch.setenv("DB_API_KEY", DB_KEY)
+    monkeypatch.setattr(azure, "db_key_status", lambda client_id, key: code)
+    with pytest.raises(SystemExit) as stop:
+        azure.main(["deploy"])
+    assert stop.value.code == 1
+    assert deployments(calls) == []
+    out = capsys.readouterr().out
+    assert f"THE DB API REFUSED THIS KEY (HTTP {code})" in out
+    assert DB_KEY not in out
+
+
+@pytest.mark.parametrize("code", [0, 503])
+def test_deploy_warns_and_goes_on_when_the_key_cannot_be_checked(
+    deploy_run, monkeypatch, capsys, code: int
+):
+    calls, _ = deploy_run
+    monkeypatch.setenv("DB_CLIENT_ID", DB_CLIENT)
+    monkeypatch.setenv("DB_API_KEY", DB_KEY)
+    monkeypatch.setattr(azure, "db_key_status", lambda client_id, key: code)
+    assert azure.main(["deploy"]) == 0
+    assert len(deployments(calls)) == 2
+    assert "COULD NOT CHECK THE DB KEY" in capsys.readouterr().out
+
+
+def test_deploy_does_not_check_a_key_that_was_not_given(deploy_run, monkeypatch):
+    monkeypatch.delenv("DB_CLIENT_ID", raising=False)
+    monkeypatch.setattr(azure.getpass, "getpass", lambda prompt: "")
+    checked: list[str] = []
+    monkeypatch.setattr(azure, "db_key_status", lambda client_id, key: checked.append(key) or 200)
+    assert azure.main(["deploy"]) == 0
+    assert checked == []
 
 
 def test_the_parameters_file_is_deleted_when_the_deployment_fails(deploy_run, monkeypatch):
@@ -351,3 +405,20 @@ def test_data_stops_before_any_upload_when_a_file_is_missing(
         azure.main(["data"])
     assert stop.value.code == 1
     assert uploads(az_calls) == []
+
+
+def test_the_key_check_asks_one_fchg_with_the_key_as_headers(monkeypatch):
+    seen = fake_urlopen(monkeypatch, {"/fchg/": Response()})
+    assert azure.db_key_status(DB_CLIENT, DB_KEY) == 200
+    (req,) = seen
+    assert req.full_url.startswith("https://apis.deutschebahn.com/") and "/fchg/" in req.full_url
+    assert req.get_header("Db-client-id") == DB_CLIENT
+    assert req.get_header("Db-api-key") == DB_KEY
+
+
+@pytest.mark.parametrize(("answer", "code"), [(http_error(401), 401), (OSError("down"), 0)])
+def test_the_key_check_gives_the_refusal_or_0_when_unreachable(
+    monkeypatch, answer: BaseException, code: int
+):
+    fake_urlopen(monkeypatch, {"/fchg/": answer})
+    assert azure.db_key_status(DB_CLIENT, DB_KEY) == code

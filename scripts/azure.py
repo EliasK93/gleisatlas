@@ -33,6 +33,7 @@ from urllib.parse import urlsplit
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 from backend import main as api  # noqa: E402
+from pipeline.live import API as DB_API  # noqa: E402
 
 WIN = sys.platform == "win32"
 AZ, NPM, NPX = ("az.cmd", "npm.cmd", "npx.cmd") if WIN else ("az", "npm", "npx")
@@ -183,11 +184,51 @@ def db_key() -> dict[str, str]:
     empty when not given (the job is skipped)."""
 
     def ask(name: str, prompt: str) -> str:
-        return os.environ.get(name, "").strip() or getpass.getpass(f"{prompt}: ").strip()
+        value, source = os.environ.get(name, "").strip(), f"from {name}"
+        if not value:
+            value, source = getpass.getpass(f"{prompt}: ").strip(), "typed"
+        if value:  # the end and the length only, to compare with the DB API Marketplace
+            print(f"  {name}: ...{value[-4:]} ({len(value)} characters, {source})")
+        return value
 
     client_id = ask("DB_CLIENT_ID", "DB API client ID for the collector job (hidden, empty skips)")
     key = client_id and ask("DB_API_KEY", "DB API key (hidden)")
     return {"dbClientId": client_id, "dbApiKey": key} if key else {}
+
+
+def db_key_status(client_id: str, key: str) -> int:
+    """HTTP status of one `fchg` request for Köln Hbf with the key, the collector's first kind of
+    request; 0 when the DB API cannot be reached."""
+    req = urllib.request.Request(
+        f"{DB_API}/fchg/8000207",
+        headers={"DB-Client-ID": client_id, "DB-Api-Key": key, "Accept": "application/xml"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=30) as r:
+            return r.status
+    except urllib.error.HTTPError as e:
+        return e.code
+    except OSError:
+        return 0
+
+
+def check_db_key(db: dict[str, str]) -> None:
+    """Stop before anything is deployed when the DB API refuses the key: the job would fail on
+    every run. A key that cannot be checked only warns, since DB may just be down."""
+    code = db_key_status(db["dbClientId"], db["dbApiKey"])
+    bar = "!" * 72
+    if code in (401, 403):
+        die(
+            f"{bar}\n  THE DB API REFUSED THIS KEY (HTTP {code})\n{bar}\n"
+            "The collector job would stop at its first request on every run. Compare the client "
+            "ID and the key above with the DB API Marketplace (the application active, subscribed "
+            "to Timetables), then run deploy again. Nothing was deployed."
+        )
+    if code != 200:
+        reason = f"HTTP {code}" if code else "the DB API could not be reached"
+        print(f"{bar}\n  COULD NOT CHECK THE DB KEY ({reason}), deploying anyway\n{bar}")
+    else:
+        print("the DB API accepted the key (HTTP 200)")
 
 
 @contextmanager
@@ -268,6 +309,8 @@ def deploy() -> None:
         if db
         else "collector job: no DB key given (an existing job keeps its image and key)"
     )
+    if db:
+        check_db_key(db)
 
     step(2, total, "Register the resource providers")
     for ns in PROVIDERS:
