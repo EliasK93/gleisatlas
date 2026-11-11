@@ -38,9 +38,7 @@ def suche(client: TestClient, q: str, **params) -> dict:
 def test_a_place_lists_its_stations_first_and_no_line(client: TestClient):
     body = suche(client, "alpha")
     assert body["zuerst"] == "bahnhoefe"
-    assert body["bahnhoefe"] == [
-        {"eva": "1", "name": "Alpha", "land": "Nordrhein-Westfalen", "n": 5}
-    ]
+    assert body["bahnhoefe"] == [{"eva": "1", "name": "Alpha", "land": "nw", "n": 5}]
     assert body["linien"] == []
 
 

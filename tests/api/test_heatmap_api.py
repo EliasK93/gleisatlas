@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 
 from backend import main
 
-ALPHA = {"eva": "1", "name": "Alpha", "land": "Nordrhein-Westfalen", "n": 5}
+ALPHA = {"eva": "1", "name": "Alpha", "land": "nw", "n": 5}
 
 
 def heatmap(client: TestClient, **params) -> dict:
@@ -50,9 +50,26 @@ def test_stations_without_name_are_skipped(client: TestClient, tmp_path, monkeyp
         {"eva": ["1", "3"], "name": ["Alpha", None], "n": [5, 2], "land": ["Hessen", None]}
     ).write_parquet(path)
     monkeypatch.setattr(main, "STATIONS_PATH", str(path))
-    assert client.get("/stationen").json() == [
-        {"eva": "1", "name": "Alpha", "land": "Hessen", "n": 5}
-    ]
+    assert client.get("/stationen").json() == [{"eva": "1", "name": "Alpha", "land": "he", "n": 5}]
+
+
+def test_the_state_is_its_code_and_a_name_without_one_is_left_out(
+    client: TestClient, tmp_path, monkeypatch
+):
+    path = tmp_path / "states.parquet"
+    pl.DataFrame(
+        {
+            "eva": ["1", "2", "3"],
+            "name": ["Alpha", "Beta", "Gamma"],
+            "n": [3, 2, 1],
+            "land": ["Freie Hansestadt Bremen", "Schweiz", None],
+        }
+    ).write_parquet(path)
+    monkeypatch.setattr(main, "STATIONS_PATH", str(path))
+    assert [s["land"] for s in client.get("/stationen").json()] == ["hb", None, None]
+    assert client.get("/stationen/1").json()["land"] == "hb"
+    assert client.get("/stationen/2").json()["land"] is None
+    assert client.get("/suche", params={"q": "alpha"}).json()["bahnhoefe"][0]["land"] == "hb"
 
 
 def test_cells_are_sorted_by_weekday_and_hour():

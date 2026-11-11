@@ -308,6 +308,8 @@ def test_a_second_limit_reuses_the_cached_rankings(ranked: TestClient):
         {"typ": "linien", "gattung": "bahn"},
         {"typ": "linien", "von": "2026-9"},
         {"typ": "linien", "limit": 0},
+        {"typ": "linien", "limit": 2001},  # above the bound
+        {"typ": "linien", "min_n": 1_000_001},
     ],
 )
 def test_invalid_input_is_422(client: TestClient, params: dict):
@@ -595,6 +597,9 @@ def test_the_sections_cache_follows_a_rewritten_file(sektionen: TestClient):
         {"von": "2026-9"},
         {"bis": "2026-13"},
         {"limit": 0},
+        {"limit": 2001},  # above the bound
+        {"min_n": 1_000_001},
+        {"min_n": 9999999999999999999999999999999999999999},
     ],
 )
 def test_the_section_and_record_parameters_are_checked(client: TestClient, params: dict):

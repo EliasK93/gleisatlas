@@ -1,6 +1,8 @@
 import pytest
 from fastapi.testclient import TestClient
 
+from backend import main
+
 # The `client` fixture covers 2026-09 (station 1: 5 stops, 4 in RE5, 1 in ICE 123) and
 # 2026-10 (station 2: 1 stop in RE5), built by the pipeline from the mini source.
 
@@ -49,6 +51,15 @@ def test_line_names_the_line_label(client: TestClient):
     body = verlauf(client, linie="RE5:1")
     assert body["titel"] == "RE5 Dortmund Hbf – Warburg (Westf)"
     assert counts(body) == [("2026-09", 4), ("2026-10", 0)]
+
+
+def test_the_series_is_computed_once_per_selection(client: TestClient):
+    main.zeitverlauf_for.cache_clear()
+    first = verlauf(client, eva="1")
+    assert verlauf(client, eva="1") == first
+    assert main.zeitverlauf_for.cache_info().hits == 1
+    verlauf(client, eva="1", gattung="fern")  # another selection is computed on its own
+    assert main.zeitverlauf_for.cache_info().misses == 2
 
 
 def test_gattung_filters(client: TestClient):
